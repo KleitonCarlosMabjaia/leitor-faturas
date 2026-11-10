@@ -1,0 +1,13 @@
+# Nada disto deve entrar na imagem (sobretudo dados reais e chaves)
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+*.db
+uploads/
+tests/
+docs/
+.git/
+.vscode/

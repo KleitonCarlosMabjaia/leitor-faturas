@@ -1,0 +1,13 @@
+# Configuração para publicar no Render (https://render.com) com o plano gratuito.
+# No Render: New > Blueprint > escolher este repositório.
+services:
+  - type: web
+    name: leitor-faturas
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/saude
+    envVars:
+      # Demonstração pública: cria as 30 faturas de exemplo e desliga a IA
+      # (os visitantes não gastam os seus créditos; o QR continua a ser lido)
+      - key: MODO_DEMO
+        value: "1"

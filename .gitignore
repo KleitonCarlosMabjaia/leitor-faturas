@@ -1,0 +1,22 @@
+# Ambiente virtual
+.venv/
+venv/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Faturas carregadas (dados reais nunca vão para o GitHub)
+uploads/*
+!uploads/.gitkeep
+
+# Base de dados local (tem dados reais das faturas)
+*.db
+
+# Ficheiros de configuração com chaves
+.env
+
+# Sistema
+.DS_Store
+.vscode/settings.json

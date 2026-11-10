@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard · Leitor de Faturas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="pagina larga">
+    <nav class="menu" aria-label="Principal">
+      <a href="/">Faturas</a>
+      <a href="/dashboard" aria-current="page">Dashboard</a>
+    </nav>
+
+    <header class="cabecalho-fatura">
+      <div>
+        <h1>Dashboard</h1>
+        <p class="subtitulo">Inclui todas as faturas lidas, confirmadas ou por rever.</p>
+      </div>
+      <div class="campo seletor-mes">
+        <label for="mes">Mês</label>
+        <select id="mes"></select>
+      </div>
+    </header>
+
+    <p class="mensagem" id="mensagem" role="status" aria-live="polite"></p>
+
+    <section class="indicadores" aria-label="Resumo">
+      <div class="indicador">
+        <span class="indicador-rotulo" id="rotulo-total-mes">Gasto no mês</span>
+        <span class="indicador-valor" id="total-mes">—</span>
+        <span class="indicador-nota" id="faturas-mes"></span>
+      </div>
+      <div class="indicador">
+        <span class="indicador-rotulo">IVA suportado no mês</span>
+        <span class="indicador-valor" id="iva-mes">—</span>
+        <span class="indicador-nota">dedutível, se a atividade o permitir</span>
+      </div>
+      <div class="indicador">
+        <span class="indicador-rotulo" id="rotulo-iva-ano">IVA acumulado no ano</span>
+        <span class="indicador-valor" id="iva-ano">—</span>
+        <span class="indicador-nota" id="nota-iva-ano"></span>
+      </div>
+      <div class="indicador">
+        <span class="indicador-rotulo">Por pagar</span>
+        <span class="indicador-valor" id="por-pagar">—</span>
+        <span class="indicador-nota" id="nota-por-pagar"></span>
+      </div>
+    </section>
+
+    <div class="graficos">
+      <section class="cartao" aria-labelledby="titulo-fornecedores">
+        <h2 id="titulo-fornecedores">Gasto por fornecedor</h2>
+        <div class="area-grafico alta">
+          <canvas id="grafico-fornecedores" role="img" aria-describedby="tabela-fornecedores-legenda"></canvas>
+        </div>
+        <p class="vazio" id="vazio-fornecedores" hidden>Sem faturas neste mês.</p>
+        <details>
+          <summary>Ver os valores em tabela</summary>
+          <table class="tabela">
+            <caption id="tabela-fornecedores-legenda" class="visualmente-oculto">Gasto por fornecedor no mês escolhido</caption>
+            <thead><tr><th scope="col">Fornecedor</th><th scope="col" class="num">Total</th></tr></thead>
+            <tbody id="tabela-fornecedores"></tbody>
+          </table>
+        </details>
+      </section>
+
+      <section class="cartao" aria-labelledby="titulo-evolucao">
+        <h2 id="titulo-evolucao">Evolução mensal</h2>
+        <div class="area-grafico">
+          <canvas id="grafico-evolucao" role="img" aria-describedby="tabela-evolucao-legenda"></canvas>
+        </div>
+        <details>
+          <summary>Ver os valores em tabela</summary>
+          <table class="tabela">
+            <caption id="tabela-evolucao-legenda" class="visualmente-oculto">Total gasto em cada um dos últimos 12 meses</caption>
+            <thead><tr><th scope="col">Mês</th><th scope="col" class="num">Total</th></tr></thead>
+            <tbody id="tabela-evolucao"></tbody>
+          </table>
+        </details>
+      </section>
+    </div>
+
+    <section class="cartao" aria-labelledby="titulo-pagar">
+      <h2 id="titulo-pagar">Faturas por pagar</h2>
+      <table class="tabela">
+        <thead>
+          <tr>
+            <th scope="col">Fornecedor</th>
+            <th scope="col">Vencimento</th>
+            <th scope="col" class="num">Total</th>
+            <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+          </tr>
+        </thead>
+        <tbody id="linhas-pagar"></tbody>
+      </table>
+      <p class="vazio" id="vazio-pagar" hidden>Não há faturas por pagar.</p>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="/static/comum.js"></script>
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Rever fatura · Leitor de Faturas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="pagina larga">
+    <nav class="menu" aria-label="Principal">
+      <a href="/" aria-current="page">Faturas</a>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+
+    <header class="cabecalho-fatura">
+      <div>
+        <h1 id="titulo">A carregar…</h1>
+        <p class="subtitulo" id="subtitulo"></p>
+      </div>
+      <span class="etiqueta neutro" id="etiqueta" hidden></span>
+    </header>
+
+    <div class="revisao">
+      <section class="painel-pdf" aria-labelledby="titulo-pdf">
+        <h2 id="titulo-pdf" class="visualmente-oculto">Documento original</h2>
+        <iframe id="pdf" title="PDF da fatura"></iframe>
+        <a id="abrir-pdf" class="abrir-pdf" target="_blank" rel="noopener">Abrir o PDF numa nova janela</a>
+      </section>
+
+      <section class="painel-dados" aria-labelledby="titulo-dados">
+        <h2 id="titulo-dados">Dados da fatura</h2>
+
+        <div class="caixa-alertas" id="alertas" role="note" hidden>
+          <strong>A verificar:</strong>
+          <ul id="lista-alertas"></ul>
+        </div>
+
+        <label class="pagamento" for="paga">
+          <input type="checkbox" id="paga"> Fatura paga
+        </label>
+
+        <form id="formulario" novalidate>
+          <div class="campo">
+            <label for="fornecedor">Fornecedor</label>
+            <input id="fornecedor" name="fornecedor" autocomplete="organization" required>
+          </div>
+
+          <div class="grelha-2">
+            <div class="campo">
+              <label for="nif_fornecedor">NIF do fornecedor</label>
+              <input id="nif_fornecedor" name="nif_fornecedor" inputmode="numeric" maxlength="11" required>
+            </div>
+            <div class="campo">
+              <label for="numero_fatura">Número da fatura</label>
+              <input id="numero_fatura" name="numero_fatura" required>
+            </div>
+            <div class="campo">
+              <label for="data_emissao">Data de emissão</label>
+              <input type="date" id="data_emissao" name="data_emissao" required>
+            </div>
+            <div class="campo">
+              <label for="data_vencimento">Data de vencimento <span class="opcional">(opcional)</span></label>
+              <input type="date" id="data_vencimento" name="data_vencimento">
+            </div>
+          </div>
+
+          <fieldset class="iva">
+            <legend>IVA por taxa</legend>
+            <table class="tabela tabela-iva">
+              <thead>
+                <tr>
+                  <th scope="col">Taxa (%)</th>
+                  <th scope="col">Base (€)</th>
+                  <th scope="col">IVA (€)</th>
+                  <th scope="col"><span class="visualmente-oculto">Remover</span></th>
+                </tr>
+              </thead>
+              <tbody id="linhas-iva"></tbody>
+            </table>
+            <button type="button" class="botao secundario pequeno" id="adicionar-iva">+ Adicionar taxa</button>
+          </fieldset>
+
+          <div class="grelha-2">
+            <div class="campo">
+              <label for="valor_sem_iva">Valor sem IVA (€)</label>
+              <input type="number" step="0.01" inputmode="decimal" id="valor_sem_iva" name="valor_sem_iva" required>
+            </div>
+            <div class="campo">
+              <label for="total">Total (€)</label>
+              <input type="number" step="0.01" inputmode="decimal" id="total" name="total" required>
+            </div>
+          </div>
+          <input type="hidden" id="moeda" name="moeda" value="EUR">
+
+          <p class="conferencia" id="conferencia" aria-live="polite"></p>
+
+          <div class="botoes">
+            <button type="submit" class="botao" id="confirmar">Confirmar dados</button>
+            <button type="button" class="botao secundario" id="guardar">Guardar sem confirmar</button>
+          </div>
+          <p class="mensagem" id="mensagem" role="status" aria-live="polite"></p>
+          <p class="proxima" id="proxima" hidden></p>
+        </form>
+      </section>
+    </div>
+  </main>
+
+  <template id="modelo-linha-iva">
+    <tr>
+      <td><input type="number" step="0.01" inputmode="decimal" class="taxa" aria-label="Taxa de IVA em percentagem"></td>
+      <td><input type="number" step="0.01" inputmode="decimal" class="base" aria-label="Base tributável"></td>
+      <td><input type="number" step="0.01" inputmode="decimal" class="valor" aria-label="Valor do IVA"></td>
+      <td><button type="button" class="acao apagar remover" aria-label="Remover esta taxa">✕</button></td>
+    </tr>
+  </template>
+
+  <script src="/static/comum.js"></script>
+  <script src="/static/fatura.js"></script>
+</body>
+</html>

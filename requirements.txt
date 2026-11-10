@@ -1,0 +1,19 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+python-multipart==0.0.20
+python-dotenv==1.2.4
+sqlalchemy==2.1.8
+openpyxl==3.1.5
+anthropic==2.8.0
+pypdf==7.0.1
+pdfplumber==0.11.10
+
+# Leitura do QR da AT (pypdfium2 e Pillow já vêm com o pdfplumber,
+# mas usamo-los diretamente, por isso ficam fixados aqui)
+pypdfium2==5.15.2
+pillow==13.0.0
+zxing-cpp==3.1.1
+
+# Testes
+pytest==9.2.0
+httpx==0.28.1

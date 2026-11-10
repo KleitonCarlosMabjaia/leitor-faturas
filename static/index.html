@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Leitor de Faturas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="pagina">
+    <nav class="menu" aria-label="Principal">
+      <a href="/" aria-current="page">Faturas</a>
+      <a href="/dashboard">Dashboard</a>
+    </nav>
+    <header class="topo">
+      <h1>Leitor de Faturas</h1>
+      <p>Carregue as faturas dos fornecedores em PDF. O fornecedor, as datas, o IVA e o total são lidos automaticamente; depois é só rever e confirmar.</p>
+    </header>
+
+    <section aria-labelledby="titulo-carregar">
+      <h2 id="titulo-carregar" class="visualmente-oculto">Carregar faturas</h2>
+      <label class="folha" id="zona" for="ficheiro">
+        <input type="file" id="ficheiro" accept="application/pdf,.pdf" multiple title="">
+        <span class="folha-titulo">Arraste faturas para aqui</span>
+        <span class="folha-texto">ou <u>escolha ficheiros</u> no computador. Aceita PDF até 10 MB.</span>
+      </label>
+      <p class="mensagem" id="mensagem" role="status" aria-live="polite"></p>
+    </section>
+
+    <section aria-labelledby="titulo-lista" class="lista">
+      <div class="lista-cabecalho">
+        <h2 id="titulo-lista">Faturas</h2>
+        <span class="contagem" id="contagem"></span>
+      </div>
+
+      <form class="filtros" id="filtros" aria-label="Filtrar faturas">
+        <div class="campo">
+          <label for="filtro-fornecedor">Fornecedor</label>
+          <select id="filtro-fornecedor" name="fornecedor_id">
+            <option value="">Todos</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="filtro-mes">Mês de emissão</label>
+          <input type="month" id="filtro-mes" name="mes">
+        </div>
+        <div class="campo">
+          <label for="filtro-estado">Estado</label>
+          <select id="filtro-estado" name="estado">
+            <option value="">Todos</option>
+            <option value="por rever">Por rever</option>
+            <option value="confirmada">Confirmadas</option>
+          </select>
+        </div>
+        <button type="reset" class="botao secundario">Limpar</button>
+      </form>
+
+      <div class="exportar">
+        <span>Exportar as faturas filtradas:</span>
+        <a class="botao secundario pequeno" id="exportar-xlsx" href="/api/faturas/exportar?formato=xlsx" download>Excel</a>
+        <a class="botao secundario pequeno" id="exportar-csv" href="/api/faturas/exportar?formato=csv" download>CSV</a>
+      </div>
+
+      <table class="tabela">
+        <thead>
+          <tr>
+            <th scope="col">Fornecedor</th>
+            <th scope="col">Emissão</th>
+            <th scope="col" class="num">Total</th>
+            <th scope="col">Estado</th>
+            <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+          </tr>
+        </thead>
+        <tbody id="linhas"></tbody>
+      </table>
+      <p class="vazio" id="vazio" hidden></p>
+    </section>
+  </main>
+
+  <script src="/static/comum.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>
