@@ -6,6 +6,8 @@ Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, loja
 
 A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o **código QR da AT** (gratuito e exato), depois uma **cache de fornecedores** por NIF e, só no fim, **IA** (API do Claude) para o que falta.
 
+**[▶ Ver a demonstração](https://leitor-faturas-vwgk.onrender.com)** — sem login, com 30 faturas fictícias. O servidor gratuito adormece quando não há visitas: a primeira abertura pode demorar cerca de 1 minuto.
+
 | Lista de faturas | Revisão | Dashboard (modo escuro) |
 | --- | --- | --- |
 | ![Lista de faturas com pesquisa, filtros por estado e etiquetas](docs/capturas/lista.png) | ![PDF da fatura ao lado dos campos editáveis](docs/capturas/revisao.png) | ![Indicadores, gasto por fornecedor e evolução mensal em modo escuro](docs/capturas/dashboard.png) |
@@ -179,7 +181,7 @@ O repositório inclui um `Dockerfile` e um `render.yaml`.
 
 1. Pôr o projeto no GitHub (o `.gitignore` já exclui o `.env`, a base de dados e as faturas).
 2. Em <https://render.com>, criar uma conta e escolher **New → Blueprint**, com o repositório.
-3. O Render lê o `render.yaml`, constrói a imagem e publica-a num endereço `https://leitor-faturas-xxxx.onrender.com`.
+3. O Render lê o `render.yaml`, constrói a imagem e publica-a num endereço como <https://leitor-faturas-vwgk.onrender.com> (a demonstração deste projeto).
 
 A versão publicada corre em **modo de demonstração** (`MODO_DEMO=1`): é aberta a todos, sem login, entra diretamente na empresa de demonstração e tem a **IA desligada**, para que os visitantes não gastem créditos da API. O QR continua a ser lido e a gestão da equipa está desligada.
 
