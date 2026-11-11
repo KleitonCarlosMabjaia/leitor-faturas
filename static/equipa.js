@@ -1,14 +1,8 @@
 // Leitor de Faturas - equipa: convidar colegas, gerar links e desativar contas
 
 const formulario = document.getElementById("convite");
-const mensagem = document.getElementById("mensagem");
 const corpo = document.getElementById("membros");
 const formatoAcesso = new Intl.DateTimeFormat("pt-PT", { dateStyle: "short", timeStyle: "short" });
-
-function mostrarMensagem(texto, tipo) {
-  mensagem.textContent = texto;
-  mensagem.className = `mensagem ${tipo || ""}`;
-}
 
 function mostrarLink(link, para) {
   document.getElementById("texto-link").textContent = `Link para ${para}:`;
@@ -17,57 +11,63 @@ function mostrarLink(link, para) {
   document.getElementById("link").select();
 }
 
-document.getElementById("copiar").addEventListener("click", async () => {
+const botaoCopiar = document.getElementById("copiar");
+botaoCopiar.addEventListener("click", async () => {
   const campo = document.getElementById("link");
   try {
     await navigator.clipboard.writeText(campo.value);
-    mostrarMensagem("Link copiado.", "sucesso");
+    // Confirmação no próprio botão, durante 2 segundos
+    botaoCopiar.replaceChildren(icone("check"), "Copiado");
+    setTimeout(() => botaoCopiar.replaceChildren(icone("copiar"), "Copiar"), 2000);
   } catch {
     campo.select(); // sem acesso à área de transferência: fica selecionado para Ctrl+C
-    mostrarMensagem("Selecione o link e copie com Ctrl+C.");
+    notificar("Selecione o link e copie com Ctrl+C.", "info");
   }
 });
 
-function botao(texto, rotulo, acao, classe = "") {
+function botaoTexto(texto, rotulo, acao, classe = "secundario") {
   const b = document.createElement("button");
   b.type = "button";
-  b.className = `acao ${classe}`;
+  b.className = `botao ${classe} pequeno`;
   b.textContent = texto;
   b.setAttribute("aria-label", rotulo);
-  b.addEventListener("click", acao);
+  b.addEventListener("click", () => acao(b));
   return b;
 }
 
 function desenhar(membros) {
-  corpo.innerHTML = "";
+  document.getElementById("n-membros").textContent = membros.length;
+  corpo.replaceChildren();
   for (const m of membros) {
     const tr = corpo.insertRow();
 
-    const nome = tr.insertCell();
-    nome.className = "nome";
+    const pessoa = tr.insertCell();
+    pessoa.className = "nome";
+    const caixa = document.createElement("div");
+    caixa.className = "pessoa";
+    const avatar = document.createElement("span");
+    avatar.className = "avatar";
+    avatar.setAttribute("aria-hidden", "true");
+    avatar.textContent = iniciais(m.nome);
+    const textos = document.createElement("div");
     const titulo = document.createElement("span");
     titulo.className = "titulo";
     titulo.textContent = m.nome;
     const email = document.createElement("span");
     email.className = "detalhe";
     email.textContent = m.email;
-    nome.append(titulo, email);
+    textos.append(titulo, email);
+    caixa.append(avatar, textos);
+    pessoa.appendChild(caixa);
 
-    tr.insertCell().textContent = m.papel === "admin" ? "Administrador" : "Membro";
+    const papel = tr.insertCell();
+    papel.dataset.rotulo = "Papel:";
+    papel.textContent = m.papel === "admin" ? "Administrador" : "Membro";
 
     const estado = tr.insertCell();
-    const etiqueta = document.createElement("span");
-    if (!m.ativo) {
-      etiqueta.className = "etiqueta erro";
-      etiqueta.textContent = "Desativada";
-    } else if (m.pendente) {
-      etiqueta.className = "etiqueta aviso";
-      etiqueta.textContent = "Convite pendente";
-    } else {
-      etiqueta.className = "etiqueta ok";
-      etiqueta.textContent = "Ativa";
-    }
-    estado.appendChild(etiqueta);
+    if (!m.ativo) estado.appendChild(criarEtiqueta("Desativada", "erro", "erro"));
+    else if (m.pendente) estado.appendChild(criarEtiqueta("Convite pendente", "info", "relogio"));
+    else estado.appendChild(criarEtiqueta("Ativa", "ok", "check"));
     if (m.ultimo_acesso) {
       const acesso = document.createElement("span");
       acesso.className = "detalhe";
@@ -79,11 +79,12 @@ function desenhar(membros) {
     acoes.className = "num acoes";
     if (m.ativo) {
       const textoLink = m.pendente ? "Novo convite" : "Repor palavra-passe";
-      acoes.appendChild(botao(textoLink, `${textoLink} para ${m.nome}`, () => gerarLink(m), "repetir"));
+      acoes.appendChild(botaoTexto(textoLink, `${textoLink} para ${m.nome}`, (b) => gerarLink(m, b)));
+      acoes.append(" ");
     }
     acoes.appendChild(
-      botao(m.ativo ? "Desativar" : "Ativar", `${m.ativo ? "Desativar" : "Ativar"} ${m.nome}`, () => alterar(m, { ativo: !m.ativo }),
-            m.ativo ? "apagar" : "repetir")
+      botaoTexto(m.ativo ? "Desativar" : "Ativar", `${m.ativo ? "Desativar" : "Ativar"} ${m.nome}`,
+        (b) => alterar(m, { ativo: !m.ativo }, b), m.ativo ? "fantasma" : "secundario")
     );
   }
 }
@@ -94,23 +95,35 @@ async function carregar() {
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível obter a equipa."));
     desenhar(await resposta.json());
   } catch (erro) {
-    mostrarMensagem(erro.message, "erro");
+    notificar(erro.message, "erro");
   }
 }
 
-async function gerarLink(m) {
+async function gerarLink(m, botao) {
+  ocupado(botao, true);
   try {
     const resposta = await api(`/api/equipa/${m.id}/link`, { method: "POST" });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível gerar o link."));
     mostrarLink((await resposta.json()).link, m.nome);
-    mostrarMensagem("Link gerado. Os links anteriores desta pessoa deixaram de funcionar.", "sucesso");
+    notificar("Link gerado. Os links anteriores desta pessoa deixaram de funcionar.", "ok");
   } catch (erro) {
-    mostrarMensagem(erro.message, "erro");
+    notificar(erro.message, "erro");
+  } finally {
+    ocupado(botao, false);
   }
 }
 
-async function alterar(m, alteracao) {
-  if (alteracao.ativo === false && !confirm(`Desativar a conta de ${m.nome}? Perde o acesso imediatamente.`)) return;
+async function alterar(m, alteracao, botao) {
+  if (alteracao.ativo === false) {
+    const sim = await confirmar({
+      titulo: `Desativar ${m.nome}?`,
+      texto: "A pessoa perde o acesso imediatamente e as sessões abertas terminam. Pode reativar a conta mais tarde.",
+      botao: "Desativar",
+      perigo: true,
+    });
+    if (!sim) return;
+  }
+  ocupado(botao, true);
   try {
     const resposta = await api(`/api/equipa/${m.id}`, {
       method: "PATCH",
@@ -118,10 +131,11 @@ async function alterar(m, alteracao) {
       body: JSON.stringify(alteracao),
     });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível alterar a conta."));
-    mostrarMensagem("Conta atualizada.", "sucesso");
+    notificar(alteracao.ativo ? `Conta de ${m.nome} reativada.` : `Conta de ${m.nome} desativada.`, "ok");
     await carregar();
   } catch (erro) {
-    mostrarMensagem(erro.message, "erro");
+    ocupado(botao, false);
+    notificar(erro.message, "erro");
   }
 }
 
@@ -129,9 +143,12 @@ formulario.addEventListener("submit", async (e) => {
   e.preventDefault();
   const dados = Object.fromEntries(new FormData(formulario));
   if (!dados.nome.trim() || !dados.email.trim()) {
-    mostrarMensagem("Preencha o nome e o email.", "erro");
+    notificar("Preencha o nome e o email.", "erro");
+    (dados.nome.trim() ? formulario.email : formulario.nome).focus();
     return;
   }
+  const botao = formulario.querySelector('button[type="submit"]');
+  ocupado(botao, true);
   try {
     const resposta = await api("/api/equipa", {
       method: "POST",
@@ -141,11 +158,13 @@ formulario.addEventListener("submit", async (e) => {
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível criar o convite."));
     const { membro, link } = await resposta.json();
     mostrarLink(link, membro.nome);
-    mostrarMensagem(`Convite criado para ${membro.nome}.`, "sucesso");
+    notificar(`Convite criado para ${membro.nome}.`, "ok");
     formulario.reset();
     await carregar();
   } catch (erro) {
-    mostrarMensagem(erro.message, "erro");
+    notificar(erro.message, "erro");
+  } finally {
+    ocupado(botao, false);
   }
 });
 

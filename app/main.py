@@ -71,6 +71,9 @@ for modulo in (auth, faturas, fornecedores, dashboard, equipa):
     app.include_router(modulo.router)
 
 
+PAGINAS_HTML = {"/", "/dashboard", "/equipa", "/entrar", "/definir-palavra-passe"}
+
+
 @app.middleware("http")
 async def cabecalhos_seguranca(request: Request, call_next):
     """Cabeçalhos HTTP que reduzem ataques comuns no navegador."""
@@ -80,6 +83,10 @@ async def cabecalhos_seguranca(request: Request, call_next):
     resposta.headers["Referrer-Policy"] = "same-origin"           # não enviar endereços internos a outros sites
     if request.url.path.startswith("/api/"):
         resposta.headers["Cache-Control"] = "no-store"            # dados das faturas não ficam em caches
+    elif request.url.path.startswith("/static/") or request.url.path in PAGINAS_HTML:
+        # O navegador pode guardar CSS/JS/páginas, mas confirma sempre se mudaram (ETag -> 304).
+        # Sem isto, depois de uma atualização, a página nova podia usar o CSS e o JS antigos.
+        resposta.headers["Cache-Control"] = "no-cache"
     return resposta
 
 

@@ -3,41 +3,62 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Leitor de Faturas</title>
+  <title>Faturas · Leitor de Faturas</title>
+  <script src="/static/tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="pagina">
-    <nav class="menu" aria-label="Principal">
-      <a href="/" aria-current="page">Faturas</a>
-      <a href="/dashboard">Dashboard</a>
-      <span class="conta" id="conta"></span>
-    </nav>
-    <header class="topo">
-      <h1>Leitor de Faturas</h1>
-      <p>Carregue as faturas dos fornecedores em PDF. O fornecedor, as datas, o IVA e o total são lidos automaticamente; depois é só rever e confirmar.</p>
-    </header>
+<body data-pagina="faturas">
+  <header id="barra"></header>
+
+  <main class="conteudo">
+    <div class="cabecalho-pagina">
+      <div>
+        <h1>Faturas</h1>
+        <p class="subtitulo">Carregue os PDFs dos fornecedores: o fornecedor, as datas, o IVA e o total são lidos automaticamente.</p>
+      </div>
+      <div class="cabecalho-acoes" aria-label="Exportar as faturas filtradas">
+        <a class="botao secundario" id="exportar-xlsx" href="/api/faturas/exportar?formato=xlsx" download
+           title="Exportar as faturas filtradas para Excel"><span data-icone="descarregar"></span>Excel</a>
+        <a class="botao secundario" id="exportar-csv" href="/api/faturas/exportar?formato=csv" download
+           title="Exportar as faturas filtradas para CSV"><span data-icone="descarregar"></span>CSV</a>
+      </div>
+    </div>
 
     <section aria-labelledby="titulo-carregar">
       <h2 id="titulo-carregar" class="visualmente-oculto">Carregar faturas</h2>
-      <label class="folha" id="zona" for="ficheiro">
+      <label class="zona-envio" id="zona" for="ficheiro">
         <input type="file" id="ficheiro" accept="application/pdf,.pdf" multiple title="">
-        <span class="folha-titulo">Arraste faturas para aqui</span>
-        <span class="folha-texto">ou <u>escolha ficheiros</u> no computador. Aceita PDF até 10 MB.</span>
+        <span class="zona-envio-icone"><span data-icone="upload"></span></span>
+        <span>
+          <span class="zona-envio-titulo">Arraste faturas para aqui</span>
+          <span class="zona-envio-texto">ou <u>escolha ficheiros</u> no computador. PDF até 10 MB, vários de uma vez.</span>
+        </span>
+        <span class="botao" aria-hidden="true"><span data-icone="mais"></span>Carregar PDF</span>
       </label>
-      <p class="mensagem" id="mensagem" role="status" aria-live="polite"></p>
+      <ul class="fila" id="fila" aria-label="Ficheiros carregados"></ul>
     </section>
 
-    <section aria-labelledby="titulo-lista" class="lista">
-      <div class="lista-cabecalho">
-        <h2 id="titulo-lista">Faturas</h2>
-        <span class="contagem" id="contagem"></span>
+    <section class="cartao lista" aria-labelledby="titulo-lista">
+      <div class="cartao-cabecalho">
+        <h2 id="titulo-lista">Lista de faturas</h2>
+        <div class="segmentos" id="segmentos" role="group" aria-label="Mostrar faturas por estado">
+          <button type="button" data-estado="" aria-pressed="true">Todas <span class="contador" id="n-todas">0</span></button>
+          <button type="button" data-estado="por rever" aria-pressed="false">Por rever <span class="contador" id="n-por-rever">0</span></button>
+          <button type="button" data-estado="confirmada" aria-pressed="false">Confirmadas <span class="contador" id="n-confirmada">0</span></button>
+        </div>
       </div>
 
-      <form class="filtros" id="filtros" aria-label="Filtrar faturas">
+      <form class="ferramentas" id="filtros" role="search" aria-label="Filtrar faturas">
+        <div class="campo campo-pesquisa-caixa">
+          <label for="pesquisa">Pesquisar</label>
+          <div class="campo-pesquisa">
+            <span data-icone="pesquisa"></span>
+            <input type="search" id="pesquisa" placeholder="Fornecedor, número ou NIF" autocomplete="off">
+          </div>
+        </div>
         <div class="campo">
           <label for="filtro-fornecedor">Fornecedor</label>
           <select id="filtro-fornecedor" name="fornecedor_id">
@@ -48,36 +69,30 @@
           <label for="filtro-mes">Mês de emissão</label>
           <input type="month" id="filtro-mes" name="mes">
         </div>
-        <div class="campo">
-          <label for="filtro-estado">Estado</label>
-          <select id="filtro-estado" name="estado">
-            <option value="">Todos</option>
-            <option value="por rever">Por rever</option>
-            <option value="confirmada">Confirmadas</option>
-          </select>
-        </div>
-        <button type="reset" class="botao secundario">Limpar</button>
+        <button type="reset" class="botao fantasma">Limpar filtros</button>
       </form>
 
-      <div class="exportar">
-        <span>Exportar as faturas filtradas:</span>
-        <a class="botao secundario pequeno" id="exportar-xlsx" href="/api/faturas/exportar?formato=xlsx" download>Excel</a>
-        <a class="botao secundario pequeno" id="exportar-csv" href="/api/faturas/exportar?formato=csv" download>CSV</a>
+      <div class="tabela-caixa">
+        <table class="tabela clicavel responsiva">
+          <caption class="visualmente-oculto">Faturas. Clique numa linha para a rever.</caption>
+          <thead>
+            <tr>
+              <th scope="col" data-campo="fornecedor"><button type="button" class="ordenar">Fornecedor<span data-icone="ordenar"></span></button></th>
+              <th scope="col" data-campo="data_emissao"><button type="button" class="ordenar">Emissão<span data-icone="ordenar"></span></button></th>
+              <th scope="col" data-campo="total" class="num"><button type="button" class="ordenar">Total<span data-icone="ordenar"></span></button></th>
+              <th scope="col">Estado</th>
+              <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody id="linhas"></tbody>
+        </table>
       </div>
-
-      <table class="tabela">
-        <thead>
-          <tr>
-            <th scope="col">Fornecedor</th>
-            <th scope="col">Emissão</th>
-            <th scope="col" class="num">Total</th>
-            <th scope="col">Estado</th>
-            <th scope="col"><span class="visualmente-oculto">Ações</span></th>
-          </tr>
-        </thead>
-        <tbody id="linhas"></tbody>
-      </table>
-      <p class="vazio" id="vazio" hidden></p>
+      <div class="vazio" id="vazio" hidden>
+        <span class="vazio-icone"><span data-icone="recibo"></span></span>
+        <strong id="vazio-titulo"></strong>
+        <span id="vazio-texto"></span>
+        <button type="button" class="botao secundario pequeno" id="vazio-limpar" hidden>Limpar filtros</button>
+      </div>
     </section>
   </main>
 

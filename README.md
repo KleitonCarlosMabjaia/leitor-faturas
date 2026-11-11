@@ -47,7 +47,9 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Registo de erros no **Sentry** (opcional), sem dados pessoais nem dados das faturas.
 
 **Qualidade**
-- Interface em português de Portugal, modo claro e escuro, navegação por teclado, adaptada a telemóvel.
+- Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
+- Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
+- Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
 - 102 testes automáticos (pytest), incluindo isolamento entre empresas e migrações. Correm sem Internet e sem chave da API.
 
 ## Como funciona
@@ -74,7 +76,7 @@ PDF ──► QR da AT? ──sim──► fornecedor conhecido (cache)? ──s
 | PDF e QR | pypdf, pdfplumber, pypdfium2, zxing-cpp |
 | IA | SDK oficial `anthropic` (modelo configurável) |
 | Exportação | openpyxl |
-| Frontend | HTML, CSS e JavaScript, sem frameworks; Chart.js |
+| Frontend | HTML, CSS e JavaScript, sem frameworks; Chart.js; ícones SVG próprios |
 | Testes | pytest |
 | Publicação | Docker, Render (web + tarefa agendada), Sentry |
 
@@ -301,6 +303,8 @@ leitor-faturas/
 - **PDFs servidos pela API, não por links diretos ao bucket.** O bucket fica privado e cada pedido passa pela verificação da sessão e da empresa. Com faturas de até 10 MB, o custo de passar pelo servidor é pequeno.
 - **Migrações aplicadas ao arrancar.** Com uma só instância, é a forma mais simples de nunca publicar código novo com tabelas antigas. As bases de dados anteriores ao Alembic são reconhecidas e marcadas na revisão inicial.
 - **Limite de pedidos em memória.** Chega para uma instância e não acrescenta serviços. Com várias instâncias, o contador passaria para o Redis.
+- **Interface sem frameworks, com um sistema de cores.** Todas as cores, raios e sombras são variáveis CSS num só sítio; o modo escuro é o mesmo conjunto de variáveis com outros valores. Os contrastes cumprem a WCAG AA e o estado nunca é indicado só pela cor (há sempre ícone e texto).
+- **Linhas retas no gráfico mensal.** Uma curva suavizada sugere valores entre os meses que não existem.
 - **Exportação segura.** Os textos vêm de PDFs de terceiros, por isso valores começados por `=`, `+`, `-` ou `@` são neutralizados para o Excel não os executar como fórmulas.
 
 ## Próximos passos

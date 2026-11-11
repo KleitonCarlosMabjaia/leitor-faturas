@@ -6,31 +6,45 @@
   <!-- O link tem um token: não o enviar a outros sites através do "Referer" -->
   <meta name="referrer" content="no-referrer">
   <title>Definir palavra-passe · Leitor de Faturas</title>
+  <script src="/static/tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <main class="pagina-acesso">
-    <div class="cartao-acesso">
-      <h1>Definir palavra-passe</h1>
-      <p class="subtitulo" id="para-quem">A verificar o link…</p>
+    <div class="acesso">
+      <span class="marca">
+        <span class="marca-simbolo" aria-hidden="true"><span data-icone="recibo"></span></span>
+        <span>Leitor de Faturas</span>
+      </span>
 
-      <form id="formulario" novalidate hidden>
-        <div class="campo">
-          <label for="palavra_passe">Nova palavra-passe</label>
-          <input type="password" id="palavra_passe" autocomplete="new-password" minlength="10" required
-                 aria-describedby="regras">
-          <span class="ajuda" id="regras">Pelo menos 10 caracteres, com letras e números.</span>
-        </div>
-        <div class="campo">
-          <label for="repetir">Repita a palavra-passe</label>
-          <input type="password" id="repetir" autocomplete="new-password" required>
-        </div>
-        <button type="submit" class="botao largo">Guardar e entrar</button>
-      </form>
-      <p class="mensagem" id="mensagem" role="alert" aria-live="assertive"></p>
+      <div class="cartao-acesso">
+        <h1>Definir palavra-passe</h1>
+        <p class="subtitulo" id="para-quem">A verificar o link…</p>
+
+        <p class="mensagem-formulario" id="mensagem" role="alert"></p>
+        <form id="formulario" novalidate hidden>
+          <!-- Escondido: diz ao gestor de palavras-passe do navegador a que conta pertence a nova -->
+          <input type="email" id="utilizador" autocomplete="username" hidden readonly>
+          <div class="campo">
+            <label for="palavra_passe">Nova palavra-passe</label>
+            <input type="password" id="palavra_passe" autocomplete="new-password" minlength="10" required
+                   aria-describedby="regras">
+            <div class="forca" id="forca" data-nivel="0" aria-hidden="true"><span></span><span></span><span></span><span></span></div>
+            <ul class="regras" id="regras" aria-label="Regras da palavra-passe">
+              <li id="regra-tamanho"><span data-icone="check"></span>Pelo menos 10 caracteres</li>
+              <li id="regra-mistura"><span data-icone="check"></span>Letras e números (ou outros símbolos)</li>
+            </ul>
+          </div>
+          <div class="campo">
+            <label for="repetir">Repita a palavra-passe</label>
+            <input type="password" id="repetir" autocomplete="new-password" required>
+          </div>
+          <button type="submit" class="botao largo">Guardar e entrar</button>
+        </form>
+      </div>
     </div>
   </main>
 
@@ -41,11 +55,30 @@
     const formulario = document.getElementById("formulario");
     const mensagem = document.getElementById("mensagem");
     const paraQuem = document.getElementById("para-quem");
+    botaoVerPalavraPasse(formulario.palavra_passe);
 
     function erro(texto) {
-      mensagem.textContent = texto;
-      mensagem.className = "mensagem erro";
+      mensagem.replaceChildren(icone("erro"), texto);
     }
+
+    // As mesmas regras do servidor, mostradas enquanto se escreve
+    function avaliar(palavraPasse) {
+      const tamanho = palavraPasse.length >= 10;
+      const mistura = /\D/.test(palavraPasse) && /[^\p{L}]/u.test(palavraPasse) && palavraPasse.length > 0;
+      let nivel = 0;
+      if (palavraPasse) nivel = 1;
+      if (tamanho && mistura) nivel = 2;
+      if (tamanho && mistura && palavraPasse.length >= 14) nivel = 3;
+      if (nivel === 3 && /[^\p{L}\p{N}]/u.test(palavraPasse)) nivel = 4;
+      return { tamanho, mistura, nivel };
+    }
+
+    formulario.palavra_passe.addEventListener("input", () => {
+      const { tamanho, mistura, nivel } = avaliar(formulario.palavra_passe.value);
+      document.getElementById("regra-tamanho").classList.toggle("cumprida", tamanho);
+      document.getElementById("regra-mistura").classList.toggle("cumprida", mistura);
+      document.getElementById("forca").dataset.nivel = nivel;
+    });
 
     async function verificarLink() {
       if (!token) {
@@ -65,22 +98,34 @@
       }
       const dados = await resposta.json();
       paraQuem.textContent = `${dados.nome} (${dados.email}) · ${dados.empresa}`;
+      document.getElementById("utilizador").value = dados.email;
       formulario.hidden = false;
       formulario.palavra_passe.focus();
     }
 
     formulario.addEventListener("submit", async (e) => {
       e.preventDefault();
+      mensagem.replaceChildren();
       const palavraPasse = formulario.palavra_passe.value;
-      if (palavraPasse.length < 10) return erro("A palavra-passe tem de ter pelo menos 10 caracteres.");
-      if (palavraPasse !== formulario.repetir.value) return erro("As palavras-passe não são iguais.");
+      const { tamanho, mistura } = avaliar(palavraPasse);
+      if (!tamanho) return erro("A palavra-passe tem de ter pelo menos 10 caracteres.");
+      if (!mistura) return erro("Use letras e números (ou outros símbolos).");
+      if (palavraPasse !== formulario.repetir.value) {
+        formulario.repetir.focus();
+        return erro("As palavras-passe não são iguais.");
+      }
 
+      const botao = formulario.querySelector('button[type="submit"]');
+      ocupado(botao, true);
       const resposta = await fetch("/api/auth/definir-palavra-passe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token, palavra_passe: palavraPasse }),
       });
-      if (!resposta.ok) return erro(await lerErro(resposta, "Não foi possível guardar a palavra-passe."));
+      if (!resposta.ok) {
+        ocupado(botao, false);
+        return erro(await lerErro(resposta, "Não foi possível guardar a palavra-passe."));
+      }
       // Tira o token do histórico do navegador antes de sair da página
       history.replaceState(null, "", location.pathname);
       location.href = "/";

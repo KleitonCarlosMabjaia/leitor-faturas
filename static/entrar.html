@@ -4,29 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar · Leitor de Faturas</title>
+  <script src="/static/tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <main class="pagina-acesso">
-    <div class="cartao-acesso">
-      <h1>Leitor de Faturas</h1>
-      <p class="subtitulo">Entre com a conta da sua empresa.</p>
+    <div class="acesso">
+      <a class="marca" href="/entrar">
+        <span class="marca-simbolo" aria-hidden="true"><span data-icone="recibo"></span></span>
+        <span>Leitor de Faturas</span>
+      </a>
 
-      <form id="formulario" novalidate>
-        <div class="campo">
-          <label for="email">Email</label>
-          <input type="email" id="email" name="email" autocomplete="username" required autofocus>
-        </div>
-        <div class="campo">
-          <label for="palavra_passe">Palavra-passe</label>
-          <input type="password" id="palavra_passe" name="palavra_passe" autocomplete="current-password" required>
-        </div>
-        <button type="submit" class="botao largo">Entrar</button>
-        <p class="mensagem" id="mensagem" role="alert" aria-live="assertive"></p>
-      </form>
+      <div class="cartao-acesso">
+        <h1>Entrar</h1>
+        <p class="subtitulo">Use a conta da sua empresa.</p>
+
+        <form id="formulario" novalidate>
+          <p class="mensagem-formulario" id="mensagem" role="alert"></p>
+          <div class="campo">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" autocomplete="username" required autofocus>
+          </div>
+          <div class="campo">
+            <label for="palavra_passe">Palavra-passe</label>
+            <input type="password" id="palavra_passe" name="palavra_passe" autocomplete="current-password" required>
+          </div>
+          <button type="submit" class="botao largo">Entrar</button>
+        </form>
+      </div>
 
       <p class="nota-acesso">
         O acesso é feito por convite. Se se esqueceu da palavra-passe, peça um novo link ao administrador da sua empresa.
@@ -38,6 +46,11 @@
   <script>
     const formulario = document.getElementById("formulario");
     const mensagem = document.getElementById("mensagem");
+    botaoVerPalavraPasse(formulario.palavra_passe);
+
+    function erro(texto) {
+      mensagem.replaceChildren(icone("erro"), texto);
+    }
 
     // Só aceita destinos dentro da própria aplicação ("/x"), nunca "//outro-site.com"
     function destinoSeguro() {
@@ -47,14 +60,14 @@
 
     formulario.addEventListener("submit", async (e) => {
       e.preventDefault();
-      mensagem.textContent = "";
+      mensagem.replaceChildren();
       if (!formulario.email.value.trim() || !formulario.palavra_passe.value) {
-        mensagem.textContent = "Preencha o email e a palavra-passe.";
-        mensagem.className = "mensagem erro";
+        erro("Preencha o email e a palavra-passe.");
+        (formulario.email.value.trim() ? formulario.palavra_passe : formulario.email).focus();
         return;
       }
-      const botao = formulario.querySelector("button");
-      botao.disabled = true;
+      const botao = formulario.querySelector('button[type="submit"]');
+      ocupado(botao, true);
       try {
         const resposta = await fetch("/api/auth/entrar", {
           method: "POST",
@@ -63,13 +76,11 @@
         });
         if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível entrar."));
         location.href = destinoSeguro();
-      } catch (erro) {
-        mensagem.textContent = erro.message;
-        mensagem.className = "mensagem erro";
+      } catch (falha) {
+        erro(falha.message);
         formulario.palavra_passe.value = "";
         formulario.palavra_passe.focus();
-      } finally {
-        botao.disabled = false;
+        ocupado(botao, false);
       }
     });
   </script>

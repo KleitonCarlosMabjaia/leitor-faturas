@@ -4,27 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Equipa · Leitor de Faturas</title>
+  <script src="/static/tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="pagina">
-    <nav class="menu" aria-label="Principal">
-      <a href="/">Faturas</a>
-      <a href="/dashboard">Dashboard</a>
-      <a href="/equipa" aria-current="page">Equipa</a>
-      <span class="conta" id="conta"></span>
-    </nav>
+<body data-pagina="equipa">
+  <header id="barra"></header>
 
-    <header class="topo">
-      <h1>Equipa</h1>
-      <p>Convide colegas para usarem a aplicação. Cada pessoa recebe um link para definir a sua palavra-passe.</p>
-    </header>
+  <main class="conteudo estreito">
+    <div class="cabecalho-pagina">
+      <div>
+        <h1>Equipa</h1>
+        <p class="subtitulo">Convide colegas. Cada pessoa recebe um link para definir a sua palavra-passe.</p>
+      </div>
+    </div>
 
     <section class="cartao" aria-labelledby="titulo-convidar">
-      <h2 id="titulo-convidar">Convidar</h2>
+      <h2 id="titulo-convidar">Convidar alguém</h2>
       <form id="convite" class="grelha-convite" novalidate>
         <div class="campo">
           <label for="nome">Nome</label>
@@ -41,36 +39,37 @@
             <option value="admin">Administrador: também gere a equipa</option>
           </select>
         </div>
-        <button type="submit" class="botao">Criar convite</button>
+        <button type="submit" class="botao"><span data-icone="mais"></span>Criar convite</button>
       </form>
 
       <div class="caixa-link" id="caixa-link" hidden>
         <p id="texto-link"></p>
         <div class="linha-link">
           <input id="link" readonly aria-label="Link de convite">
-          <button type="button" class="botao secundario" id="copiar">Copiar</button>
+          <button type="button" class="botao secundario" id="copiar"><span data-icone="copiar"></span>Copiar</button>
         </div>
         <p class="ajuda">Envie-o por um canal privado. É válido durante 72 horas e só pode ser usado uma vez.</p>
       </div>
     </section>
 
-    <p class="mensagem" id="mensagem" role="status" aria-live="polite"></p>
-
-    <section aria-labelledby="titulo-membros" class="lista">
-      <div class="lista-cabecalho">
+    <section class="cartao" aria-labelledby="titulo-membros">
+      <div class="cartao-cabecalho">
         <h2 id="titulo-membros">Membros</h2>
+        <span class="contador" id="n-membros"></span>
       </div>
-      <table class="tabela">
-        <thead>
-          <tr>
-            <th scope="col">Nome</th>
-            <th scope="col">Papel</th>
-            <th scope="col">Estado</th>
-            <th scope="col"><span class="visualmente-oculto">Ações</span></th>
-          </tr>
-        </thead>
-        <tbody id="membros"></tbody>
-      </table>
+      <div class="tabela-caixa">
+        <table class="tabela responsiva">
+          <thead>
+            <tr>
+              <th scope="col">Pessoa</th>
+              <th scope="col">Papel</th>
+              <th scope="col">Estado</th>
+              <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody id="membros"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 

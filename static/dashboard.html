@@ -4,20 +4,17 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dashboard · Leitor de Faturas</title>
+  <script src="/static/tema.js"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body>
-  <main class="pagina larga">
-    <nav class="menu" aria-label="Principal">
-      <a href="/">Faturas</a>
-      <a href="/dashboard" aria-current="page">Dashboard</a>
-      <span class="conta" id="conta"></span>
-    </nav>
+<body data-pagina="dashboard">
+  <header id="barra"></header>
 
-    <header class="cabecalho-fatura">
+  <main class="conteudo">
+    <div class="cabecalho-pagina">
       <div>
         <h1>Dashboard</h1>
         <p class="subtitulo">Inclui todas as faturas lidas, confirmadas ou por rever.</p>
@@ -26,28 +23,38 @@
         <label for="mes">Mês</label>
         <select id="mes"></select>
       </div>
-    </header>
+    </div>
 
-    <p class="mensagem" id="mensagem" role="status" aria-live="polite"></p>
-
-    <section class="indicadores" aria-label="Resumo">
-      <div class="indicador">
-        <span class="indicador-rotulo" id="rotulo-total-mes">Gasto no mês</span>
+    <section class="indicadores" aria-label="Resumo do mês">
+      <div class="indicador destaque">
+        <div class="indicador-topo">
+          <span class="indicador-rotulo" id="rotulo-total-mes">Gasto no mês</span>
+          <span class="indicador-icone"><span data-icone="euro"></span></span>
+        </div>
         <span class="indicador-valor" id="total-mes">—</span>
         <span class="indicador-nota" id="faturas-mes"></span>
       </div>
       <div class="indicador">
-        <span class="indicador-rotulo">IVA suportado no mês</span>
+        <div class="indicador-topo">
+          <span class="indicador-rotulo">IVA suportado no mês</span>
+          <span class="indicador-icone"><span data-icone="percentagem"></span></span>
+        </div>
         <span class="indicador-valor" id="iva-mes">—</span>
         <span class="indicador-nota">dedutível, se a atividade o permitir</span>
       </div>
       <div class="indicador">
-        <span class="indicador-rotulo" id="rotulo-iva-ano">IVA acumulado no ano</span>
+        <div class="indicador-topo">
+          <span class="indicador-rotulo" id="rotulo-iva-ano">IVA acumulado no ano</span>
+          <span class="indicador-icone"><span data-icone="calendario"></span></span>
+        </div>
         <span class="indicador-valor" id="iva-ano">—</span>
         <span class="indicador-nota" id="nota-iva-ano"></span>
       </div>
       <div class="indicador">
-        <span class="indicador-rotulo">Por pagar</span>
+        <div class="indicador-topo">
+          <span class="indicador-rotulo">Por pagar</span>
+          <span class="indicador-icone"><span data-icone="carteira"></span></span>
+        </div>
         <span class="indicador-valor" id="por-pagar">—</span>
         <span class="indicador-nota" id="nota-por-pagar"></span>
       </div>
@@ -59,7 +66,10 @@
         <div class="area-grafico alta">
           <canvas id="grafico-fornecedores" role="img" aria-describedby="tabela-fornecedores-legenda"></canvas>
         </div>
-        <p class="vazio" id="vazio-fornecedores" hidden>Sem faturas neste mês.</p>
+        <div class="vazio" id="vazio-fornecedores" hidden>
+          <span class="vazio-icone"><span data-icone="recibo"></span></span>
+          <span>Sem faturas neste mês.</span>
+        </div>
         <details>
           <summary>Ver os valores em tabela</summary>
           <table class="tabela">
@@ -72,7 +82,7 @@
 
       <section class="cartao" aria-labelledby="titulo-evolucao">
         <h2 id="titulo-evolucao">Evolução mensal</h2>
-        <div class="area-grafico">
+        <div class="area-grafico alta">
           <canvas id="grafico-evolucao" role="img" aria-describedby="tabela-evolucao-legenda"></canvas>
         </div>
         <details>
@@ -87,19 +97,27 @@
     </div>
 
     <section class="cartao" aria-labelledby="titulo-pagar">
-      <h2 id="titulo-pagar">Faturas por pagar</h2>
-      <table class="tabela">
-        <thead>
-          <tr>
-            <th scope="col">Fornecedor</th>
-            <th scope="col">Vencimento</th>
-            <th scope="col" class="num">Total</th>
-            <th scope="col"><span class="visualmente-oculto">Ações</span></th>
-          </tr>
-        </thead>
-        <tbody id="linhas-pagar"></tbody>
-      </table>
-      <p class="vazio" id="vazio-pagar" hidden>Não há faturas por pagar.</p>
+      <div class="cartao-cabecalho">
+        <h2 id="titulo-pagar">Faturas por pagar</h2>
+      </div>
+      <div class="tabela-caixa">
+        <table class="tabela clicavel responsiva">
+          <thead>
+            <tr>
+              <th scope="col">Fornecedor</th>
+              <th scope="col">Vencimento</th>
+              <th scope="col" class="num">Total</th>
+              <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody id="linhas-pagar"></tbody>
+        </table>
+      </div>
+      <div class="vazio" id="vazio-pagar" hidden>
+        <span class="vazio-icone"><span data-icone="check"></span></span>
+        <strong>Tudo pago</strong>
+        <span>Não há faturas por pagar.</span>
+      </div>
     </section>
   </main>
 

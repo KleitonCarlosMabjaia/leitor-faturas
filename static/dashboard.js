@@ -1,9 +1,9 @@
 // Leitor de Faturas - dashboard: indicadores, gráficos (Chart.js) e faturas por pagar
 
 const seletorMes = document.getElementById("mes");
-const mensagem = document.getElementById("mensagem");
 const nomesMeses = new Intl.DateTimeFormat("pt-PT", { month: "long", year: "numeric" });
 const nomesMesesCurtos = new Intl.DateTimeFormat("pt-PT", { month: "short" });
+const percentagem = new Intl.NumberFormat("pt-PT", { style: "percent", maximumFractionDigits: 0 });
 
 let graficoFornecedores = null;
 let graficoEvolucao = null;
@@ -15,26 +15,43 @@ function nomeMes(chave, curto = false) {
   return curto ? nomesMesesCurtos.format(data).replace(".", "") : nomesMeses.format(data);
 }
 
-function mostrarMensagem(texto, tipo) {
-  mensagem.textContent = texto;
-  mensagem.className = `mensagem ${tipo || ""}`;
-}
-
 // As cores vêm do CSS, por isso os gráficos seguem o modo claro/escuro
 function cores() {
   const estilo = getComputedStyle(document.documentElement);
   const ler = (nome) => estilo.getPropertyValue(nome).trim();
-  return { serie: ler("--grafico"), texto: ler("--tinta-suave"), grelha: ler("--linha"), fundo: ler("--folha") };
+  return {
+    serie: ler("--grafico"),
+    texto: ler("--tinta-suave"),
+    tinta: ler("--tinta"),
+    grelha: ler("--linha"),
+    fundo: ler("--superficie"),
+    borda: ler("--linha-forte"),
+  };
 }
 
 const euros = (valor) => formatarValor(valor, "EUR");
+const eurosCurtos = (v) => `${Number(v).toLocaleString("pt-PT", { maximumFractionDigits: 0 })} €`;
 
 // ---------- Indicadores ----------
 
 function preencherIndicadores(d) {
   document.getElementById("rotulo-total-mes").textContent = `Gasto em ${nomeMes(d.mes)}`;
   document.getElementById("total-mes").textContent = euros(d.total_mes);
-  document.getElementById("faturas-mes").textContent = d.faturas_mes === 1 ? "1 fatura" : `${d.faturas_mes} faturas`;
+
+  // Nota do gasto: número de faturas e variação face ao mês anterior
+  const nota = document.getElementById("faturas-mes");
+  nota.replaceChildren(d.faturas_mes === 1 ? "1 fatura" : `${d.faturas_mes} faturas`);
+  const indice = d.evolucao.findIndex((l) => l.mes === d.mes);
+  const anterior = indice > 0 ? d.evolucao[indice - 1] : null;
+  if (anterior && anterior.total > 0) {
+    const variacao = (d.total_mes - anterior.total) / anterior.total;
+    const span = document.createElement("span");
+    span.className = "variacao";
+    // Sem verde/vermelho: gastar mais não é necessariamente mau; a seta e o sinal chegam
+    span.append(icone(variacao >= 0 ? "seta-cima" : "seta-baixo"), percentagem.format(Math.abs(variacao)));
+    nota.append(" · ", span, ` vs. ${nomeMes(anterior.mes).split(" ")[0]}`);
+  }
+
   document.getElementById("iva-mes").textContent = euros(d.iva_mes);
   document.getElementById("rotulo-iva-ano").textContent = `IVA acumulado em ${d.ano}`;
   document.getElementById("iva-ano").textContent = euros(d.iva_ano);
@@ -42,11 +59,16 @@ function preencherIndicadores(d) {
 
   const pagar = d.por_pagar;
   document.getElementById("por-pagar").textContent = euros(pagar.total);
-  const nota = document.getElementById("nota-por-pagar");
-  nota.textContent = pagar.vencidas
-    ? `${pagar.quantidade} faturas · ⚠ ${pagar.vencidas} vencida${pagar.vencidas > 1 ? "s" : ""} (${euros(pagar.total_vencidas)})`
-    : `${pagar.quantidade} fatura${pagar.quantidade === 1 ? "" : "s"}, nenhuma vencida`;
-  nota.classList.toggle("alerta", pagar.vencidas > 0);
+  const notaPagar = document.getElementById("nota-por-pagar");
+  if (pagar.vencidas) {
+    notaPagar.replaceChildren(
+      icone("alerta"),
+      `${pagar.vencidas} vencida${pagar.vencidas > 1 ? "s" : ""} (${euros(pagar.total_vencidas)}) · ${pagar.quantidade} no total`
+    );
+  } else {
+    notaPagar.replaceChildren(`${pagar.quantidade} fatura${pagar.quantidade === 1 ? "" : "s"}, nenhuma vencida`);
+  }
+  notaPagar.classList.toggle("alerta", pagar.vencidas > 0);
 }
 
 // ---------- Gráficos ----------
@@ -60,12 +82,14 @@ function opcoesComuns(c) {
       legend: { display: false }, // uma só série: o título do cartão já diz o que é
       tooltip: {
         backgroundColor: c.fundo,
-        titleColor: c.texto,
+        titleColor: c.tinta,
         bodyColor: c.texto,
-        borderColor: c.grelha,
+        borderColor: c.borda,
         borderWidth: 1,
         padding: 10,
+        cornerRadius: 8,
         displayColors: false,
+        titleFont: { weight: "600" },
         callbacks: { label: (ctx) => euros(ctx.parsed.x ?? ctx.parsed.y) },
       },
     },
@@ -78,7 +102,7 @@ function desenharFornecedores(d, c) {
   document.getElementById("grafico-fornecedores").parentElement.hidden = vazio;
 
   const tabela = document.getElementById("tabela-fornecedores");
-  tabela.innerHTML = "";
+  tabela.replaceChildren();
   for (const linha of d.por_fornecedor) {
     const tr = tabela.insertRow();
     tr.insertCell().textContent = linha.fornecedor;
@@ -107,22 +131,23 @@ function desenharFornecedores(d, c) {
     options: {
       ...opcoes,
       indexAxis: "y", // barras horizontais: os nomes dos fornecedores são compridos
+      layout: { padding: { left: 4 } },
       scales: {
         x: {
           beginAtZero: true,
           grid: { color: c.grelha },
           border: { display: false },
-          ticks: { color: c.texto, callback: (v) => `${Number(v).toLocaleString("pt-PT")} €` },
+          ticks: { color: c.texto, maxTicksLimit: 6, callback: eurosCurtos },
         },
         y: {
           grid: { display: false },
-          border: { color: c.grelha },
+          border: { color: c.borda },
           ticks: {
-            color: c.texto,
+            color: c.tinta,
             // Nomes muito compridos são cortados no eixo (aparecem completos no tooltip e na tabela)
             callback(valor) {
               const nome = this.getLabelForValue(valor);
-              return nome.length > 26 ? `${nome.slice(0, 25)}…` : nome;
+              return nome.length > 22 ? `${nome.slice(0, 21)}…` : nome;
             },
           },
         },
@@ -138,7 +163,7 @@ function desenharFornecedores(d, c) {
 
 function desenharEvolucao(d, c) {
   const tabela = document.getElementById("tabela-evolucao");
-  tabela.innerHTML = "";
+  tabela.replaceChildren();
   for (const linha of d.evolucao) {
     const tr = tabela.insertRow();
     tr.insertCell().textContent = nomeMes(linha.mes);
@@ -149,6 +174,7 @@ function desenharEvolucao(d, c) {
 
   graficoEvolucao?.destroy();
   const opcoes = opcoesComuns(c);
+  const indiceAtual = d.evolucao.findIndex((l) => l.mes === d.mes);
   graficoEvolucao = new Chart(document.getElementById("grafico-evolucao"), {
     type: "line",
     data: {
@@ -158,11 +184,12 @@ function desenharEvolucao(d, c) {
         borderColor: c.serie,
         backgroundColor: c.serie,
         borderWidth: 2,
-        pointRadius: 4,          // 8 px de diâmetro
-        pointHoverRadius: 6,
+        // O mês escolhido fica com um ponto maior
+        pointRadius: d.evolucao.map((_, i) => (i === indiceAtual ? 6 : 4)),
+        pointHoverRadius: 7,
         pointBorderColor: c.fundo,
         pointBorderWidth: 2,     // anel da cor do fundo à volta de cada ponto
-        tension: 0.25,
+        tension: 0,              // linhas retas: uma curva inventaria valores entre os meses
       }],
     },
     options: {
@@ -179,12 +206,12 @@ function desenharEvolucao(d, c) {
         },
       },
       scales: {
-        x: { grid: { display: false }, border: { color: c.grelha }, ticks: { color: c.texto } },
+        x: { grid: { display: false }, border: { color: c.borda }, ticks: { color: c.texto } },
         y: {
           beginAtZero: true,
           grid: { color: c.grelha },
           border: { display: false },
-          ticks: { color: c.texto, maxTicksLimit: 5, callback: (v) => `${Number(v).toLocaleString("pt-PT")} €` },
+          ticks: { color: c.texto, maxTicksLimit: 5, callback: eurosCurtos },
         },
       },
     },
@@ -200,9 +227,12 @@ function desenharEvolucao(d, c) {
 
 function desenharPorPagar(d) {
   const corpo = document.getElementById("linhas-pagar");
-  corpo.innerHTML = "";
+  corpo.replaceChildren();
   for (const f of d.por_pagar.faturas) {
     const tr = corpo.insertRow();
+    tr.addEventListener("click", (e) => {
+      if (!e.target.closest("a, button")) location.href = `/faturas/${f.id}`;
+    });
 
     const fornecedor = tr.insertCell();
     fornecedor.className = "nome";
@@ -219,32 +249,29 @@ function desenharPorPagar(d) {
     }
 
     const vencimento = tr.insertCell();
-    vencimento.textContent = formatarData(f.data_vencimento);
-    if (f.vencida) {
-      const etiqueta = document.createElement("span");
-      etiqueta.className = "etiqueta erro";
-      etiqueta.textContent = "⚠ Vencida";
-      vencimento.append(" ", etiqueta);
-    }
+    vencimento.dataset.rotulo = "Vence";
+    vencimento.append(formatarData(f.data_vencimento));
+    if (f.vencida) vencimento.append(" ", criarEtiqueta("Vencida", "erro", "alerta"));
 
     const total = tr.insertCell();
-    total.className = "num";
+    total.className = "num valor-total";
     total.textContent = euros(f.total);
 
     const acoes = tr.insertCell();
     acoes.className = "num acoes";
     const botao = document.createElement("button");
     botao.type = "button";
-    botao.className = "acao repetir";
-    botao.textContent = "Marcar como paga";
+    botao.className = "botao secundario pequeno";
+    botao.append(icone("check"), "Marcar como paga");
     botao.setAttribute("aria-label", `Marcar como paga a fatura de ${f.fornecedor}`);
-    botao.addEventListener("click", () => marcarPaga(f));
+    botao.addEventListener("click", () => marcarPaga(f, botao));
     acoes.appendChild(botao);
   }
   document.getElementById("vazio-pagar").hidden = d.por_pagar.faturas.length > 0;
 }
 
-async function marcarPaga(f) {
+async function marcarPaga(f, botao) {
+  ocupado(botao, true);
   try {
     const resposta = await api(`/api/faturas/${f.id}/pagamento`, {
       method: "PATCH",
@@ -252,18 +279,37 @@ async function marcarPaga(f) {
       body: JSON.stringify({ paga: true }),
     });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível atualizar a fatura."));
-    mostrarMensagem(`Fatura de ${f.fornecedor} marcada como paga.`, "sucesso");
+    notificar(`Fatura de ${f.fornecedor} marcada como paga.`, "ok", {
+      acao: { texto: "Anular", aoClicar: () => desfazerPagamento(f) },
+    });
     await carregar(seletorMes.value);
   } catch (erro) {
-    mostrarMensagem(erro.message, "erro");
+    ocupado(botao, false);
+    notificar(erro.message, "erro");
+  }
+}
+
+async function desfazerPagamento(f) {
+  try {
+    const resposta = await api(`/api/faturas/${f.id}/pagamento`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paga: false }),
+    });
+    if (!resposta.ok) throw new Error();
+    notificar("Pagamento anulado.", "info");
+    await carregar(seletorMes.value);
+  } catch {
+    notificar("Não foi possível anular.", "erro");
   }
 }
 
 // ---------- Carregar ----------
 
 function desenhar() {
-  if (!ultimosDados) return;
+  if (!ultimosDados || typeof Chart === "undefined") return;
   const c = cores();
+  Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
   desenharFornecedores(ultimosDados, c);
   desenharEvolucao(ultimosDados, c);
 }
@@ -277,26 +323,26 @@ async function carregar(mes) {
 
     // Seletor de mês: os meses com faturas (e o escolhido, mesmo que não tenha)
     const meses = d.meses_disponiveis.includes(d.mes) ? d.meses_disponiveis : [d.mes, ...d.meses_disponiveis];
-    seletorMes.innerHTML = "";
-    for (const m of meses) seletorMes.add(new Option(nomeMes(m), m));
+    seletorMes.replaceChildren(...meses.map((m) => new Option(nomeMes(m), m)));
     seletorMes.value = d.mes;
 
     preencherIndicadores(d);
     desenharPorPagar(d);
     if (typeof Chart === "undefined") {
-      mostrarMensagem("Não foi possível carregar os gráficos (sem Internet?). Os valores estão nas tabelas.", "erro");
+      notificar("Não foi possível carregar os gráficos (sem Internet?). Os valores estão nas tabelas.", "aviso");
       document.querySelectorAll(".graficos details").forEach((el) => (el.open = true));
       return;
     }
-    Chart.defaults.font.family = getComputedStyle(document.body).fontFamily;
+    // Esperar pela fonte: medida antes de carregar, os nomes do eixo ficavam cortados
+    await document.fonts.ready;
     desenhar();
   } catch (erro) {
-    mostrarMensagem(erro.message || "Não foi possível obter os dados. Confirme que o servidor está a correr.", "erro");
+    notificar(erro.message || "Não foi possível obter os dados. Confirme que o servidor está a correr.", "erro");
   }
 }
 
 seletorMes.addEventListener("change", () => carregar(seletorMes.value));
-// Se o sistema mudar entre modo claro e escuro, redesenha com as cores novas
-window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", desenhar);
+// Ao mudar entre modo claro e escuro (botão ou sistema), redesenha com as cores novas
+window.addEventListener("temamudou", desenhar);
 
 carregar();
