@@ -51,7 +51,9 @@ def combinar(dados_qr: dict, dados_ia: DadosFatura | None, nome_conhecido: str =
     return dados_ia.model_copy(update={**valores_qr, "moeda": "EUR", "confianca": "alta"})
 
 
-def _ler(db: Session, empresa_id: int, conteudo: bytes) -> tuple[str, DadosFatura | None, str | None, list[str], dict | None]:
+def _ler(
+    db: Session, empresa_id: int, conteudo: bytes
+) -> tuple[str, DadosFatura | None, str | None, list[str], dict | None]:
     """
     Faz a leitura sem tocar na fatura.
     Devolve (estado_extracao, dados, origem, alertas ou erro, dados do QR).

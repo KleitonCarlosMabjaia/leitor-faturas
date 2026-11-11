@@ -1,0 +1,6 @@
+# Ferramentas de desenvolvimento e testes (não entram na imagem Docker)
+-r requirements.txt
+
+pytest-playwright==0.10.0   # testes da interface num navegador a sério
+playwright==1.65.0
+ruff==0.17.4                # verificação de estilo e de erros comuns

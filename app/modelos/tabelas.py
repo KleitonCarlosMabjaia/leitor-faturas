@@ -110,7 +110,8 @@ class Fatura(Base):
     carregada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, index=True)
 
     # Resultado da leitura automática
-    estado_extracao: Mapped[str] = mapped_column(String(20), default="pendente")  # pendente | concluida | erro | sem_texto
+    # pendente | concluida | erro | sem_texto
+    estado_extracao: Mapped[str] = mapped_column(String(20), default="pendente")
     erro: Mapped[str | None] = mapped_column(Text)
     origem: Mapped[str | None] = mapped_column(String(20))  # qr | ia | qr+ia | qr+cache
     confianca: Mapped[str | None] = mapped_column(String(10))

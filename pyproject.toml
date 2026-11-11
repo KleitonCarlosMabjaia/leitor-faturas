@@ -1,0 +1,23 @@
+# Configuração das ferramentas de desenvolvimento (o projeto não é instalado como pacote)
+
+[tool.pytest.ini_options]
+# "pytest" sozinho corre só os testes rápidos do servidor; os da interface correm à parte:
+#   pytest tests_ui
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+extend-exclude = ["migracoes/versions"]  # ficheiros gerados pelo Alembic
+
+[tool.ruff.lint]
+# E/W: estilo (PEP 8)   F: erros (imports por usar, nomes indefinidos)
+# I: ordem dos imports  B: armadilhas comuns (bugbear)   UP: sintaxe moderna do Python
+select = ["E", "W", "F", "I", "B", "UP"]
+ignore = [
+    "B008",  # Depends(...) nos argumentos é o padrão do FastAPI
+    "B904",  # "raise ... from" em todos os HTTPException só acrescenta ruído
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["app", "tests"]

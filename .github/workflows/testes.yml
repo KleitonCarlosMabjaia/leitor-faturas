@@ -1,0 +1,67 @@
+# Corre a verificação de estilo e todos os testes em cada push e pull request.
+name: Testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  testes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # PostgreSQL verdadeiro, só para os testes (o teste de PostgreSQL deixa de ser saltado)
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: teste
+          POSTGRES_PASSWORD: teste
+          POSTGRES_DB: teste
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U teste"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Instalar dependências
+        run: pip install -r requirements-dev.txt
+
+      - name: Verificação de estilo (ruff)
+        run: ruff check .
+
+      - name: Testes do servidor (pytest + PostgreSQL)
+        env:
+          TESTE_POSTGRES_URL: postgresql://teste:teste@localhost:5432/teste
+        run: pytest -q -rs
+
+      - name: Instalar o Chromium do Playwright
+        run: playwright install --with-deps chromium
+
+      - name: Testes da interface (Playwright)
+        run: pytest tests_ui -q --screenshot only-on-failure --tracing retain-on-failure
+
+      # Se a interface falhar, guarda as capturas e os traços para ver o que aconteceu
+      - name: Guardar resultados dos testes da interface
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: resultados-playwright
+          path: test-results/
+          retention-days: 7

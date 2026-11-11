@@ -20,7 +20,6 @@ from app.modelos.fatura import CamposFatura
 from app.modelos.tabelas import ESTADO_POR_REVER, Fatura, Fornecedor
 from app.servicos import validacao
 
-
 # ---------- Fornecedores ----------
 
 def fornecedor_por_nif(db: Session, empresa_id: int, nif: str) -> Fornecedor | None:

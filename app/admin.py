@@ -64,7 +64,8 @@ def listar() -> int:
             faturas = db.scalar(select(func.count()).select_from(Fatura).where(Fatura.empresa_id == empresa.id))
             estado = "ativa" if empresa.ativa else "DESATIVADA"
             print(f"[{empresa.id}] {empresa.nome} ({estado}) - {faturas} faturas")
-            for u in db.scalars(select(Utilizador).where(Utilizador.empresa_id == empresa.id).order_by(Utilizador.nome)):
+            da_empresa = select(Utilizador).where(Utilizador.empresa_id == empresa.id).order_by(Utilizador.nome)
+            for u in db.scalars(da_empresa):
                 pendente = " (convite por aceitar)" if u.hash_palavra_passe is None else ""
                 inativo = " (desativado)" if not u.ativo else ""
                 print(f"     {u.papel:<6} {u.nome} <{u.email}>{pendente}{inativo}")

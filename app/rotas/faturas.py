@@ -230,7 +230,9 @@ def marcar_pagamento(
 
 
 @router.post("/{id_fatura}/extrair", response_model=FaturaSaida)
-def extrair_novamente(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+def extrair_novamente(
+    id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)
+):
     """Volta a ler uma fatura já guardada (útil depois de um erro)."""
     fatura = _obter_ou_404(db, utilizador, id_fatura)
     conteudo = armazenamento.ler_pdf(fatura.ficheiro)

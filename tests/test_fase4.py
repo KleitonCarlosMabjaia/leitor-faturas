@@ -54,7 +54,7 @@ def test_dashboard_bate_com_as_faturas(com_demo, empresa_teste):
 
     assert resumo["total_mes"] == round(sum(f.total for f in outubro), 2)
     assert resumo["faturas_mes"] == len(outubro)
-    assert round(sum(l["total"] for l in resumo["por_fornecedor"]), 2) == resumo["total_mes"]
+    assert round(sum(linha["total"] for linha in resumo["por_fornecedor"]), 2) == resumo["total_mes"]
     assert len(resumo["evolucao"]) == 12
     assert resumo["evolucao"][-1]["mes"] == "2026-10"
     assert resumo["por_pagar"]["vencidas"] == 2  # as duas deixadas por pagar de propósito

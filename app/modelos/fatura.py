@@ -8,7 +8,7 @@ Modelos Pydantic que descrevem os dados de uma fatura.
 """
 
 from datetime import date
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -28,7 +28,7 @@ class CamposFatura(BaseModel):
     nif_fornecedor: str = Field(description="NIF do emitente, só os dígitos, sem o prefixo PT.")
     numero_fatura: str = Field(description="Número da fatura tal como aparece no documento.")
     data_emissao: str = Field(description="Data de emissão no formato AAAA-MM-DD.")
-    data_vencimento: Optional[str] = Field(
+    data_vencimento: str | None = Field(
         description="Data de vencimento no formato AAAA-MM-DD, ou null se não existir."
     )
     valor_sem_iva: float = Field(description="Total sem IVA (soma das bases tributáveis).")
@@ -38,7 +38,7 @@ class CamposFatura(BaseModel):
 
     @field_validator("data_emissao", "data_vencimento")
     @classmethod
-    def validar_data(cls, valor: Optional[str]) -> Optional[str]:
+    def validar_data(cls, valor: str | None) -> str | None:
         """Garante que a data é real e está no formato AAAA-MM-DD."""
         if valor is None or valor == "":
             return None

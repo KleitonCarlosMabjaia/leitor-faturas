@@ -7,7 +7,7 @@ from sqlalchemy import create_engine, inspect, text
 from app.db import migrar
 from app.modelos.tabelas import TokenAcesso
 from app.servicos import armazenamento
-from tests.conftest import PALAVRA_PASSE_TESTE, entrar
+from tests.conftest import PALAVRA_PASSE_TESTE
 
 
 def convidar(cliente, nome="Rui Costa", email="rui@teste.pt", papel="membro") -> str:
@@ -47,7 +47,8 @@ def test_paginas_enviam_para_o_login(cliente_anonimo, empresa_teste):
 # ---------- Entrar e sair ----------
 
 def test_cookie_de_sessao_seguro(cliente_anonimo, empresa_teste):
-    resposta = cliente_anonimo.post("/api/auth/entrar", json={"email": "ADMIN@teste.pt ", "palavra_passe": PALAVRA_PASSE_TESTE})
+    credenciais = {"email": "ADMIN@teste.pt ", "palavra_passe": PALAVRA_PASSE_TESTE}
+    resposta = cliente_anonimo.post("/api/auth/entrar", json=credenciais)
     assert resposta.status_code == 200  # o email não distingue maiúsculas nem espaços
     cookie = resposta.headers["set-cookie"].lower()
     assert "httponly" in cookie and "samesite=lax" in cookie
@@ -65,7 +66,8 @@ def test_bloqueio_depois_de_5_tentativas(cliente_anonimo, empresa_teste):
     for _ in range(5):
         cliente_anonimo.post("/api/auth/entrar", json={"email": "admin@teste.pt", "palavra_passe": "errada-123"})
     # Mesmo com a palavra-passe certa, fica bloqueado durante uns minutos
-    resposta = cliente_anonimo.post("/api/auth/entrar", json={"email": "admin@teste.pt", "palavra_passe": PALAVRA_PASSE_TESTE})
+    credenciais = {"email": "admin@teste.pt", "palavra_passe": PALAVRA_PASSE_TESTE}
+    resposta = cliente_anonimo.post("/api/auth/entrar", json=credenciais)
     assert resposta.status_code == 401
     assert "Demasiadas tentativas" in resposta.json()["detail"]
 

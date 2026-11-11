@@ -23,10 +23,18 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import SessaoLocal, preparar_base_dados
-from app.modelos.fatura import DadosFatura
 from app.dependencias import EMAIL_DEMO
+from app.modelos.fatura import DadosFatura
 from app.modelos.tabelas import (
-    ESTADO_CONFIRMADA, ESTADO_POR_REVER, PAPEL_ADMIN, Empresa, Fatura, Fornecedor, Sessao, TokenAcesso, Utilizador,
+    ESTADO_CONFIRMADA,
+    ESTADO_POR_REVER,
+    PAPEL_ADMIN,
+    Empresa,
+    Fatura,
+    Fornecedor,
+    Sessao,
+    TokenAcesso,
+    Utilizador,
 )
 from app.servicos import armazenamento, autenticacao, repositorio
 
@@ -94,21 +102,23 @@ CLIENTE = ("Restaurante O Cantinho da Esquina, Lda.", "Rua Direita, 45, 1100-200
 def gerar_nif(rng: random.Random, prefixo: str = "5") -> str:
     """NIF fictício com dígito de controlo válido."""
     corpo = prefixo + "".join(rng.choice(string.digits) for _ in range(8 - len(prefixo)))
-    soma = sum(int(d) * p for d, p in zip(corpo, range(9, 1, -1)))
+    soma = sum(int(d) * p for d, p in zip(corpo, range(9, 1, -1), strict=True))
     resto = soma % 11
     return corpo + str(0 if resto < 2 else 11 - resto)
 
 
-def texto_qr(nif: str, nif_cliente: str, numero: str, atcud: str, emissao: date, linhas_iva: list[dict], total: float) -> str:
+def texto_qr(
+    nif: str, nif_cliente: str, numero: str, atcud: str, emissao: date, linhas_iva: list[dict], total: float
+) -> str:
     """Monta o texto do QR segundo a Portaria n.º 195/2020 (Continente)."""
     campos = {"reduzida": ("I3", "I4", 6), "intermedia": ("I5", "I6", 13), "normal": ("I7", "I8", 23)}
     partes = [f"A:{nif}", f"B:{nif_cliente}", "C:PT", "D:FT", "E:N", f"F:{emissao:%Y%m%d}",
               f"G:{numero}", f"H:{atcud}", "I1:PT"]
     for campo_base, campo_iva, taxa in campos.values():
-        linha = next((l for l in linhas_iva if l["taxa"] == taxa), None)
+        linha = next((li for li in linhas_iva if li["taxa"] == taxa), None)
         if linha:
             partes += [f"{campo_base}:{linha['base']:.2f}", f"{campo_iva}:{linha['valor']:.2f}"]
-    total_iva = sum(l["valor"] for l in linhas_iva)
+    total_iva = sum(li["valor"] for li in linhas_iva)
     partes += [f"N:{total_iva:.2f}", f"O:{total:.2f}", "Q:demo", "R:0000"]
     return "*".join(partes)
 
@@ -174,8 +184,8 @@ def gerar_pdf(fornecedor: FornecedorDemo, nif: str, nif_cliente: str, numero: st
         escrever(300, y, f"Taxa {linha['taxa']:g}%   Base {_euros(linha['base'])}   IVA {_euros(linha['valor'])}", 9)
         y -= 13
     y -= 10
-    escrever(300, y, f"Total sem IVA: {_euros(sum(l['base'] for l in linhas_iva))}", 10)
-    escrever(300, y - 15, f"Total IVA: {_euros(sum(l['valor'] for l in linhas_iva))}", 10)
+    escrever(300, y, f"Total sem IVA: {_euros(sum(li['base'] for li in linhas_iva))}", 10)
+    escrever(300, y - 15, f"Total IVA: {_euros(sum(li['valor'] for li in linhas_iva))}", 10)
     escrever(300, y - 35, f"TOTAL: {_euros(total)}", 13, negrito=True)
 
     # Rodapé fiscal com QR
@@ -186,9 +196,9 @@ def gerar_pdf(fornecedor: FornecedorDemo, nif: str, nif_cliente: str, numero: st
     tamanho_modulo = 110 / lado
     origem_x, origem_y = 50, 60
     retangulos = [
-        f"{origem_x + c * tamanho_modulo:.2f} {origem_y + (lado - 1 - l) * tamanho_modulo:.2f} "
+        f"{origem_x + c * tamanho_modulo:.2f} {origem_y + (lado - 1 - lin) * tamanho_modulo:.2f} "
         f"{tamanho_modulo:.2f} {tamanho_modulo:.2f} re"
-        for l in range(lado) for c in range(lado) if matriz[l, c] == 0  # 0 = módulo preto
+        for lin in range(lado) for c in range(lado) if matriz[lin, c] == 0  # 0 = módulo preto
     ]
     ops.append("0 g " + " ".join(retangulos) + " f")
     escrever(180, 150, f"ATCUD: {atcud}", 9)
@@ -264,7 +274,8 @@ def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int
     indices_vencidas = {quantidade // 3, quantidade // 2}
 
     for indice, emissao in enumerate(datas):
-        fornecedor = FORNECEDORES[indice % len(FORNECEDORES)] if indice < len(FORNECEDORES) else rng.choice(FORNECEDORES)
+        # Os primeiros 7 garantem um de cada fornecedor; os restantes são sorteados
+        fornecedor = FORNECEDORES[indice] if indice < len(FORNECEDORES) else rng.choice(FORNECEDORES)
         vencimento = emissao + timedelta(days=30)
 
         # Linhas de produtos e resumo do IVA
@@ -277,8 +288,8 @@ def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int
         for _, qtd, _, preco, taxa in itens:
             bases[taxa] = round(bases.get(taxa, 0.0) + qtd * preco, 2)
         linhas_iva = [{"taxa": t, "base": b, "valor": round(b * t / 100, 2)} for t, b in sorted(bases.items())]
-        valor_sem_iva = round(sum(l["base"] for l in linhas_iva), 2)
-        total = round(valor_sem_iva + sum(l["valor"] for l in linhas_iva), 2)
+        valor_sem_iva = round(sum(li["base"] for li in linhas_iva), 2)
+        total = round(valor_sem_iva + sum(li["valor"] for li in linhas_iva), 2)
 
         series[fornecedor.nome] += 1
         numero = f"FT {emissao.year}/{series[fornecedor.nome]:04d}"

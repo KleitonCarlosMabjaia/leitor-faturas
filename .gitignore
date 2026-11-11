@@ -20,3 +20,7 @@ uploads/*
 # Sistema
 .DS_Store
 .vscode/settings.json
+
+# Ferramentas de desenvolvimento
+.ruff_cache/
+test-results/

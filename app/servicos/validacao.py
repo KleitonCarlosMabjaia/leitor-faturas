@@ -26,7 +26,7 @@ def nif_valido(nif: str) -> bool:
     if nif[0] not in PREFIXOS_UM_DIGITO and nif[:2] not in PREFIXOS_DOIS_DIGITOS:
         return False
 
-    soma = sum(int(digito) * peso for digito, peso in zip(nif[:8], range(9, 1, -1)))
+    soma = sum(int(digito) * peso for digito, peso in zip(nif[:8], range(9, 1, -1), strict=True))
     resto = soma % 11
     controlo = 0 if resto < 2 else 11 - resto
     return controlo == int(nif[8])

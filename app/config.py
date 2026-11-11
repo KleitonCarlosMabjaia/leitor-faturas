@@ -13,9 +13,11 @@ from dotenv import load_dotenv
 # Pastas do projeto (calculadas a partir deste ficheiro, funcionam em qualquer PC)
 BASE_DIR = Path(__file__).resolve().parent.parent
 STATIC_DIR = BASE_DIR / "static"
-UPLOAD_DIR = BASE_DIR / "uploads"
 
 load_dotenv(BASE_DIR / ".env")
+
+# Pasta dos PDFs quando não há bucket S3 (os testes da interface usam uma pasta temporária)
+UPLOAD_DIR = Path(os.getenv("PASTA_UPLOADS") or BASE_DIR / "uploads")
 
 TAMANHO_MAXIMO = 10 * 1024 * 1024  # 10 MB
 

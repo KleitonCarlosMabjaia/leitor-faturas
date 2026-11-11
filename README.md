@@ -1,5 +1,7 @@
 # Leitor de Faturas
 
+[![Testes](https://github.com/KleitonCarlosMabjaia/leitor-faturas/actions/workflows/testes.yml/badge.svg)](https://github.com/KleitonCarlosMabjaia/leitor-faturas/actions/workflows/testes.yml)
+
 Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, lojas, escritórios de contabilidade), com **acesso por convite e dados separados por empresa**, que **lê faturas de fornecedores em PDF**, extrai os dados automaticamente, guarda-os numa base de dados e mostra os gastos num dashboard, com exportação para Excel.
 
 A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o **código QR da AT** (gratuito e exato), depois uma **cache de fornecedores** por NIF e, só no fim, **IA** (API do Claude) para o que falta.
@@ -78,7 +80,7 @@ PDF ──► QR da AT? ──sim──► fornecedor conhecido (cache)? ──s
 | IA | SDK oficial `anthropic` (modelo configurável) |
 | Exportação | openpyxl |
 | Frontend | HTML, CSS e JavaScript, sem frameworks; Chart.js; ícones SVG próprios |
-| Testes | pytest |
+| Testes | pytest, Playwright, ruff, GitHub Actions |
 | Publicação | Docker, Render (web + tarefa agendada), Sentry |
 
 ## Como executar
@@ -150,10 +152,19 @@ Todos os nomes, moradas e NIFs são inventados.
 ## Testes
 
 ```bash
-pytest
+pip install -r requirements-dev.txt
+playwright install chromium        # só da primeira vez
+
+ruff check .                       # estilo e erros comuns
+pytest                             # servidor: 102 testes, poucos segundos, sem navegador
+pytest tests_ui                    # interface: 15 testes num Chromium a sério (Playwright)
 ```
 
-Cada teste usa uma base de dados temporária, a IA é substituída por uma função falsa e o bucket S3 por um objeto falso.
+Nos testes do servidor, cada teste usa uma base de dados temporária, a IA é substituída por uma função falsa e o bucket S3 por um objeto falso.
+
+Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
+
+O **GitHub Actions** corre tudo em cada push (`.github/workflows/testes.yml`), incluindo o teste de PostgreSQL com uma base de dados verdadeira.
 
 Há também um teste com PostgreSQL verdadeiro (migrações e restauro de uma cópia feita em SQLite). Só corre se houver uma base de dados de teste, que é **apagada** pelo teste:
 
@@ -284,11 +295,15 @@ leitor-faturas/
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 102 testes pytest
+├── tests/                   # 102 testes do servidor (pytest)
+├── tests_ui/                # 15 testes da interface (Playwright)
+├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini
 ├── Dockerfile
 ├── render.yaml
 ├── .env.example
+├── pyproject.toml           # configuração do ruff e do pytest
+├── requirements-dev.txt     # ferramentas de desenvolvimento
 └── requirements.txt
 ```
 
