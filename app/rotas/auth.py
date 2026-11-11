@@ -17,7 +17,7 @@ from app.db import get_db
 from app.dependencias import NOME_COOKIE, utilizador_atual
 from app.modelos.esquemas import SessaoSaida
 from app.modelos.tabelas import Utilizador
-from app.servicos import autenticacao
+from app.servicos import autenticacao, limites
 from app.servicos.autenticacao import ErroAutenticacao
 
 router = APIRouter(prefix="/api/auth", tags=["autenticação"])
@@ -67,9 +67,15 @@ def _sem_demo() -> None:
         raise HTTPException(status_code=400, detail="Na demonstração não é preciso entrar.")
 
 
+def _limitar(request: Request) -> None:
+    # Por IP: o bloqueio da conta não trava quem experimenta muitos emails diferentes
+    limites.verificar(limites.login, request.client.host if request.client else "desconhecido")
+
+
 @router.post("/entrar", response_model=SessaoSaida)
 def entrar(credenciais: Credenciais, request: Request, response: Response, db: Session = Depends(get_db)):
     _sem_demo()
+    _limitar(request)
     try:
         utilizador = autenticacao.entrar(db, credenciais.email, credenciais.palavra_passe)
     except ErroAutenticacao as erro:
@@ -92,9 +98,10 @@ def quem_sou_eu(utilizador: Utilizador = Depends(utilizador_atual)):
 
 # O token vai no corpo do pedido (POST) e não no endereço, para não ficar em registos
 @router.post("/link")
-def consultar_link(dados: Token, db: Session = Depends(get_db)):
+def consultar_link(dados: Token, request: Request, db: Session = Depends(get_db)):
     """Diz a quem pertence um link de convite, para a página o mostrar."""
     _sem_demo()
+    _limitar(request)
     try:
         utilizador = autenticacao.consultar_link(db, dados.token)
     except ErroAutenticacao as erro:
@@ -106,6 +113,7 @@ def consultar_link(dados: Token, db: Session = Depends(get_db)):
 def definir_palavra_passe(dados: NovaPalavraPasse, request: Request, response: Response, db: Session = Depends(get_db)):
     """Aceita o convite (ou repõe a palavra-passe) e entra logo na aplicação."""
     _sem_demo()
+    _limitar(request)
     try:
         utilizador = autenticacao.definir_palavra_passe(db, dados.token, dados.palavra_passe)
     except ErroAutenticacao as erro:

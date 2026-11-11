@@ -22,7 +22,7 @@ import zxingcpp
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.db import SessaoLocal, criar_tabelas
+from app.db import SessaoLocal, preparar_base_dados
 from app.modelos.fatura import DadosFatura
 from app.dependencias import EMAIL_DEMO
 from app.modelos.tabelas import (
@@ -334,7 +334,7 @@ def main() -> int:
     parser.add_argument("--limpar", action="store_true", help="apaga a empresa de demonstração e cria-a de novo")
     args = parser.parse_args()
 
-    criar_tabelas()
+    preparar_base_dados()
     with SessaoLocal() as db:
         if empresa_demo(db) is not None:
             if not args.limpar:

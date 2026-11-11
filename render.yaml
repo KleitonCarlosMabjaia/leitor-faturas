@@ -1,13 +1,76 @@
-# Configuração para publicar no Render (https://render.com) com o plano gratuito.
+# Configuração para publicar no Render (https://render.com).
 # No Render: New > Blueprint > escolher este repositório.
+#
+# São dois ambientes separados, a partir do mesmo código:
+#   1. leitor-faturas           -> demonstração pública do portefólio (gratuita, sem login, IA desligada)
+#   2. leitor-faturas-clientes  -> clientes reais (plano pago, PostgreSQL, PDFs no Cloudflare R2)
+#      + leitor-faturas-copias  -> cópia de segurança diária da base de dados
+#
+# Os valores marcados com "sync: false" são segredos: o Render pede-os no painel e
+# eles nunca ficam escritos no repositório.
+
 services:
+  # ---------- 1. Demonstração pública ----------
   - type: web
     name: leitor-faturas
     runtime: docker
     plan: free
+    region: frankfurt
     healthCheckPath: /api/saude
     envVars:
-      # Demonstração pública: cria as 30 faturas de exemplo e desliga a IA
-      # (os visitantes não gastam os seus créditos; o QR continua a ser lido)
+      # Cria a empresa de demonstração e desliga a IA (os visitantes não gastam créditos;
+      # o QR continua a ser lido). O disco apaga-se a cada reinício, o que aqui não importa.
       - key: MODO_DEMO
         value: "1"
+
+  # ---------- 2. Clientes reais ----------
+  # Plano pago: não adormece e tem acesso à "Shell" do Render para correr
+  # "python -m app.admin criar-empresa ..." (criar clientes) e "python -m app.copias ...".
+  - type: web
+    name: leitor-faturas-clientes
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    healthCheckPath: /api/saude
+    envVars:
+      - key: AMBIENTE
+        value: producao
+      - key: URL_PUBLICO            # ex.: https://faturas.o-meu-dominio.pt (usado nos links de convite)
+        sync: false
+      - key: URL_BASE_DADOS         # PostgreSQL (Neon ou Render Postgres), com ?sslmode=require
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL        # https://<id-da-conta>.r2.cloudflarestorage.com
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: SENTRY_DSN             # opcional
+        sync: false
+
+  # Cópia de segurança diária às 03:00 (UTC). Guarda em copias/ no bucket e mantém as últimas 30.
+  - type: cron
+    name: leitor-faturas-copias
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    schedule: "0 3 * * *"
+    dockerCommand: python -m app.copias criar
+    envVars:
+      - key: AMBIENTE
+        value: producao
+      - key: URL_BASE_DADOS
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+# Se a cópia falhar, o comando termina com erro e o Render avisa por email.

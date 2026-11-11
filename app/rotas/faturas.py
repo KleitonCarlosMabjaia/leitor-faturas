@@ -9,11 +9,12 @@ As funções são "def" (síncronas) de propósito: a leitura do PDF e a chamada
 sem bloquear os outros pedidos.
 """
 
+import logging
 from datetime import date
 from typing import Literal
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
-from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -23,9 +24,10 @@ from app.dependencias import utilizador_atual
 from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
 from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
-from app.servicos import armazenamento, exportacao, processamento, repositorio
+from app.servicos import armazenamento, exportacao, limites, processamento, repositorio
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
+logger = logging.getLogger(__name__)
 
 PADRAO_MES = r"^\d{4}-(0[1-9]|1[0-2])$"
 
@@ -51,6 +53,7 @@ def carregar_fatura(
     utilizador: Utilizador = Depends(utilizador_atual),
 ):
     """Recebe um PDF, guarda-o e extrai os dados."""
+    limites.verificar(limites.envios, f"utilizador-{utilizador.id}")
     if not ficheiro.filename or not ficheiro.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Só são aceites ficheiros PDF.")
 
@@ -65,7 +68,9 @@ def carregar_fatura(
 
     try:
         id_fatura, nome_ficheiro = armazenamento.guardar_pdf(conteudo, ficheiro.filename, utilizador.empresa_id)
-    except OSError:
+    except Exception:
+        # Disco cheio, bucket inacessível, credenciais erradas...: o detalhe fica nos registos
+        logger.exception("Falha ao guardar o PDF")
         raise HTTPException(status_code=500, detail="Não foi possível guardar o ficheiro no servidor.")
 
     fatura = Fatura(
@@ -150,15 +155,16 @@ def obter_fatura(id_fatura: str, db: Session = Depends(get_db), utilizador: Util
 @router.get("/{id_fatura}/pdf")
 def obter_pdf(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
     fatura = _obter_ou_404(db, utilizador, id_fatura)
-    caminho = armazenamento.caminho_pdf(fatura.ficheiro)
-    if caminho is None:
+    conteudo = armazenamento.ler_pdf(fatura.ficheiro)
+    if conteudo is None:
         raise HTTPException(status_code=404, detail="O ficheiro PDF desta fatura não foi encontrado.")
-    # "inline" faz o navegador mostrar o PDF em vez de o descarregar
-    return FileResponse(
-        caminho,
+    # O PDF passa pela API (e não por um link direto ao bucket): o bucket fica privado
+    # e a sessão e a empresa são verificadas em cada pedido.
+    # "inline" faz o navegador mostrar o PDF em vez de o descarregar; filename* aceita acentos.
+    return Response(
+        conteudo,
         media_type="application/pdf",
-        content_disposition_type="inline",
-        filename=fatura.nome_original,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(fatura.nome_original)}"},
     )
 
 
@@ -227,12 +233,12 @@ def marcar_pagamento(
 def extrair_novamente(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
     """Volta a ler uma fatura já guardada (útil depois de um erro)."""
     fatura = _obter_ou_404(db, utilizador, id_fatura)
-    caminho = armazenamento.caminho_pdf(fatura.ficheiro)
-    if caminho is None:
+    conteudo = armazenamento.ler_pdf(fatura.ficheiro)
+    if conteudo is None:
         raise HTTPException(status_code=404, detail="O ficheiro PDF desta fatura não foi encontrado.")
 
     try:
-        processamento.processar(db, fatura, caminho.read_bytes())
+        processamento.processar(db, fatura, conteudo)
     except processamento.FaturaDuplicada as erro:
         db.rollback()
         raise HTTPException(status_code=409, detail=str(erro))

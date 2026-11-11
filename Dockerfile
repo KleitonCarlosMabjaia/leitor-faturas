@@ -16,6 +16,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY static ./static
+COPY migracoes ./migracoes
+COPY alembic.ini .
 
 # Não correr como root: se alguém explorar uma falha, fica com menos permissões
 RUN useradd --create-home leitor \
@@ -25,6 +27,7 @@ USER leitor
 
 EXPOSE 8000
 
+# Ao arrancar, a aplicação aplica as migrações da base de dados em falta (Alembic).
 # Os serviços de alojamento (Render, Railway...) indicam a porta na variável PORT.
 # --proxy-headers: o HTTPS termina no proxy do alojamento; assim a aplicação sabe que o
 # pedido original veio por HTTPS e marca o cookie de sessão como "Secure".

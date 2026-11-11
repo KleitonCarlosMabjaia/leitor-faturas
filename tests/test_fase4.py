@@ -39,7 +39,7 @@ def test_demo_cria_30_faturas_coerentes(com_demo):
 def test_pdf_de_demonstracao_tem_qr_legivel(com_demo):
     with com_demo() as db:
         fatura = db.query(Fatura).first()
-        conteudo = (demo.armazenamento.caminho_pdf(fatura.ficheiro)).read_bytes()
+        conteudo = demo.armazenamento.ler_pdf(fatura.ficheiro)
     dados_qr = qr.ler_qr(conteudo)
     assert dados_qr["total"] == fatura.total
     assert dados_qr["numero_fatura"] == fatura.numero_fatura

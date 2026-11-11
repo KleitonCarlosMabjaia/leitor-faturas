@@ -39,9 +39,16 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Papéis **administrador** (gere a equipa) e **membro**. Desativar uma conta corta o acesso de imediato.
 - Links de convite de uso único, válidos 72 horas, com o token fora dos registos do servidor.
 
+**Pronta para produção**
+- **PostgreSQL** em produção (SQLite em desenvolvimento), com migrações **Alembic** aplicadas ao arrancar.
+- PDFs num bucket privado **Cloudflare R2** (compatível com S3), numa pasta por empresa.
+- **Cópia de segurança diária** da base de dados, num formato que se restaura em SQLite ou PostgreSQL.
+- **Limite de pedidos** no login (por IP) e no envio de faturas (por utilizador).
+- Registo de erros no **Sentry** (opcional), sem dados pessoais nem dados das faturas.
+
 **Qualidade**
 - Interface em português de Portugal, modo claro e escuro, navegação por teclado, adaptada a telemóvel.
-- 82 testes automáticos (pytest), incluindo isolamento entre empresas. Correm sem Internet e sem chave da API.
+- 102 testes automáticos (pytest), incluindo isolamento entre empresas e migrações. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -62,13 +69,14 @@ PDF ──► QR da AT? ──sim──► fornecedor conhecido (cache)? ──s
 | --- | --- |
 | Backend | Python 3.11+, FastAPI, Uvicorn, Pydantic |
 | Segurança | Argon2 (argon2-cffi), sessões no servidor, cookies HttpOnly |
-| Base de dados | SQLite com SQLAlchemy 2.0 |
+| Base de dados | SQLAlchemy 2.0; SQLite (desenvolvimento) e PostgreSQL com psycopg 3 (produção); Alembic |
+| Ficheiros | Pasta local ou Cloudflare R2 / S3 (boto3) |
 | PDF e QR | pypdf, pdfplumber, pypdfium2, zxing-cpp |
 | IA | SDK oficial `anthropic` (modelo configurável) |
 | Exportação | openpyxl |
 | Frontend | HTML, CSS e JavaScript, sem frameworks; Chart.js |
 | Testes | pytest |
-| Publicação | Docker, Render |
+| Publicação | Docker, Render (web + tarefa agendada), Sentry |
 
 ## Como executar
 
@@ -142,9 +150,16 @@ Todos os nomes, moradas e NIFs são inventados.
 pytest
 ```
 
-Cada teste usa uma base de dados temporária, e a IA é substituída por uma função falsa.
+Cada teste usa uma base de dados temporária, a IA é substituída por uma função falsa e o bucket S3 por um objeto falso.
 
-## Publicar (Render, gratuito)
+Há também um teste com PostgreSQL verdadeiro (migrações e restauro de uma cópia feita em SQLite). Só corre se houver uma base de dados de teste, que é **apagada** pelo teste:
+
+```bash
+# PowerShell: $env:TESTE_POSTGRES_URL="postgresql://utilizador:palavra-passe@localhost/teste"
+TESTE_POSTGRES_URL=postgresql://utilizador:palavra-passe@localhost/teste pytest -k postgresql
+```
+
+## Publicar a demonstração (Render, gratuito)
 
 O repositório inclui um `Dockerfile` e um `render.yaml`.
 
@@ -154,7 +169,7 @@ O repositório inclui um `Dockerfile` e um `render.yaml`.
 
 A versão publicada corre em **modo de demonstração** (`MODO_DEMO=1`): é aberta a todos, sem login, entra diretamente na empresa de demonstração e tem a **IA desligada**, para que os visitantes não gastem créditos da API. O QR continua a ser lido e a gestão da equipa está desligada.
 
-Para clientes reais, publica-se **outro serviço**, sem `MODO_DEMO`, com `URL_PUBLICO` definido, base de dados PostgreSQL e armazenamento permanente para os PDFs (ver "Próximos passos").
+Para clientes reais, publica-se **outro serviço**, sem `MODO_DEMO` (ver "Produção para clientes").
 
 No plano gratuito, o servidor adormece ao fim de 15 minutos sem visitas (o primeiro acesso demora cerca de 1 minuto) e o disco não é permanente: a cada novo arranque, os dados voltam às faturas de demonstração. Para uma demonstração isto é uma vantagem, porque fica sempre limpa.
 
@@ -165,12 +180,53 @@ docker build -t leitor-faturas .
 docker run -p 8000:8000 -e MODO_DEMO=1 leitor-faturas
 ```
 
+## Produção para clientes
+
+A demonstração e a versão dos clientes são **serviços separados**, a partir do mesmo código. A dos clientes guarda tudo fora do contentor, porque o disco dos contentores apaga-se a cada nova versão:
+
+| Peça | Serviço sugerido | Variáveis |
+| --- | --- | --- |
+| Aplicação | Render, plano pago (não adormece e tem Shell) | `URL_PUBLICO`, `AMBIENTE=producao` |
+| Base de dados | PostgreSQL no Neon ou no Render | `URL_BASE_DADOS` (ou `DATABASE_URL`) |
+| PDFs e cópias | Bucket privado no Cloudflare R2 | `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` |
+| Cópia diária | Tarefa agendada do Render (`python -m app.copias criar`) | as mesmas da base de dados e do bucket |
+| Erros | Sentry (opcional) | `SENTRY_DSN` |
+
+O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.
+
+**Passos:**
+
+1. Criar a base de dados PostgreSQL e copiar o endereço de ligação (com `?sslmode=require`).
+2. No Cloudflare: **R2 → Create bucket** (privado), e depois **Manage API tokens** com permissão de leitura e escrita só nesse bucket.
+3. No Render, **New → Blueprint** com o repositório e preencher as variáveis pedidas.
+4. Ao arrancar, a aplicação cria as tabelas sozinha (`alembic upgrade head`).
+5. Na **Shell** do serviço, criar o primeiro cliente: `python -m app.admin criar-empresa ...`
+
+**Cópias de segurança:**
+
+```bash
+python -m app.copias criar                     # cópia agora (no bucket, em copias/)
+python -m app.copias listar
+python -m app.copias restaurar --chave copias/2026-11-11_030000.json.gz --substituir
+```
+
+A cópia é um JSON comprimido, independente do motor: uma cópia de SQLite restaura-se em PostgreSQL. As últimas 30 cópias são mantidas (`COPIAS_A_MANTER`). Os PDFs não entram na cópia porque ficam no bucket.
+
+**Migrações**, depois de alterar `app/modelos/tabelas.py`:
+
+```bash
+alembic revision --autogenerate -m "o que mudou"   # rever o ficheiro gerado em migracoes/versions/
+alembic upgrade head                                # ou simplesmente arrancar a aplicação
+```
+
+Um teste confirma que as migrações e os modelos não divergem.
+
 ## API
 
 | Método | Endereço | Descrição |
 | --- | --- | --- |
-| GET | `/api/saude` | Estado do servidor, IA configurada e modo de demonstração (a única rota pública) |
-| POST | `/api/auth/entrar` | Inicia sessão (`email`, `palavra_passe`) |
+| GET | `/api/saude` | Estado do servidor e da base de dados (503 se não responder), IA e modo de demonstração. A única rota pública |
+| POST | `/api/auth/entrar` | Inicia sessão (`email`, `palavra_passe`). 429 depois de muitas tentativas do mesmo IP |
 | POST | `/api/auth/sair` | Termina a sessão |
 | GET | `/api/auth/eu` | Utilizador e empresa da sessão |
 | POST | `/api/auth/definir-palavra-passe` | Aceita um convite (`token`, `palavra_passe`) e inicia sessão |
@@ -196,10 +252,11 @@ leitor-faturas/
 ├── app/
 │   ├── main.py              # cria a aplicação, liga as rotas, arranque
 │   ├── config.py            # variáveis do .env
-│   ├── db.py                # ligação à base de dados e migrações simples
+│   ├── db.py                # ligação à base de dados; aplica as migrações ao arrancar
 │   ├── dependencias.py      # quem está a fazer o pedido (sessão e papel)
 │   ├── admin.py             # comandos do operador (criar empresas, links)
 │   ├── demo.py              # empresa de demonstração (faturas e PDFs fictícios)
+│   ├── copias.py            # cópias de segurança (criar, listar, restaurar)
 │   ├── modelos/
 │   │   ├── fatura.py        # modelos Pydantic (DadosFatura, EdicaoFatura, LinhaIVA)
 │   │   ├── tabelas.py       # tabelas: empresas, utilizadores, sessões, fornecedores, faturas
@@ -220,9 +277,12 @@ leitor-faturas/
 │       ├── repositorio.py   # consultas à base de dados
 │       ├── estatisticas.py  # números do dashboard
 │       ├── exportacao.py    # CSV e Excel
-│       └── armazenamento.py # ficheiros PDF (uma pasta por empresa)
+│       ├── limites.py       # limite de pedidos (rate limiting)
+│       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
+├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 82 testes pytest
+├── tests/                   # 102 testes pytest
+├── alembic.ini
 ├── Dockerfile
 ├── render.yaml
 ├── .env.example
@@ -237,13 +297,16 @@ leitor-faturas/
 - **pypdfium2 + zxing-cpp** em vez de pdf2image + pyzbar: instalam-se só com `pip`, sem Poppler nem DLLs, e funcionam igual no Windows e no Docker.
 - **Isolamento por empresa em todas as consultas.** O repositório recebe sempre o `empresa_id` de quem está ligado, e uma fatura de outra empresa responde 404, não 403, para nem revelar que existe. Há testes dedicados a isso.
 - **Sessões guardadas no servidor, com o token só como hash.** Ao contrário de um JWT, uma sessão pode ser cortada de imediato (sair, desativar a conta, mudar a palavra-passe), e quem ler a base de dados não fica com tokens utilizáveis.
+- **Armazenamento atrás de uma interface.** As rotas só chamam `guardar_pdf`, `ler_pdf` e `apagar_pdf`; a implementação é a pasta local ou o R2, escolhida pela configuração. Os testes usam um bucket falso, sem rede.
+- **PDFs servidos pela API, não por links diretos ao bucket.** O bucket fica privado e cada pedido passa pela verificação da sessão e da empresa. Com faturas de até 10 MB, o custo de passar pelo servidor é pequeno.
+- **Migrações aplicadas ao arrancar.** Com uma só instância, é a forma mais simples de nunca publicar código novo com tabelas antigas. As bases de dados anteriores ao Alembic são reconhecidas e marcadas na revisão inicial.
+- **Limite de pedidos em memória.** Chega para uma instância e não acrescenta serviços. Com várias instâncias, o contador passaria para o Redis.
 - **Exportação segura.** Os textos vêm de PDFs de terceiros, por isso valores começados por `=`, `+`, `-` ou `@` são neutralizados para o Excel não os executar como fórmulas.
 
 ## Próximos passos
 
 - Envio dos convites por email (SMTP, Resend ou Postmark).
-- Armazenamento permanente para produção: PostgreSQL e Cloudflare R2 (ou S3) para os PDFs.
-- Quota de leituras por IA por empresa, limite de pedidos (rate limiting) e registo de atividade.
-- Migrações com Alembic.
+- Quota de leituras por IA por empresa e registo de atividade (quem fez o quê).
+- Pagamentos e planos por empresa (Stripe).
 - Processamento em segundo plano para lotes grandes de faturas.
 - Leitura por IA de faturas digitalizadas sem QR (envio da imagem da página).

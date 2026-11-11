@@ -15,6 +15,7 @@ from app.main import app
 from app.modelos import tabelas  # noqa: F401  (regista as tabelas em Base.metadata)
 from app.modelos.fatura import DadosFatura
 from app.modelos.tabelas import PAPEL_ADMIN, Empresa, Utilizador
+from app.servicos import limites
 from app.servicos.autenticacao import hash_palavra_passe
 
 
@@ -104,6 +105,14 @@ def fabrica_sessoes(tmp_path, monkeypatch):
     Base.metadata.create_all(motor)
     yield sessionmaker(bind=motor, autoflush=False, expire_on_commit=False)
     motor.dispose()  # no Windows, liberta o ficheiro .db para a pasta temporária poder ser apagada
+
+
+@pytest.fixture(autouse=True)
+def limites_limpos():
+    """Os contadores de pedidos são globais: cada teste começa do zero."""
+    limites.limpar_todos()
+    yield
+    limites.limpar_todos()
 
 
 PALAVRA_PASSE_TESTE = "palavra-passe-de-teste-1"

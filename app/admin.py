@@ -16,7 +16,7 @@ import sys
 
 from sqlalchemy import func, select, update
 
-from app.db import SessaoLocal, criar_tabelas
+from app.db import SessaoLocal, preparar_base_dados
 from app.modelos.tabelas import PAPEL_ADMIN, Empresa, Fatura, Fornecedor, Utilizador
 from app.servicos import autenticacao, validacao
 
@@ -117,7 +117,7 @@ def main() -> int:
         sub.add_argument("--id", type=int, required=True)
 
     args = parser.parse_args()
-    criar_tabelas()
+    preparar_base_dados()
 
     if args.comando == "criar-empresa":
         return criar_empresa(args.nome, args.nif, args.admin_nome, args.admin_email)

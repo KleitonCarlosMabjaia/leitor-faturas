@@ -15,10 +15,12 @@ from urllib.parse import quote
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session
 
 from app import config
-from app.db import SessaoLocal, criar_tabelas
+from app.db import SessaoLocal, get_db, preparar_base_dados
 from app.dependencias import utilizador_opcional
 from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
 from app.rotas import auth, dashboard, equipa, faturas, fornecedores
@@ -27,10 +29,31 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger(__name__)
 
 
+def iniciar_sentry() -> None:
+    """
+    Envia os erros para o Sentry, se SENTRY_DSN estiver definido.
+    Sem dados pessoais: nem cookies, nem IPs, nem o conteúdo dos pedidos (que tem dados de faturas).
+    """
+    if not config.SENTRY_DSN:
+        return
+    import sentry_sdk
+
+    sentry_sdk.init(
+        dsn=config.SENTRY_DSN,
+        environment=config.AMBIENTE,
+        send_default_pii=False,
+        max_request_body_size="never",
+        traces_sample_rate=0,  # só erros, sem medição de desempenho
+    )
+
+
+iniciar_sentry()
+
+
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
-    # Cria as tabelas no arranque (e atualiza bases de dados antigas)
-    criar_tabelas()
+    # Aplica as migrações em falta (cria as tabelas numa base de dados nova)
+    preparar_base_dados()
 
     # Na versão publicada, a empresa de demonstração é criada no primeiro arranque
     if config.MODO_DEMO:
@@ -116,8 +139,16 @@ def pagina_definir_palavra_passe():
 
 
 @app.get("/api/saude")
-def saude():
-    """Confirma que o servidor está a correr e se a IA está configurada."""
+def saude(db: Session = Depends(get_db)):
+    """
+    Confirma que o servidor e a base de dados respondem (o alojamento usa esta rota
+    para saber se a aplicação está viva) e se a IA está configurada.
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError:
+        logger.exception("A base de dados não responde")
+        return JSONResponse(status_code=503, content={"estado": "erro", "detalhe": "Base de dados indisponível."})
     return {
         "estado": "ok",
         "ia_configurada": config.CHAVE_API_DEFINIDA,

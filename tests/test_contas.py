@@ -154,8 +154,8 @@ def test_admin_nao_se_altera_a_si_proprio(cliente):
 # ---------- Segurança de ficheiros e migração ----------
 
 def test_caminho_do_pdf_nao_sai_da_pasta(fabrica_sessoes):
-    assert armazenamento.caminho_pdf("../../app/main.py") is None
-    assert armazenamento.caminho_pdf("../dados.db") is None
+    assert armazenamento.ler_pdf("../../app/main.py") is None
+    assert armazenamento.ler_pdf("../dados.db") is None
 
 
 def test_migracao_nif_unico_por_empresa(tmp_path):
