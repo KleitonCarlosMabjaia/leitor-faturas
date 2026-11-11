@@ -4,10 +4,11 @@ Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, loja
 
 A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o **código QR da AT** (gratuito e exato), depois uma **cache de fornecedores** por NIF e, só no fim, **IA** (API do Claude) para o que falta.
 
-<!-- Capturas de ecrã: guardar em docs/capturas/ com estes nomes -->
-| Lista de faturas | Revisão | Dashboard |
+| Lista de faturas | Revisão | Dashboard (modo escuro) |
 | --- | --- | --- |
-| ![Lista de faturas com filtros e estados](docs/capturas/lista.png) | ![PDF ao lado dos campos editáveis](docs/capturas/revisao.png) | ![Indicadores e gráficos de gastos](docs/capturas/dashboard.png) |
+| ![Lista de faturas com pesquisa, filtros por estado e etiquetas](docs/capturas/lista.png) | ![PDF da fatura ao lado dos campos editáveis](docs/capturas/revisao.png) | ![Indicadores, gasto por fornecedor e evolução mensal em modo escuro](docs/capturas/dashboard.png) |
+
+<sub>Capturas com os dados de demonstração (fornecedores e NIFs fictícios).</sub>
 
 ## Funcionalidades
 
