@@ -25,5 +25,7 @@ USER leitor
 
 EXPOSE 8000
 
-# Os serviços de alojamento (Render, Railway...) indicam a porta na variável PORT
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Os serviços de alojamento (Render, Railway...) indicam a porta na variável PORT.
+# --proxy-headers: o HTTPS termina no proxy do alojamento; assim a aplicação sabe que o
+# pedido original veio por HTTPS e marca o cookie de sessão como "Secure".
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --proxy-headers --forwarded-allow-ips='*'"]

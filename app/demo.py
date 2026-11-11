@@ -2,10 +2,11 @@
 Dados de demonstração: 30 faturas fictícias de um restaurante.
 
 Uso:
-    python -m app.demo            # só cria se a base de dados estiver vazia
-    python -m app.demo --limpar   # apaga TUDO (pede confirmação) e cria os dados de novo
+    python -m app.demo            # cria a empresa de demonstração (se ainda não existir)
+    python -m app.demo --limpar   # apaga a empresa de demonstração e cria-a de novo
 
-Os fornecedores, NIFs e valores são inventados. Cada fatura tem um PDF com
+Os dados ficam numa empresa própria ("... (demonstração)"), separada das
+empresas reais. Os fornecedores, NIFs e valores são inventados. Cada fatura tem um PDF com
 texto e um QR da AT verdadeiro (gerado aqui, desenhado em vetores), por isso
 estes PDFs também podem ser carregados na aplicação para testar a leitura.
 """
@@ -18,13 +19,16 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 import zxingcpp
-from sqlalchemy import func, select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import SessaoLocal, criar_tabelas
 from app.modelos.fatura import DadosFatura
-from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Fornecedor
-from app.servicos import armazenamento, repositorio
+from app.dependencias import EMAIL_DEMO
+from app.modelos.tabelas import (
+    ESTADO_CONFIRMADA, ESTADO_POR_REVER, PAPEL_ADMIN, Empresa, Fatura, Fornecedor, Sessao, TokenAcesso, Utilizador,
+)
+from app.servicos import armazenamento, autenticacao, repositorio
 
 SEMENTE = 2026  # mesma semente -> mesmos dados em todas as execuções
 
@@ -221,12 +225,33 @@ def _montar_pdf(conteudo: str) -> bytes:
 
 # ---------- Criação dos dados ----------
 
-def base_vazia(db: Session) -> bool:
-    return db.scalar(select(func.count()).select_from(Fatura)) == 0
+NOME_EMPRESA_DEMO = "Restaurante O Cantinho da Esquina (demonstração)"
 
 
-def criar_dados_demo(db: Session, quantidade: int = 30, hoje: date | None = None) -> int:
-    """Cria as faturas de demonstração (com PDFs) e devolve quantas criou."""
+def empresa_demo(db: Session) -> Empresa | None:
+    utilizador = db.scalar(select(Utilizador).where(Utilizador.email == EMAIL_DEMO))
+    return utilizador.empresa if utilizador else None
+
+
+def criar_empresa_demo(db: Session) -> Empresa:
+    """Empresa e utilizador de demonstração (separados das empresas reais)."""
+    empresa = Empresa(nome=NOME_EMPRESA_DEMO)
+    db.add(empresa)
+    db.flush()
+    db.add(Utilizador(empresa_id=empresa.id, nome="Utilizador de demonstração", email=EMAIL_DEMO, papel=PAPEL_ADMIN))
+    db.flush()
+    return empresa
+
+
+def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int = 30, hoje: date | None = None) -> int:
+    """
+    Cria as faturas de demonstração (com PDFs) e devolve quantas criou.
+    Sem empresa_id, cria (ou reutiliza) a empresa de demonstração.
+    """
+    if empresa_id is None:
+        empresa = empresa_demo(db) or criar_empresa_demo(db)
+        empresa_id = empresa.id
+
     hoje = hoje or date.today()
     rng = random.Random(SEMENTE)
     nif_cliente = gerar_nif(rng, "5")
@@ -263,7 +288,7 @@ def criar_dados_demo(db: Session, quantidade: int = 30, hoje: date | None = None
 
         conteudo = gerar_pdf(fornecedor, nif, nif_cliente, numero, atcud, emissao, vencimento, itens, linhas_iva, total)
         nome_ficheiro = f"{fornecedor.categoria}-{numero.replace(' ', '-').replace('/', '-')}.pdf"
-        id_fatura, ficheiro = armazenamento.guardar_pdf(conteudo, nome_ficheiro)
+        id_fatura, ficheiro = armazenamento.guardar_pdf(conteudo, nome_ficheiro, empresa_id)
 
         dados = DadosFatura(
             fornecedor=fornecedor.nome, nif_fornecedor=nif, numero_fatura=numero,
@@ -271,7 +296,7 @@ def criar_dados_demo(db: Session, quantidade: int = 30, hoje: date | None = None
             valor_sem_iva=valor_sem_iva, iva=linhas_iva, total=total, moeda="EUR", confianca="alta",
         )
         fatura = Fatura(
-            id=id_fatura, ficheiro=ficheiro, nome_original=nome_ficheiro,
+            id=id_fatura, empresa_id=empresa_id, ficheiro=ficheiro, nome_original=nome_ficheiro,
             tamanho_kb=round(len(conteudo) / 1024, 1), estado_extracao="concluida",
             origem="qr+ia", atcud=atcud, tipo_documento="FT",
             # As 4 mais recentes ficam por rever, para a demonstração ter trabalho pendente
@@ -286,38 +311,46 @@ def criar_dados_demo(db: Session, quantidade: int = 30, hoje: date | None = None
     return quantidade
 
 
-def apagar_tudo(db: Session) -> None:
-    for fatura in db.scalars(select(Fatura)):
+def apagar_empresa_demo(db: Session) -> None:
+    """Apaga a empresa de demonstração e tudo o que lhe pertence. As empresas reais não são tocadas."""
+    empresa = empresa_demo(db)
+    if empresa is None:
+        return
+    for fatura in db.scalars(select(Fatura).where(Fatura.empresa_id == empresa.id)):
         armazenamento.apagar_pdf(fatura.ficheiro)
         db.delete(fatura)
-    for fornecedor in db.scalars(select(Fornecedor)):
-        db.delete(fornecedor)
+    db.flush()
+    db.execute(delete(Fornecedor).where(Fornecedor.empresa_id == empresa.id))
+    ids = select(Utilizador.id).where(Utilizador.empresa_id == empresa.id)
+    db.execute(delete(Sessao).where(Sessao.utilizador_id.in_(ids)))
+    db.execute(delete(TokenAcesso).where(TokenAcesso.utilizador_id.in_(ids)))
+    db.execute(delete(Utilizador).where(Utilizador.empresa_id == empresa.id))
+    db.delete(empresa)
     db.commit()
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Cria 30 faturas fictícias de um restaurante.")
-    parser.add_argument("--limpar", action="store_true", help="apaga todas as faturas antes de criar as de demonstração")
-    parser.add_argument("--sim", action="store_true", help="não pede confirmação ao limpar")
+    parser = argparse.ArgumentParser(description="Cria uma empresa de demonstração com 30 faturas fictícias.")
+    parser.add_argument("--limpar", action="store_true", help="apaga a empresa de demonstração e cria-a de novo")
     args = parser.parse_args()
 
     criar_tabelas()
     with SessaoLocal() as db:
-        if not base_vazia(db):
+        if empresa_demo(db) is not None:
             if not args.limpar:
-                print("A base de dados já tem faturas. Nada foi alterado.")
-                print("Para apagar TUDO e criar os dados de demonstração: python -m app.demo --limpar")
+                print("A empresa de demonstração já existe. Para a recriar: python -m app.demo --limpar")
                 return 1
-            total = db.scalar(select(func.count()).select_from(Fatura))
-            if not args.sim:
-                resposta = input(f"Vai apagar {total} fatura(s) e os respetivos PDFs. Escreva 'sim' para continuar: ")
-                if resposta.strip().lower() != "sim":
-                    print("Cancelado.")
-                    return 1
-            apagar_tudo(db)
+            apagar_empresa_demo(db)
 
         criadas = criar_dados_demo(db)
-        print(f"Criadas {criadas} faturas de demonstração.")
+        print(f"Criada a empresa '{NOME_EMPRESA_DEMO}' com {criadas} faturas.")
+
+        # Fora do modo de demonstração é preciso entrar: gera um link para definir a palavra-passe
+        utilizador = db.scalar(select(Utilizador).where(Utilizador.email == EMAIL_DEMO))
+        link = autenticacao.criar_link_acesso(db, utilizador)
+        db.commit()
+        print(f"\nPara entrar como {EMAIL_DEMO}, defina a palavra-passe neste link (válido 72 horas):\n{link}")
+        print("\n(Com MODO_DEMO=1 no .env não é preciso: entra-se diretamente.)")
     return 0
 
 

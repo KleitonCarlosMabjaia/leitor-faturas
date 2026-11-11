@@ -1,6 +1,9 @@
 """
 Endpoints REST das faturas.
 
+Todas as rotas exigem sessão iniciada (Depends(utilizador_atual)) e só veem as
+faturas da empresa de quem faz o pedido.
+
 As funções são "def" (síncronas) de propósito: a leitura do PDF e a chamada
 à IA são bloqueantes, e o FastAPI corre funções síncronas numa thread à parte,
 sem bloquear os outros pedidos.
@@ -16,9 +19,10 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.db import get_db
+from app.dependencias import utilizador_atual
 from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
-from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura
+from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
 from app.servicos import armazenamento, exportacao, processamento, repositorio
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
@@ -30,17 +34,22 @@ class Pagamento(BaseModel):
     paga: bool
 
 
-def _obter_ou_404(db: Session, id_fatura: str) -> Fatura:
+def _obter_ou_404(db: Session, utilizador: Utilizador, id_fatura: str) -> Fatura:
     if not armazenamento.id_valido(id_fatura):
         raise HTTPException(status_code=400, detail="Identificador inválido.")
-    fatura = repositorio.obter_fatura(db, id_fatura)
+    fatura = repositorio.obter_fatura(db, utilizador.empresa_id, id_fatura)
     if fatura is None:
+        # Também para faturas de outras empresas: não se revela que o id existe
         raise HTTPException(status_code=404, detail="Fatura não encontrada.")
     return fatura
 
 
 @router.post("", status_code=201, response_model=FaturaSaida)
-def carregar_fatura(ficheiro: UploadFile = File(...), db: Session = Depends(get_db)):
+def carregar_fatura(
+    ficheiro: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
     """Recebe um PDF, guarda-o e extrai os dados."""
     if not ficheiro.filename or not ficheiro.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Só são aceites ficheiros PDF.")
@@ -55,12 +64,13 @@ def carregar_fatura(ficheiro: UploadFile = File(...), db: Session = Depends(get_
         raise HTTPException(status_code=400, detail="O ficheiro não é um PDF válido.")
 
     try:
-        id_fatura, nome_ficheiro = armazenamento.guardar_pdf(conteudo, ficheiro.filename)
+        id_fatura, nome_ficheiro = armazenamento.guardar_pdf(conteudo, ficheiro.filename, utilizador.empresa_id)
     except OSError:
         raise HTTPException(status_code=500, detail="Não foi possível guardar o ficheiro no servidor.")
 
     fatura = Fatura(
         id=id_fatura,
+        empresa_id=utilizador.empresa_id,
         ficheiro=nome_ficheiro,
         nome_original=ficheiro.filename,
         tamanho_kb=round(len(conteudo) / 1024, 1),
@@ -91,8 +101,11 @@ def listar_faturas(
     mes: str | None = Query(None, pattern=PADRAO_MES, description="Mês de emissão, AAAA-MM"),
     estado: Literal["por rever", "confirmada"] | None = None,
     db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
 ):
-    return repositorio.listar_faturas(db, fornecedor_id=fornecedor_id, mes=mes, estado=estado)
+    return repositorio.listar_faturas(
+        db, utilizador.empresa_id, fornecedor_id=fornecedor_id, mes=mes, estado=estado
+    )
 
 
 # Tem de vir antes de "/{id_fatura}", senão "exportar" seria lido como um id
@@ -103,10 +116,13 @@ def exportar_faturas(
     mes: str | None = Query(None, pattern=PADRAO_MES),
     estado: Literal["por rever", "confirmada"] | None = None,
     db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
 ):
     """Exporta as faturas (com os mesmos filtros da lista) para CSV ou Excel."""
     faturas = [
-        f for f in repositorio.listar_faturas(db, fornecedor_id=fornecedor_id, mes=mes, estado=estado)
+        f for f in repositorio.listar_faturas(
+            db, utilizador.empresa_id, fornecedor_id=fornecedor_id, mes=mes, estado=estado
+        )
         if f.estado_extracao == "concluida"  # sem dados não há nada útil para exportar
     ]
     # Ordem cronológica, como num extrato
@@ -127,13 +143,13 @@ def exportar_faturas(
 
 
 @router.get("/{id_fatura}", response_model=FaturaSaida)
-def obter_fatura(id_fatura: str, db: Session = Depends(get_db)):
-    return _obter_ou_404(db, id_fatura)
+def obter_fatura(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    return _obter_ou_404(db, utilizador, id_fatura)
 
 
 @router.get("/{id_fatura}/pdf")
-def obter_pdf(id_fatura: str, db: Session = Depends(get_db)):
-    fatura = _obter_ou_404(db, id_fatura)
+def obter_pdf(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    fatura = _obter_ou_404(db, utilizador, id_fatura)
     caminho = armazenamento.caminho_pdf(fatura.ficheiro)
     if caminho is None:
         raise HTTPException(status_code=404, detail="O ficheiro PDF desta fatura não foi encontrado.")
@@ -147,9 +163,14 @@ def obter_pdf(id_fatura: str, db: Session = Depends(get_db)):
 
 
 @router.put("/{id_fatura}", response_model=FaturaSaida)
-def editar_fatura(id_fatura: str, edicao: EdicaoFatura, db: Session = Depends(get_db)):
+def editar_fatura(
+    id_fatura: str,
+    edicao: EdicaoFatura,
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
     """Guarda as correções do utilizador. Com confirmar=true, marca a fatura como confirmada."""
-    fatura = _obter_ou_404(db, id_fatura)
+    fatura = _obter_ou_404(db, utilizador, id_fatura)
 
     if edicao.confirmar:
         # Para confirmar, os campos essenciais têm de estar preenchidos
@@ -167,7 +188,7 @@ def editar_fatura(id_fatura: str, edicao: EdicaoFatura, db: Session = Depends(ge
             raise HTTPException(status_code=422, detail=f"Preencha antes de confirmar: {', '.join(em_falta)}.")
 
     duplicada = repositorio.encontrar_duplicado(
-        db, edicao.nif_fornecedor, edicao.numero_fatura, fatura.atcud, excluir_id=fatura.id
+        db, utilizador.empresa_id, edicao.nif_fornecedor, edicao.numero_fatura, fatura.atcud, excluir_id=fatura.id
     )
     if duplicada:
         raise HTTPException(
@@ -180,7 +201,7 @@ def editar_fatura(id_fatura: str, edicao: EdicaoFatura, db: Session = Depends(ge
     fatura.erro = None
     fatura.estado = ESTADO_CONFIRMADA if edicao.confirmar else ESTADO_POR_REVER
 
-    # O nome confirmado pelo utilizador passa a ser o nome do fornecedor na cache
+    # O nome confirmado pelo utilizador passa a ser o nome do fornecedor na cache da empresa
     if edicao.confirmar and fatura.fornecedor and edicao.fornecedor:
         fatura.fornecedor.nome = edicao.fornecedor
 
@@ -189,18 +210,23 @@ def editar_fatura(id_fatura: str, edicao: EdicaoFatura, db: Session = Depends(ge
 
 
 @router.patch("/{id_fatura}/pagamento", response_model=FaturaSaida)
-def marcar_pagamento(id_fatura: str, pagamento: Pagamento, db: Session = Depends(get_db)):
+def marcar_pagamento(
+    id_fatura: str,
+    pagamento: Pagamento,
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
     """Marca a fatura como paga ou por pagar (separado da edição dos dados da fatura)."""
-    fatura = _obter_ou_404(db, id_fatura)
+    fatura = _obter_ou_404(db, utilizador, id_fatura)
     fatura.paga = pagamento.paga
     db.commit()
     return fatura
 
 
 @router.post("/{id_fatura}/extrair", response_model=FaturaSaida)
-def extrair_novamente(id_fatura: str, db: Session = Depends(get_db)):
+def extrair_novamente(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
     """Volta a ler uma fatura já guardada (útil depois de um erro)."""
-    fatura = _obter_ou_404(db, id_fatura)
+    fatura = _obter_ou_404(db, utilizador, id_fatura)
     caminho = armazenamento.caminho_pdf(fatura.ficheiro)
     if caminho is None:
         raise HTTPException(status_code=404, detail="O ficheiro PDF desta fatura não foi encontrado.")
@@ -215,8 +241,8 @@ def extrair_novamente(id_fatura: str, db: Session = Depends(get_db)):
 
 
 @router.delete("/{id_fatura}", status_code=204)
-def apagar_fatura(id_fatura: str, db: Session = Depends(get_db)):
-    fatura = _obter_ou_404(db, id_fatura)
+def apagar_fatura(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    fatura = _obter_ou_404(db, utilizador, id_fatura)
     db.delete(fatura)
     db.commit()
     # O ficheiro só é apagado depois de a base de dados confirmar

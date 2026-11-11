@@ -14,6 +14,8 @@ from app.db import Base, criar_motor, get_db
 from app.main import app
 from app.modelos import tabelas  # noqa: F401  (regista as tabelas em Base.metadata)
 from app.modelos.fatura import DadosFatura
+from app.modelos.tabelas import PAPEL_ADMIN, Empresa, Utilizador
+from app.servicos.autenticacao import hash_palavra_passe
 
 
 def criar_pdf_com_texto(linhas: list[str]) -> bytes:
@@ -104,9 +106,32 @@ def fabrica_sessoes(tmp_path, monkeypatch):
     motor.dispose()  # no Windows, liberta o ficheiro .db para a pasta temporária poder ser apagada
 
 
+PALAVRA_PASSE_TESTE = "palavra-passe-de-teste-1"
+
+
+def criar_empresa_com_admin(fabrica_sessoes, nome: str, email: str) -> int:
+    """Cria uma empresa com um administrador que já tem palavra-passe. Devolve o id da empresa."""
+    with fabrica_sessoes() as db:
+        empresa = Empresa(nome=nome)
+        db.add(empresa)
+        db.flush()
+        db.add(Utilizador(
+            empresa_id=empresa.id, nome=f"Admin {nome}", email=email, papel=PAPEL_ADMIN,
+            hash_palavra_passe=hash_palavra_passe(PALAVRA_PASSE_TESTE),
+        ))
+        db.commit()
+        return empresa.id
+
+
+def entrar(cliente: TestClient, email: str, palavra_passe: str = PALAVRA_PASSE_TESTE) -> TestClient:
+    resposta = cliente.post("/api/auth/entrar", json={"email": email, "palavra_passe": palavra_passe})
+    assert resposta.status_code == 200, resposta.text
+    return cliente
+
+
 @pytest.fixture
-def cliente(fabrica_sessoes):
-    """Cliente HTTP de teste ligado à base de dados temporária."""
+def cliente_anonimo(fabrica_sessoes):
+    """Cliente HTTP sem sessão, ligado à base de dados temporária."""
 
     def get_db_teste():
         sessao = fabrica_sessoes()
@@ -118,3 +143,25 @@ def cliente(fabrica_sessoes):
     app.dependency_overrides[get_db] = get_db_teste
     yield TestClient(app)
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def empresa_teste(fabrica_sessoes) -> int:
+    return criar_empresa_com_admin(fabrica_sessoes, "Empresa de Teste", "admin@teste.pt")
+
+
+@pytest.fixture
+def cliente(cliente_anonimo, empresa_teste):
+    """Cliente HTTP com sessão iniciada como administrador da empresa de teste."""
+    return entrar(cliente_anonimo, "admin@teste.pt")
+
+
+@pytest.fixture
+def novo_cliente(cliente_anonimo):
+    """Fábrica de clientes extra (cada um com os seus cookies), para testar várias pessoas ao mesmo tempo."""
+
+    def criar(email: str | None = None, palavra_passe: str = PALAVRA_PASSE_TESTE) -> TestClient:
+        outro = TestClient(app)
+        return entrar(outro, email, palavra_passe) if email else outro
+
+    return criar

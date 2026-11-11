@@ -4,6 +4,7 @@ python-multipart==0.0.20
 python-dotenv==1.2.4
 sqlalchemy==2.1.8
 openpyxl==3.1.5
+argon2-cffi==25.1.0
 anthropic==2.8.0
 pypdf==7.0.1
 pdfplumber==0.11.10

@@ -12,6 +12,30 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.modelos.fatura import LinhaIVA
 
 
+class MembroSaida(BaseModel):
+    """Um utilizador, tal como aparece na página da equipa."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    nome: str
+    email: str
+    papel: str
+    ativo: bool
+    ultimo_acesso: datetime | None
+    pendente: bool  # ainda não aceitou o convite
+
+
+class SessaoSaida(BaseModel):
+    """Quem está ligado (para o menu das páginas)."""
+
+    nome: str
+    email: str
+    papel: str
+    empresa: str
+    modo_demo: bool
+
+
 class FornecedorSaida(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

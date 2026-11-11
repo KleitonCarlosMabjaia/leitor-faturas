@@ -51,7 +51,7 @@ def combinar(dados_qr: dict, dados_ia: DadosFatura | None, nome_conhecido: str =
     return dados_ia.model_copy(update={**valores_qr, "moeda": "EUR", "confianca": "alta"})
 
 
-def _ler(db: Session, conteudo: bytes) -> tuple[str, DadosFatura | None, str | None, list[str], dict | None]:
+def _ler(db: Session, empresa_id: int, conteudo: bytes) -> tuple[str, DadosFatura | None, str | None, list[str], dict | None]:
     """
     Faz a leitura sem tocar na fatura.
     Devolve (estado_extracao, dados, origem, alertas ou erro, dados do QR).
@@ -64,7 +64,8 @@ def _ler(db: Session, conteudo: bytes) -> tuple[str, DadosFatura | None, str | N
 
     # 2. Fornecedor conhecido? Então não é preciso IA.
     if dados_qr:
-        conhecido = repositorio.fornecedor_por_nif(db, dados_qr["nif_fornecedor"])
+        # A cache é de cada empresa: o nome que uma empresa confirmou não passa para outra
+        conhecido = repositorio.fornecedor_por_nif(db, empresa_id, dados_qr["nif_fornecedor"])
         if conhecido and conhecido.nome:
             return "concluida", combinar(dados_qr, None, conhecido.nome), "qr+cache", [], dados_qr
 
@@ -94,7 +95,7 @@ def _ler(db: Session, conteudo: bytes) -> tuple[str, DadosFatura | None, str | N
 
 def processar(db: Session, fatura: Fatura, conteudo: bytes) -> Fatura:
     """Lê o PDF e atualiza a fatura (sem commit). Lança FaturaDuplicada se já existir."""
-    estado, dados, origem, mensagens, dados_qr = _ler(db, conteudo)
+    estado, dados, origem, mensagens, dados_qr = _ler(db, fatura.empresa_id, conteudo)
 
     if estado != "concluida":
         repositorio.limpar_dados(fatura)
@@ -104,7 +105,7 @@ def processar(db: Session, fatura: Fatura, conteudo: bytes) -> Fatura:
 
     atcud = dados_qr.get("atcud") if dados_qr else None
     duplicada = repositorio.encontrar_duplicado(
-        db, dados.nif_fornecedor, dados.numero_fatura, atcud, excluir_id=fatura.id
+        db, fatura.empresa_id, dados.nif_fornecedor, dados.numero_fatura, atcud, excluir_id=fatura.id
     )
     if duplicada:
         raise FaturaDuplicada(duplicada)

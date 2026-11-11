@@ -38,12 +38,13 @@ def _nome(fatura: Fatura) -> str:
     return fatura.nome_fornecedor or (f"NIF {fatura.nif_fornecedor}" if fatura.nif_fornecedor else "Sem fornecedor")
 
 
-def resumo(db: Session, mes: str | None = None, hoje: date | None = None) -> dict:
+def resumo(db: Session, empresa_id: int, mes: str | None = None, hoje: date | None = None) -> dict:
     hoje = hoje or date.today()
 
-    # Só contam as faturas lidas com sucesso (as que têm data e total)
+    # Só contam as faturas desta empresa lidas com sucesso (as que têm data e total)
     faturas = list(db.scalars(
         select(Fatura).where(
+            Fatura.empresa_id == empresa_id,
             Fatura.estado_extracao == "concluida",
             Fatura.data_emissao.is_not(None),
             Fatura.total.is_not(None),

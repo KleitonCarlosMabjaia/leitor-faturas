@@ -18,9 +18,10 @@ HOJE = date(2026, 11, 11)  # data fixa: os testes dão sempre o mesmo resultado
 
 
 @pytest.fixture
-def com_demo(fabrica_sessoes):
+def com_demo(fabrica_sessoes, empresa_teste):
+    """30 faturas de demonstração na empresa de teste (a do cliente com sessão iniciada)."""
     with fabrica_sessoes() as db:
-        demo.criar_dados_demo(db, hoje=HOJE)
+        demo.criar_dados_demo(db, empresa_id=empresa_teste, hoje=HOJE)
     return fabrica_sessoes
 
 
@@ -46,9 +47,9 @@ def test_pdf_de_demonstracao_tem_qr_legivel(com_demo):
 
 # ---------- Dashboard ----------
 
-def test_dashboard_bate_com_as_faturas(com_demo):
+def test_dashboard_bate_com_as_faturas(com_demo, empresa_teste):
     with com_demo() as db:
-        resumo = estatisticas.resumo(db, "2026-10", hoje=HOJE)
+        resumo = estatisticas.resumo(db, empresa_teste, "2026-10", hoje=HOJE)
         outubro = [f for f in db.query(Fatura).all() if f.data_emissao.strftime("%Y-%m") == "2026-10"]
 
     assert resumo["total_mes"] == round(sum(f.total for f in outubro), 2)

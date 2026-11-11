@@ -50,3 +50,57 @@ async function lerErro(resposta, predefinida) {
   if (Array.isArray(corpo.detail)) return "Há campos com valores inválidos. Verifique as datas e os números.";
   return predefinida;
 }
+
+// ---------- Sessão ----------
+
+// Igual ao fetch, mas se a sessão tiver terminado (401) envia para a página de login
+async function api(url, opcoes) {
+  const resposta = await fetch(url, opcoes);
+  if (resposta.status === 401) {
+    location.href = `/entrar?voltar=${encodeURIComponent(location.pathname)}`;
+    throw new Error("A sua sessão terminou.");
+  }
+  return resposta;
+}
+
+// Preenche a zona da conta no menu: nome, empresa, "Equipa" (só admins) e "Sair"
+async function iniciarMenu() {
+  const zona = document.getElementById("conta");
+  if (!zona) return;
+  try {
+    const resposta = await api("/api/auth/eu");
+    if (!resposta.ok) return;
+    const eu = await resposta.json();
+    zona.innerHTML = "";
+
+    const menu = document.querySelector(".menu");
+    if (eu.papel === "admin" && !eu.modo_demo && !menu.querySelector('a[href="/equipa"]')) {
+      const equipa = document.createElement("a");
+      equipa.href = "/equipa";
+      equipa.textContent = "Equipa";
+      if (location.pathname === "/equipa") equipa.setAttribute("aria-current", "page");
+      menu.insertBefore(equipa, zona);
+    }
+
+    const quem = document.createElement("span");
+    quem.className = "quem";
+    quem.textContent = eu.modo_demo ? "Demonstração" : `${eu.nome} · ${eu.empresa}`;
+    zona.appendChild(quem);
+
+    if (!eu.modo_demo) {
+      const sair = document.createElement("button");
+      sair.type = "button";
+      sair.className = "acao";
+      sair.textContent = "Sair";
+      sair.addEventListener("click", async () => {
+        await fetch("/api/auth/sair", { method: "POST" });
+        location.href = "/entrar";
+      });
+      zona.appendChild(sair);
+    }
+  } catch {
+    // Sem menu de conta a página continua a funcionar
+  }
+}
+
+document.addEventListener("DOMContentLoaded", iniciarMenu);

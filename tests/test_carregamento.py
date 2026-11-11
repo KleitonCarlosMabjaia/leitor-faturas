@@ -94,7 +94,7 @@ def test_fatura_duplicada_e_recusada(cliente, monkeypatch, tmp_path):
     assert "já foi carregada" in resposta.json()["detail"]
     assert len(cliente.get("/api/faturas").json()) == 1
     # O PDF repetido não fica esquecido na pasta
-    assert len(list((tmp_path / "uploads").glob("*.pdf"))) == 1
+    assert len(list((tmp_path / "uploads").rglob("*.pdf"))) == 1
 
 
 def test_duplicado_pelo_atcud(cliente, monkeypatch):
@@ -124,7 +124,7 @@ def test_apagar_fatura(cliente, monkeypatch, tmp_path):
 
     assert cliente.delete(f"/api/faturas/{id_fatura}").status_code == 204
     assert cliente.get("/api/faturas").json() == []
-    assert list((tmp_path / "uploads").glob("*.pdf")) == []
+    assert list((tmp_path / "uploads").rglob("*.pdf")) == []
     assert cliente.delete(f"/api/faturas/{id_fatura}").status_code == 404
 
 

@@ -121,7 +121,7 @@ async function carregar() {
   document.getElementById("abrir-pdf").href = pdfUrl;
 
   try {
-    const resposta = await fetch(`/api/faturas/${idFatura}`);
+    const resposta = await api(`/api/faturas/${idFatura}`);
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível obter a fatura."));
     preencher(await resposta.json());
   } catch (erro) {
@@ -166,7 +166,7 @@ async function gravar(confirmar) {
 
   mostrarMensagem("A guardar…");
   try {
-    const resposta = await fetch(`/api/faturas/${idFatura}`, {
+    const resposta = await api(`/api/faturas/${idFatura}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(corpo),
@@ -183,7 +183,7 @@ async function gravar(confirmar) {
 // Depois de confirmar, oferece a próxima fatura por rever (poupa cliques a quem tem muitas)
 async function sugerirProxima() {
   try {
-    const resposta = await fetch("/api/faturas?estado=por%20rever");
+    const resposta = await api("/api/faturas?estado=por%20rever");
     if (!resposta.ok) return;
     const outra = (await resposta.json()).find((f) => f.id !== idFatura);
     proxima.innerHTML = "";
@@ -204,7 +204,7 @@ async function sugerirProxima() {
 // O pagamento grava logo, sem precisar de "Guardar" (não altera os dados da fatura)
 caixaPaga.addEventListener("change", async () => {
   try {
-    const resposta = await fetch(`/api/faturas/${idFatura}/pagamento`, {
+    const resposta = await api(`/api/faturas/${idFatura}/pagamento`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paga: caixaPaga.checked }),

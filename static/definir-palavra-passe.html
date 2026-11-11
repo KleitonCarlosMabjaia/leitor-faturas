@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- O link tem um token: não o enviar a outros sites através do "Referer" -->
+  <meta name="referrer" content="no-referrer">
+  <title>Definir palavra-passe · Leitor de Faturas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="pagina-acesso">
+    <div class="cartao-acesso">
+      <h1>Definir palavra-passe</h1>
+      <p class="subtitulo" id="para-quem">A verificar o link…</p>
+
+      <form id="formulario" novalidate hidden>
+        <div class="campo">
+          <label for="palavra_passe">Nova palavra-passe</label>
+          <input type="password" id="palavra_passe" autocomplete="new-password" minlength="10" required
+                 aria-describedby="regras">
+          <span class="ajuda" id="regras">Pelo menos 10 caracteres, com letras e números.</span>
+        </div>
+        <div class="campo">
+          <label for="repetir">Repita a palavra-passe</label>
+          <input type="password" id="repetir" autocomplete="new-password" required>
+        </div>
+        <button type="submit" class="botao largo">Guardar e entrar</button>
+      </form>
+      <p class="mensagem" id="mensagem" role="alert" aria-live="assertive"></p>
+    </div>
+  </main>
+
+  <script src="/static/comum.js"></script>
+  <script>
+    // O token vem depois do "#": essa parte do endereço nunca é enviada ao servidor
+    const token = location.hash.slice(1);
+    const formulario = document.getElementById("formulario");
+    const mensagem = document.getElementById("mensagem");
+    const paraQuem = document.getElementById("para-quem");
+
+    function erro(texto) {
+      mensagem.textContent = texto;
+      mensagem.className = "mensagem erro";
+    }
+
+    async function verificarLink() {
+      if (!token) {
+        paraQuem.textContent = "";
+        erro("Link incompleto. Copie o link inteiro que recebeu.");
+        return;
+      }
+      const resposta = await fetch("/api/auth/link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token }),
+      });
+      if (!resposta.ok) {
+        paraQuem.textContent = "";
+        erro(await lerErro(resposta, "Este link já não é válido."));
+        return;
+      }
+      const dados = await resposta.json();
+      paraQuem.textContent = `${dados.nome} (${dados.email}) · ${dados.empresa}`;
+      formulario.hidden = false;
+      formulario.palavra_passe.focus();
+    }
+
+    formulario.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const palavraPasse = formulario.palavra_passe.value;
+      if (palavraPasse.length < 10) return erro("A palavra-passe tem de ter pelo menos 10 caracteres.");
+      if (palavraPasse !== formulario.repetir.value) return erro("As palavras-passe não são iguais.");
+
+      const resposta = await fetch("/api/auth/definir-palavra-passe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, palavra_passe: palavraPasse }),
+      });
+      if (!resposta.ok) return erro(await lerErro(resposta, "Não foi possível guardar a palavra-passe."));
+      // Tira o token do histórico do navegador antes de sair da página
+      history.replaceState(null, "", location.pathname);
+      location.href = "/";
+    });
+
+    verificarLink();
+  </script>
+</body>
+</html>

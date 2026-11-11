@@ -246,7 +246,7 @@ function desenharPorPagar(d) {
 
 async function marcarPaga(f) {
   try {
-    const resposta = await fetch(`/api/faturas/${f.id}/pagamento`, {
+    const resposta = await api(`/api/faturas/${f.id}/pagamento`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ paga: true }),
@@ -270,7 +270,7 @@ function desenhar() {
 
 async function carregar(mes) {
   try {
-    const resposta = await fetch(`/api/dashboard${mes ? `?mes=${mes}` : ""}`);
+    const resposta = await api(`/api/dashboard${mes ? `?mes=${mes}` : ""}`);
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível obter os dados."));
     const d = await resposta.json();
     ultimosDados = d;

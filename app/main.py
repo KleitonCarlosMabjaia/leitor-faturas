@@ -2,22 +2,26 @@
 Leitor de Faturas - ponto de entrada da aplicação.
 
 Aqui só se cria a aplicação e se ligam as rotas. A lógica está em:
-- app/rotas/     -> endpoints HTTP
-- app/servicos/  -> leitura do PDF, QR, IA, validações e acesso à base de dados
-- app/modelos/   -> tabelas (SQLAlchemy) e modelos de dados (Pydantic)
+- app/rotas/      -> endpoints HTTP
+- app/servicos/   -> leitura do PDF, QR, IA, validações, autenticação e base de dados
+- app/modelos/    -> tabelas (SQLAlchemy) e modelos de dados (Pydantic)
+- app/dependencias.py -> quem está a fazer o pedido (sessão)
 """
 
 import logging
 from contextlib import asynccontextmanager
+from urllib.parse import quote
 
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import config
 from app.db import SessaoLocal, criar_tabelas
-from app.rotas import dashboard, faturas, fornecedores
+from app.dependencias import utilizador_opcional
+from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
+from app.rotas import auth, dashboard, equipa, faturas, fornecedores
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -25,24 +29,35 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def ciclo_de_vida(app: FastAPI):
-    # Cria as tabelas no arranque, se ainda não existirem
+    # Cria as tabelas no arranque (e atualiza bases de dados antigas)
     criar_tabelas()
 
-    # Na versão publicada, a base de dados começa com as faturas de demonstração
+    # Na versão publicada, a empresa de demonstração é criada no primeiro arranque
     if config.MODO_DEMO:
         from app import demo
 
         with SessaoLocal() as db:
-            if demo.base_vazia(db):
+            if demo.empresa_demo(db) is None:
                 logger.info("Modo demonstração: criadas %d faturas de exemplo", demo.criar_dados_demo(db))
     yield
 
 
-app = FastAPI(title="Leitor de Faturas", version="1.0.0", lifespan=ciclo_de_vida)
+app = FastAPI(title="Leitor de Faturas", version="2.0.0", lifespan=ciclo_de_vida)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
-app.include_router(faturas.router)
-app.include_router(fornecedores.router)
-app.include_router(dashboard.router)
+for modulo in (auth, faturas, fornecedores, dashboard, equipa):
+    app.include_router(modulo.router)
+
+
+@app.middleware("http")
+async def cabecalhos_seguranca(request: Request, call_next):
+    """Cabeçalhos HTTP que reduzem ataques comuns no navegador."""
+    resposta = await call_next(request)
+    resposta.headers["X-Content-Type-Options"] = "nosniff"        # não "adivinhar" tipos de ficheiro
+    resposta.headers["X-Frame-Options"] = "SAMEORIGIN"            # só esta app pode mostrar as páginas em iframe
+    resposta.headers["Referrer-Policy"] = "same-origin"           # não enviar endereços internos a outros sites
+    if request.url.path.startswith("/api/"):
+        resposta.headers["Cache-Control"] = "no-store"            # dados das faturas não ficam em caches
+    return resposta
 
 
 @app.exception_handler(SQLAlchemyError)
@@ -52,20 +67,52 @@ def erro_base_dados(request: Request, erro: SQLAlchemyError):
     return JSONResponse(status_code=500, content={"detail": "Erro na base de dados. Tente novamente."})
 
 
+# ---------- Páginas ----------
+
+def _pagina(nome: str) -> FileResponse:
+    return FileResponse(config.STATIC_DIR / nome)
+
+
+def _protegida(request: Request, utilizador: Utilizador | None, nome: str, so_admin: bool = False):
+    """Sem sessão, envia para o login (e volta a esta página depois de entrar)."""
+    if utilizador is None:
+        destino = quote(request.url.path, safe="/")
+        return RedirectResponse(f"/entrar?voltar={destino}", status_code=303)
+    if so_admin and (utilizador.papel != PAPEL_ADMIN or config.MODO_DEMO):
+        return RedirectResponse("/", status_code=303)
+    return _pagina(nome)
+
+
 @app.get("/", include_in_schema=False)
-def pagina_inicial():
-    return FileResponse(config.STATIC_DIR / "index.html")
+def pagina_inicial(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "index.html")
 
 
 @app.get("/faturas/{id_fatura}", include_in_schema=False)
-def pagina_fatura(id_fatura: str):
+def pagina_fatura(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
     # A página é sempre a mesma; o JavaScript lê o id do endereço e pede os dados à API
-    return FileResponse(config.STATIC_DIR / "fatura.html")
+    return _protegida(request, utilizador, "fatura.html")
 
 
 @app.get("/dashboard", include_in_schema=False)
-def pagina_dashboard():
-    return FileResponse(config.STATIC_DIR / "dashboard.html")
+def pagina_dashboard(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "dashboard.html")
+
+
+@app.get("/equipa", include_in_schema=False)
+def pagina_equipa(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "equipa.html", so_admin=True)
+
+
+@app.get("/entrar", include_in_schema=False)
+def pagina_entrar(utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    # Quem já tem sessão (ou está na demonstração) vai direto para a aplicação
+    return RedirectResponse("/", status_code=303) if utilizador else _pagina("entrar.html")
+
+
+@app.get("/definir-palavra-passe", include_in_schema=False)
+def pagina_definir_palavra_passe():
+    return _pagina("definir-palavra-passe.html")
 
 
 @app.get("/api/saude")

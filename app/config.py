@@ -30,6 +30,16 @@ CHAVE_API_DEFINIDA = bool(os.getenv("ANTHROPIC_API_KEY"))
 # O modelo fica configurável: mudar de modelo não obriga a alterar código.
 MODELO_IA = os.getenv("MODELO_IA", "claude-opus-5-5")
 
+# Endereço público da aplicação: usado para montar os links de convite
+URL_PUBLICO = os.getenv("URL_PUBLICO", "http://127.0.0.1:8000").rstrip("/")
+
+# Contas e sessões
+DURACAO_SESSAO_DIAS = int(os.getenv("DURACAO_SESSAO_DIAS", "7"))
+VALIDADE_CONVITE_HORAS = 72
+MAX_TENTATIVAS_LOGIN = 5
+BLOQUEIO_MINUTOS = 15
+MIN_PALAVRA_PASSE = 10
+
 # Modo de demonstração (para publicar o portefólio):
 # - cria as faturas de exemplo no arranque, se a base de dados estiver vazia;
 # - desliga a IA, para que visitantes não gastem créditos (o QR continua a funcionar).

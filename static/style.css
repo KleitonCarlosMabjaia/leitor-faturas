@@ -507,3 +507,63 @@ summary:focus-visible { outline: 2px solid var(--verde); outline-offset: 2px; }
   .indicadores { grid-template-columns: 1fr; }
   .indicador-valor { font-size: 1.5rem; }
 }
+
+/* ---------- Fase 5: contas, login e equipa ---------- */
+
+.menu { align-items: center; flex-wrap: wrap; }
+.conta { margin-left: auto; display: flex; align-items: center; gap: 0.5rem; }
+.conta .quem { color: var(--tinta-suave); font-size: 0.875rem; }
+.conta .acao:hover { color: var(--tinta); background: var(--fundo); }
+
+.pagina-acesso {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1rem;
+}
+
+.cartao-acesso {
+  width: 100%;
+  max-width: 24rem;
+  background: var(--folha);
+  border: 1px solid var(--linha);
+  padding: 2rem 1.75rem;
+}
+
+.cartao-acesso h1 { font-size: 1.5rem; margin: 0 0 0.25rem; letter-spacing: -0.02em; }
+.cartao-acesso .subtitulo { margin-bottom: 1.5rem; }
+.botao.largo { width: 100%; margin-top: 0.5rem; }
+.botao:disabled { opacity: 0.6; cursor: progress; }
+.nota-acesso { color: var(--tinta-suave); font-size: 0.8125rem; margin: 1.5rem 0 0; }
+.ajuda { color: var(--tinta-suave); font-size: 0.8125rem; }
+
+.grelha-convite {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+
+.grelha-convite .campo { margin-bottom: 0; }
+
+.caixa-link {
+  margin-top: 1rem;
+  padding: 1rem;
+  background: var(--verde-fundo);
+  border-left: 4px solid var(--verde);
+}
+
+.caixa-link p { margin: 0 0 0.5rem; font-weight: 500; }
+.caixa-link .ajuda { font-weight: 400; margin: 0.5rem 0 0; }
+.linha-link { display: flex; gap: 0.5rem; }
+.linha-link input { font-family: ui-monospace, Consolas, monospace; font-size: 0.8125rem; }
+
+.tabela td .detalhe { display: block; }
+
+@media (max-width: 48rem) {
+  .grelha-convite { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 34rem) {
+  .conta { margin-left: 0; width: 100%; justify-content: space-between; padding: 0.25rem 0.75rem 0.5rem; }
+}

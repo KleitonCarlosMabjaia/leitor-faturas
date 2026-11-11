@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Entrar · Leitor de Faturas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="pagina-acesso">
+    <div class="cartao-acesso">
+      <h1>Leitor de Faturas</h1>
+      <p class="subtitulo">Entre com a conta da sua empresa.</p>
+
+      <form id="formulario" novalidate>
+        <div class="campo">
+          <label for="email">Email</label>
+          <input type="email" id="email" name="email" autocomplete="username" required autofocus>
+        </div>
+        <div class="campo">
+          <label for="palavra_passe">Palavra-passe</label>
+          <input type="password" id="palavra_passe" name="palavra_passe" autocomplete="current-password" required>
+        </div>
+        <button type="submit" class="botao largo">Entrar</button>
+        <p class="mensagem" id="mensagem" role="alert" aria-live="assertive"></p>
+      </form>
+
+      <p class="nota-acesso">
+        O acesso é feito por convite. Se se esqueceu da palavra-passe, peça um novo link ao administrador da sua empresa.
+      </p>
+    </div>
+  </main>
+
+  <script src="/static/comum.js"></script>
+  <script>
+    const formulario = document.getElementById("formulario");
+    const mensagem = document.getElementById("mensagem");
+
+    // Só aceita destinos dentro da própria aplicação ("/x"), nunca "//outro-site.com"
+    function destinoSeguro() {
+      const voltar = new URLSearchParams(location.search).get("voltar") || "/";
+      return voltar.startsWith("/") && !voltar.startsWith("//") ? voltar : "/";
+    }
+
+    formulario.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      mensagem.textContent = "";
+      if (!formulario.email.value.trim() || !formulario.palavra_passe.value) {
+        mensagem.textContent = "Preencha o email e a palavra-passe.";
+        mensagem.className = "mensagem erro";
+        return;
+      }
+      const botao = formulario.querySelector("button");
+      botao.disabled = true;
+      try {
+        const resposta = await fetch("/api/auth/entrar", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: formulario.email.value, palavra_passe: formulario.palavra_passe.value }),
+        });
+        if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível entrar."));
+        location.href = destinoSeguro();
+      } catch (erro) {
+        mensagem.textContent = erro.message;
+        mensagem.className = "mensagem erro";
+        formulario.palavra_passe.value = "";
+        formulario.palavra_passe.focus();
+      } finally {
+        botao.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

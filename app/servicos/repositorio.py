@@ -3,6 +3,11 @@ Acesso à base de dados (padrão "repositório").
 
 As rotas e os serviços não escrevem SQL: chamam estas funções. Assim, mudar
 a forma de guardar os dados só obriga a mexer neste ficheiro.
+
+Isolamento entre empresas: TODAS as funções que leem ou procuram dados recebem
+`empresa_id` e filtram por ele. Uma fatura de outra empresa é tratada como se
+não existisse (404), para não revelar sequer que o id existe.
+
 As funções não fazem commit: quem as chama decide quando gravar.
 """
 
@@ -18,21 +23,21 @@ from app.servicos import validacao
 
 # ---------- Fornecedores ----------
 
-def fornecedor_por_nif(db: Session, nif: str) -> Fornecedor | None:
-    return db.scalar(select(Fornecedor).where(Fornecedor.nif == nif))
+def fornecedor_por_nif(db: Session, empresa_id: int, nif: str) -> Fornecedor | None:
+    return db.scalar(select(Fornecedor).where(Fornecedor.empresa_id == empresa_id, Fornecedor.nif == nif))
 
 
-def registar_fornecedor(db: Session, nif: str, nome: str) -> Fornecedor | None:
+def registar_fornecedor(db: Session, empresa_id: int, nif: str, nome: str) -> Fornecedor | None:
     """
-    Devolve o fornecedor deste NIF, criando-o se não existir.
+    Devolve o fornecedor deste NIF nesta empresa, criando-o se não existir.
     Se o nome guardado estiver vazio e agora soubermos o nome, atualiza-o.
     NIFs inválidos não são guardados (evita "fornecedores" com dados errados).
     """
     if not validacao.nif_valido(nif):
         return None
-    fornecedor = fornecedor_por_nif(db, nif)
+    fornecedor = fornecedor_por_nif(db, empresa_id, nif)
     if fornecedor is None:
-        fornecedor = Fornecedor(nif=nif, nome=nome)
+        fornecedor = Fornecedor(empresa_id=empresa_id, nif=nif, nome=nome)
         db.add(fornecedor)
         db.flush()  # atribui o id sem fazer commit
     elif nome and not fornecedor.nome:
@@ -40,25 +45,36 @@ def registar_fornecedor(db: Session, nif: str, nome: str) -> Fornecedor | None:
     return fornecedor
 
 
-def listar_fornecedores(db: Session) -> list[Fornecedor]:
-    return list(db.scalars(select(Fornecedor).order_by(Fornecedor.nome, Fornecedor.nif)))
+def listar_fornecedores(db: Session, empresa_id: int) -> list[Fornecedor]:
+    return list(db.scalars(
+        select(Fornecedor).where(Fornecedor.empresa_id == empresa_id).order_by(Fornecedor.nome, Fornecedor.nif)
+    ))
 
 
 # ---------- Faturas ----------
 
-def obter_fatura(db: Session, id_fatura: str) -> Fatura | None:
-    return db.get(Fatura, id_fatura, options=[joinedload(Fatura.fornecedor)])
+def obter_fatura(db: Session, empresa_id: int, id_fatura: str) -> Fatura | None:
+    return db.scalar(
+        select(Fatura)
+        .options(joinedload(Fatura.fornecedor))
+        .where(Fatura.id == id_fatura, Fatura.empresa_id == empresa_id)
+    )
 
 
 def listar_faturas(
     db: Session,
+    empresa_id: int,
     fornecedor_id: int | None = None,
     mes: str | None = None,
     estado: str | None = None,
 ) -> list[Fatura]:
-    """Lista as faturas, mais recentes primeiro, com filtros opcionais."""
-    consulta = select(Fatura).options(joinedload(Fatura.fornecedor)).order_by(Fatura.carregada_em.desc())
-
+    """Lista as faturas da empresa, mais recentes primeiro, com filtros opcionais."""
+    consulta = (
+        select(Fatura)
+        .options(joinedload(Fatura.fornecedor))
+        .where(Fatura.empresa_id == empresa_id)
+        .order_by(Fatura.carregada_em.desc())
+    )
     if fornecedor_id is not None:
         consulta = consulta.where(Fatura.fornecedor_id == fornecedor_id)
     if mes:
@@ -79,10 +95,11 @@ def intervalo_do_mes(mes: str) -> tuple[date, date]:
 
 
 def encontrar_duplicado(
-    db: Session, nif: str, numero_fatura: str, atcud: str | None, excluir_id: str | None = None
+    db: Session, empresa_id: int, nif: str, numero_fatura: str, atcud: str | None, excluir_id: str | None = None
 ) -> Fatura | None:
     """
-    Procura uma fatura igual: mesmo NIF e número, ou mesmo ATCUD.
+    Procura uma fatura igual NESTA empresa: mesmo NIF e número, ou mesmo ATCUD.
+    (Duas empresas diferentes podem ter recebido cópias da mesma fatura.)
     O ATCUD é único por documento em Portugal; "0" significa "sem ATCUD".
     """
     condicoes = []
@@ -93,18 +110,21 @@ def encontrar_duplicado(
     if not condicoes:
         return None
 
-    consulta = select(Fatura).where(condicoes[0] if len(condicoes) == 1 else condicoes[0] | condicoes[1])
+    consulta = select(Fatura).where(
+        Fatura.empresa_id == empresa_id,
+        condicoes[0] if len(condicoes) == 1 else condicoes[0] | condicoes[1],
+    )
     if excluir_id:
         consulta = consulta.where(Fatura.id != excluir_id)
     return db.scalar(consulta.limit(1))
 
 
 def aplicar_dados(db: Session, fatura: Fatura, dados: CamposFatura, alertas_extra: list[str] | None = None) -> None:
-    """Copia os dados para a fatura, liga-a ao fornecedor e recalcula as verificações."""
+    """Copia os dados para a fatura, liga-a ao fornecedor da mesma empresa e recalcula as verificações."""
     verificacoes = validacao.verificar(dados)
     linhas = [linha.model_dump() for linha in dados.iva]
 
-    fatura.fornecedor = registar_fornecedor(db, dados.nif_fornecedor, dados.fornecedor)
+    fatura.fornecedor = registar_fornecedor(db, fatura.empresa_id, dados.nif_fornecedor, dados.fornecedor)
     fatura.nome_fornecedor = dados.fornecedor
     fatura.nif_fornecedor = dados.nif_fornecedor
     fatura.numero_fatura = dados.numero_fatura

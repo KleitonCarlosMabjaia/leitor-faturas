@@ -103,7 +103,7 @@ function desenharLista(faturas, idNova) {
 
 async function carregarFornecedores() {
   try {
-    const resposta = await fetch("/api/fornecedores");
+    const resposta = await api("/api/fornecedores");
     if (!resposta.ok) return;
     const escolhido = filtroFornecedor.value;
     filtroFornecedor.length = 1; // mantém só a opção "Todos"
@@ -128,7 +128,7 @@ function atualizarExportacao() {
 async function carregarLista(idNova) {
   atualizarExportacao();
   try {
-    const resposta = await fetch(`/api/faturas?${filtrosAtivos()}`);
+    const resposta = await api(`/api/faturas?${filtrosAtivos()}`);
     if (!resposta.ok) throw new Error();
     desenharLista(await resposta.json(), idNova);
   } catch {
@@ -156,7 +156,7 @@ async function enviarFicheiros(ficheiros) {
     dados.append("ficheiro", ficheiro);
 
     try {
-      const resposta = await fetch("/api/faturas", { method: "POST", body: dados });
+      const resposta = await api("/api/faturas", { method: "POST", body: dados });
       if (!resposta.ok) {
         erros.push(`${ficheiro.name}: ${await lerErro(resposta, "erro ao carregar")}`);
         continue;
@@ -185,7 +185,7 @@ async function enviarFicheiros(ficheiros) {
 async function lerNovamente(fatura) {
   mostrarMensagem(`A ler ${fatura.nome_original} novamente…`);
   try {
-    const resposta = await fetch(`/api/faturas/${fatura.id}/extrair`, { method: "POST" });
+    const resposta = await api(`/api/faturas/${fatura.id}/extrair`, { method: "POST" });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível ler a fatura."));
     const corpo = await resposta.json();
     if (corpo.estado_extracao === "concluida") mostrarMensagem("Fatura lida.", "sucesso");
@@ -199,7 +199,7 @@ async function lerNovamente(fatura) {
 async function apagarFatura(fatura) {
   if (!confirm(`Apagar a fatura ${fatura.numero_fatura || fatura.nome_original}?`)) return;
   try {
-    const resposta = await fetch(`/api/faturas/${fatura.id}`, { method: "DELETE" });
+    const resposta = await api(`/api/faturas/${fatura.id}`, { method: "DELETE" });
     if (!resposta.ok) throw new Error();
     mostrarMensagem("Fatura apagada.", "sucesso");
   } catch {
