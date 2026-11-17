@@ -6,11 +6,13 @@ Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, loja
 
 A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o **código QR da AT** (gratuito e exato), depois uma **cache de fornecedores** por NIF e, só no fim, **IA** (API do Claude) para o que falta.
 
-**[▶ Ver a demonstração](https://leitor-faturas-vwgk.onrender.com)** — sem login, com 30 faturas fictícias. O servidor gratuito adormece quando não há visitas: a primeira abertura pode demorar cerca de 1 minuto.
+**[▶ Ver a demonstração](https://leitor-faturas-vwgk.onrender.com)** — sem login, com 30 faturas fictícias e a respetiva contabilidade. O servidor gratuito adormece quando não há visitas: a primeira abertura pode demorar cerca de 1 minuto.
 
 | Lista de faturas | Revisão | Dashboard (modo escuro) |
 | --- | --- | --- |
 | ![Lista de faturas com pesquisa, filtros por estado e etiquetas](docs/capturas/lista.png) | ![PDF da fatura ao lado dos campos editáveis](docs/capturas/revisao.png) | ![Indicadores, gasto por fornecedor e evolução mensal em modo escuro](docs/capturas/dashboard.png) |
+| **Contabilidade** | **Por contabilizar** | **Balancete (modo escuro)** |
+| ![Resumo da contabilidade: indicadores, verificações automáticas com IVA não dedutível e tributação autónoma, e próximos prazos fiscais](docs/capturas/contabilidade.png) | ![Fatura com a conta SNC e o IVA sugeridos, classificação memorizada e o lançamento proposto em débito e crédito](docs/capturas/por-contabilizar.png) | ![Balancete analítico com débitos, créditos e saldos por conta, equilibrado, em modo escuro](docs/capturas/balancete.png) |
 
 <sub>Capturas com os dados de demonstração (fornecedores e NIFs fictícios).</sub>
 

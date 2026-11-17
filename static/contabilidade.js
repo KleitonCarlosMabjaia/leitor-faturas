@@ -348,7 +348,9 @@ function tabelaLinhas(linhas, comDescricao = true) {
       h("th", { scope: "col", class: "num", texto: "Débito" }), h("th", { scope: "col", class: "num", texto: "Crédito" }))),
     h("tbody", {}, linhas.map((l) => h("tr", {},
       h("td", { class: "conta-codigo" }, h("a", { href: `#extrato:${l.conta}`, texto: l.conta })),
-      td(comDescricao && l.descricao ? `${l.nome} · ${l.descricao}` : l.nome, l.credito ? "credito" : ""),
+      // Nas subcontas de fornecedor a descrição é o próprio nome: não se repete
+      td(comDescricao && l.descricao && l.descricao !== l.nome ? `${l.nome} · ${l.descricao}` : l.nome,
+        l.credito ? "credito" : ""),
       td(eurosOuVazio(l.debito), "num"), td(eurosOuVazio(l.credito), "num")))),
     h("tfoot", {}, h("tr", {}, td(""), td("Total"), td(euros(totalD), "num"), td(euros(totalC), "num")))));
 }
