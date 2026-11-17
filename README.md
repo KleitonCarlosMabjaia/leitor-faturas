@@ -13,6 +13,8 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 | ![Lista de faturas com pesquisa, filtros por estado e etiquetas](docs/capturas/lista.png) | ![PDF da fatura ao lado dos campos editáveis](docs/capturas/revisao.png) | ![Indicadores, gasto por fornecedor e evolução mensal em modo escuro](docs/capturas/dashboard.png) |
 | **Contabilidade** | **Por contabilizar** | **Balancete (modo escuro)** |
 | ![Resumo da contabilidade: indicadores, verificações automáticas com IVA não dedutível e tributação autónoma, e próximos prazos fiscais](docs/capturas/contabilidade.png) | ![Fatura com a conta SNC e o IVA sugeridos, classificação memorizada e o lançamento proposto em débito e crédito](docs/capturas/por-contabilizar.png) | ![Balancete analítico com débitos, créditos e saldos por conta, equilibrado, em modo escuro](docs/capturas/balancete.png) |
+| **Reconciliação bancária** | **Mapa de reconciliação (modo escuro)** | **SAF-T (PT) da contabilidade** |
+| ![Importação de extratos e movimentos do banco por reconciliar, cada um com a sugestão de associar a um lançamento ou lançar numa conta](docs/capturas/bancos.png) | ![Mapa de reconciliação bancária com a diferença entre o saldo do banco e o da contabilidade toda explicada, em modo escuro](docs/capturas/reconciliacao.png) | ![Exportação do SAF-T da contabilidade pronta a descarregar, com a configuração do NIF e da morada da sede](docs/capturas/saft.png) |
 
 <sub>Capturas com os dados de demonstração (fornecedores e NIFs fictícios).</sub>
 

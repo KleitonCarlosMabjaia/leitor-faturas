@@ -1217,11 +1217,21 @@ async function carregarBancos(secao) {
   seletor.addEventListener("change", () => { contaBanco = seletor.value; mostrar("bancos", true); });
 
   // Importação
-  const ficheiro = h("input", { type: "file", id: "banco-ficheiro", accept: ".csv,.txt,.xlsx,.ofx,.qfx", required: true });
+  // Campo de ficheiro próprio: o do navegador mostra "Choose File" na língua do navegador, não da página
+  const ficheiro = h("input", { type: "file", id: "banco-ficheiro", class: "visualmente-oculto", accept: ".csv,.txt,.xlsx,.ofx,.qfx" });
+  const nomeFicheiro = h("span", { class: "ajuda nome-ficheiro", texto: "Nenhum ficheiro escolhido" });
+  ficheiro.addEventListener("change", () => {
+    nomeFicheiro.textContent = ficheiro.files[0]?.name || "Nenhum ficheiro escolhido";
+  });
   const saldo = h("input", { type: "text", id: "banco-saldo", inputmode: "decimal", placeholder: "Opcional", autocomplete: "off" });
   const importar = h("button", { type: "submit", class: "botao" }, icone("upload"), "Importar extrato");
   const formImportar = h("form", { class: "filtros-linha" },
-    h("div", { class: "campo largo" }, h("label", { for: "banco-ficheiro", texto: "Extrato (CSV, Excel ou OFX)" }), ficheiro),
+    h("div", { class: "campo largo" },
+      h("span", { class: "rotulo", id: "rotulo-banco-ficheiro", texto: "Extrato (CSV, Excel ou OFX)" }),
+      h("div", { class: "escolher-ficheiro" },
+        h("label", { for: "banco-ficheiro", class: "botao secundario", "aria-describedby": "rotulo-banco-ficheiro" },
+          icone("ficheiro"), "Escolher ficheiro"),
+        ficheiro, nomeFicheiro)),
     h("div", { class: "campo" }, h("label", { for: "banco-saldo", texto: "Saldo final do extrato" }), saldo),
     importar);
   formImportar.addEventListener("submit", async (e) => {
