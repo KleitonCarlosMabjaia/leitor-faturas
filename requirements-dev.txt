@@ -4,3 +4,4 @@
 pytest-playwright==0.10.0   # testes da interface num navegador a sério
 playwright==1.65.0
 ruff==0.17.4                # verificação de estilo e de erros comuns
+xmlschema==4.1.0            # valida o SAF-T (PT) contra o XSD 1.1 oficial da AT

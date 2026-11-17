@@ -298,16 +298,20 @@ def contabilizar_fatura(
     return lancamento
 
 
-def registar_pagamento(db: Session, empresa: Empresa, fatura: Fatura, data: date, conta_financeira: str = "12",
-                       utilizador_id: int | None = None, nota: str | None = None) -> Lancamento:
-    """Pagamento ao fornecedor: debita a subconta do fornecedor e credita o banco (12) ou a caixa (11)."""
+def registar_pagamento(db: Session, empresa: Empresa, fatura: Fatura, data: date,
+                       conta_financeira: str = "121", utilizador_id: int | None = None,
+                       nota: str | None = None) -> Lancamento:
+    """Pagamento ao fornecedor: debita a subconta do fornecedor e credita o banco (121) ou a caixa (111)."""
     compra = lancamento_ativo(db, empresa.id, fatura.id, "fatura")
     if compra is None:
         raise ErroContabilistico("Contabilize a fatura antes de registar o pagamento.")
     if lancamento_ativo(db, empresa.id, fatura.id, "pagamento"):
         raise ErroContabilistico("O pagamento desta fatura já está registado.")
-    if conta_financeira not in ("11", "12", "13"):
-        raise ErroContabilistico("O pagamento tem de sair da caixa (11) ou de um banco (12 ou 13).")
+    conta = plano_snc.obter_conta(db, empresa.id, conta_financeira)
+    if conta is None or not conta.movimento or not conta_financeira.startswith(("11", "12", "13")):
+        raise ErroContabilistico(
+            "O pagamento tem de sair de uma conta de movimento da caixa (11x) ou de bancos (12x ou 13x)."
+        )
     if data < fatura.data_emissao:
         raise ErroContabilistico("A data do pagamento é anterior à da fatura.")
 
@@ -320,7 +324,7 @@ def registar_pagamento(db: Session, empresa: Empresa, fatura: Fatura, data: date
         LinhaNova(conta_financeira, debito=valor if nota_credito else 0, credito=0 if nota_credito else valor),
     ]
     return criar(
-        db, empresa, "CX" if conta_financeira == "11" else "BAN", data,
+        db, empresa, "CX" if conta_financeira.startswith("11") else "BAN", data,
         f"{'Recebimento' if nota_credito else 'Pagamento'} {fatura.nome_fornecedor or ''} - {documento_fatura(fatura)}",
         linhas, documento=documento_fatura(fatura), origem="pagamento", fatura_id=fatura.id,
         notas=[nota] if nota else None, utilizador_id=utilizador_id,

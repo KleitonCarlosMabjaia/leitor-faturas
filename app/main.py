@@ -65,7 +65,7 @@ async def ciclo_de_vida(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Leitor de Faturas", version="2.0.0", lifespan=ciclo_de_vida)
+app = FastAPI(title="Leitor de Faturas", version=config.VERSAO_APLICACAO, lifespan=ciclo_de_vida)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 for modulo in (auth, faturas, fornecedores, dashboard, contabilidade, equipa):
     app.include_router(modulo.router)

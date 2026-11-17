@@ -54,7 +54,7 @@ def test_pergunta_com_ferramenta_e_proposta(fabrica_sessoes, empresa_teste, monk
         "diario": "BAN", "data": "2026-12-08", "descricao": "Renda de dezembro", "documento": "",
         "linhas": [
             {"conta": "6261", "debito": 1500, "credito": 0, "descricao": "Renda"},
-            {"conta": "12", "debito": 0, "credito": 1500, "descricao": ""},
+            {"conta": "121", "debito": 0, "credito": 1500, "descricao": ""},
         ],
     }
     cliente = ClienteFalso([
@@ -84,7 +84,7 @@ def test_proposta_invalida_volta_a_ia_como_erro(fabrica_sessoes, empresa_teste, 
     desequilibrada = {
         "diario": "OD", "data": "2026-11-18", "descricao": "Errada", "documento": "",
         "linhas": [{"conta": "6261", "debito": 100, "credito": 0, "descricao": ""},
-                   {"conta": "12", "debito": 0, "credito": 90, "descricao": ""}],
+                   {"conta": "121", "debito": 0, "credito": 90, "descricao": ""}],
     }
     cliente = ClienteFalso([
         SimpleNamespace(stop_reason="tool_use", content=[bloco_ferramenta("t1", "propor_lancamento", desequilibrada)]),

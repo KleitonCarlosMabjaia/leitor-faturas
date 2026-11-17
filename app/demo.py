@@ -271,6 +271,11 @@ def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int
     hoje = hoje or date.today()
     rng = random.Random(SEMENTE)
     nif_cliente = gerar_nif(rng, "5")
+    # A empresa é o cliente que aparece nas faturas: mesmo NIF e morada (precisos para o SAF-T)
+    empresa = db.get(Empresa, empresa_id)
+    if not empresa.nif:
+        empresa.nif = nif_cliente
+        empresa.morada, empresa.codigo_postal, empresa.localidade = "Rua Direita, 45", "1100-200", "Lisboa"
     nifs = {f.nome: gerar_nif(rng, "5") for f in FORNECEDORES}
     series = {f.nome: rng.randint(10, 80) for f in FORNECEDORES}
 
@@ -352,7 +357,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     posto = plano_snc.subconta_terceiro(db, empresa_id, "2211", gerar_nif(rng, "5"),
                                         "Posto de Combustíveis da Estrada, Lda.")
     lancar("OD", abertura, "Entrada de capital e saldo bancário inicial",
-           [LinhaNova("12", debito=25000), LinhaNova("51", credito=25000)])
+           [LinhaNova("121", debito=25000), LinhaNova("511", credito=25000)])
 
     ano, mes = abertura.year, abertura.month
     while date(ano, mes, 1) <= hoje:
@@ -366,7 +371,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
         bebidas = round(rng.uniform(1800, 2600) * proporcao, 2)
         iva_refeicoes, iva_bebidas = round(refeicoes * 0.13, 2), round(bebidas * 0.23, 2)
         lancar("VEN", fim, f"Vendas de {periodo} (resumo do POS)", [
-            LinhaNova("12", debito=round(refeicoes + bebidas + iva_refeicoes + iva_bebidas, 2)),
+            LinhaNova("121", debito=round(refeicoes + bebidas + iva_refeicoes + iva_bebidas, 2)),
             LinhaNova("721", credito=refeicoes, descricao="Refeições", tipo_iva="base", taxa_iva=13),
             LinhaNova("24332", credito=iva_refeicoes, descricao="IVA 13%", tipo_iva="iva", taxa_iva=13),
             LinhaNova("711", credito=bebidas, descricao="Bebidas", tipo_iva="base", taxa_iva=23),
@@ -374,7 +379,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
         ], documento=f"Z {ano}/{mes:02d}")
 
         lancar("BAN", date(ano, mes, 8), f"Renda do estabelecimento - {periodo}",
-               [LinhaNova("6261", debito=1500), LinhaNova("12", credito=1500)], documento="Recibo de renda")
+               [LinhaNova("6261", debito=1500), LinhaNova("121", credito=1500)], documento="Recibo de renda")
 
         # Gasóleo da carrinha (só 50% do IVA é dedutível) e um almoço com um fornecedor (representação)
         dia = date(ano, mes, 15)
@@ -392,7 +397,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
             ], documento=documento)
             lancar("BAN", dia, f"Pagamento {posto.nome} - {documento}",
                    [LinhaNova(posto.codigo, debito=round(base + iva_total, 2)),
-                    LinhaNova("12", credito=round(base + iva_total, 2))], documento=documento)
+                    LinhaNova("121", credito=round(base + iva_total, 2))], documento=documento)
         if mes % 2 == 0 and date(ano, mes, 22) <= hoje:
             refeicao = round(rng.uniform(60, 110), 2)
             iva_refeicao = round(refeicao * 0.13, 2)
@@ -400,7 +405,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                 LinhaNova("6266", debito=refeicao, descricao="Base 13%", tipo_iva="base", taxa_iva=13),
                 LinhaNova("6266", debito=iva_refeicao, descricao="IVA não dedutível 13%",
                           tipo_iva="iva_nd", taxa_iva=13),
-                LinhaNova("12", credito=round(refeicao + iva_refeicao, 2)),
+                LinhaNova("121", credito=round(refeicao + iva_refeicao, 2)),
             ], documento=f"FS {ano}/{mes:02d}22")
 
         # Salários: processamento, pagamento ao pessoal e entrega ao Estado no mês seguinte
@@ -410,9 +415,9 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                 LinhaNova("2312", credito=4740), LinhaNova("2421", credito=600), LinhaNova("245", credito=2085),
             ])
             lancar("BAN", fim_mes, f"Pagamento de salários - {periodo}",
-                   [LinhaNova("2312", debito=4740), LinhaNova("12", credito=4740)])
+                   [LinhaNova("2312", debito=4740), LinhaNova("121", credito=4740)])
             lancar("BAN", fim_mes + timedelta(days=20), f"Retenções de IRS e Segurança Social - {periodo}", [
-                LinhaNova("2421", debito=600), LinhaNova("245", debito=2085), LinhaNova("12", credito=2685),
+                LinhaNova("2421", debito=600), LinhaNova("245", debito=2085), LinhaNova("121", credito=2685),
             ])
         ano, mes = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
 
@@ -435,7 +440,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
             pagamento = fim + timedelta(days=1)
             pagamento = date(pagamento.year + (pagamento.month + 1 > 12), (pagamento.month % 12) + 1, 25)
             lancar("BAN", pagamento, f"Pagamento do IVA - {trimestre + 1}.º trimestre de {ano}",
-                   [LinhaNova("2436", debito=a_pagar), LinhaNova("12", credito=a_pagar)])
+                   [LinhaNova("2436", debito=a_pagar), LinhaNova("121", credito=a_pagar)])
         ano, trimestre = (ano + 1, 0) if trimestre == 3 else (ano, trimestre + 1)
     db.flush()
 

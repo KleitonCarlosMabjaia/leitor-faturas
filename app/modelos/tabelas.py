@@ -36,6 +36,10 @@ class Empresa(Base):
     # Contabilidade: periodicidade da declaração de IVA e data até à qual os períodos estão fechados
     regime_iva: Mapped[str] = mapped_column(String(12), default="trimestral", server_default="trimestral")
     fechado_ate: Mapped[date | None] = mapped_column(Date)
+    # Morada da sede (cabeçalho do SAF-T)
+    morada: Mapped[str | None] = mapped_column(String(210))
+    codigo_postal: Mapped[str | None] = mapped_column(String(8))
+    localidade: Mapped[str | None] = mapped_column(String(50))
 
     utilizadores: Mapped[list["Utilizador"]] = relationship(back_populates="empresa")
 

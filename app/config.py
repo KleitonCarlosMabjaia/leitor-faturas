@@ -63,6 +63,14 @@ CHAVE_API_DEFINIDA = bool(os.getenv("ANTHROPIC_API_KEY"))
 # O modelo fica configurável: mudar de modelo não obriga a alterar código.
 MODELO_IA = os.getenv("MODELO_IA", "claude-opus-5-5")
 
+# Versão da aplicação (aparece na documentação da API e no SAF-T)
+VERSAO_APLICACAO = "2.1.0"
+
+# SAF-T (PT): NIF e nome de quem produz o programa (ProductCompanyTaxID e ProductID).
+# Sem valores, usam-se os da própria empresa (programa de desenvolvimento próprio).
+SAFT_NIF_PRODUTOR = os.getenv("SAFT_NIF_PRODUTOR", "")
+SAFT_NOME_PRODUTOR = os.getenv("SAFT_NOME_PRODUTOR", "")
+
 # Endereço público da aplicação: usado para montar os links de convite
 URL_PUBLICO = os.getenv("URL_PUBLICO", "http://127.0.0.1:8000").rstrip("/")
 

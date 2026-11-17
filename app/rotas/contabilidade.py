@@ -11,14 +11,14 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import config
 from app.db import get_db
 from app.dependencias import utilizador_atual
 from app.modelos.tabelas import PAPEL_ADMIN, Conta, Empresa, Fatura, Lancamento, Utilizador
-from app.servicos import armazenamento, exportacao, repositorio
+from app.servicos import armazenamento, exportacao, repositorio, validacao
 from app.servicos.contabilidade import (
     assistente,
     classificacao,
@@ -28,6 +28,7 @@ from app.servicos.contabilidade import (
     obrigacoes,
     plano_snc,
     relatorios,
+    saft,
     verificacoes,
 )
 
@@ -133,7 +134,7 @@ def resumo(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utili
     alertas = verificacoes.alertas(db, empresa, hoje)
     db.commit()  # o plano de contas pode ter sido criado agora
     return {
-        "empresa": {"nome": empresa.nome, "regime_iva": empresa.regime_iva, "fechado_ate": empresa.fechado_ate},
+        "empresa": _dados_empresa(empresa),
         "por_contabilizar": {"quantidade": len(pendentes), "total": round(sum(f.total for f in pendentes), 2)},
         "iva_periodo": {"de": inicio_periodo, "ate": hoje, "dedutivel": mapa["total_dedutivel"],
                         "liquidado": mapa["total_liquidado"], "saldo": mapa["saldo"],
@@ -235,7 +236,7 @@ def contabilizar_lote(lote: Lote, db: Session = Depends(get_db), utilizador: Uti
 
 class Pagamento(BaseModel):
     data: date | None = None
-    conta: Literal["11", "12", "13"] = "12"
+    conta: str = Field("121", pattern=r"^1[123]\d+$", description="Conta de caixa ou bancos (ex.: 111, 121)")
 
 
 @router.post("/faturas/{id_fatura}/pagamento", status_code=201)
@@ -441,7 +442,8 @@ def listar_contas(db: Session = Depends(get_db), utilizador: Utilizador = Depend
 
 
 class ContaNova(BaseModel):
-    codigo: str = Field(min_length=2, max_length=20, pattern=r"^\d+$")
+    # 3 dígitos no mínimo: as contas de 1.º grau (2 dígitos) são sempre agregadoras no SAF-T
+    codigo: str = Field(min_length=3, max_length=20, pattern=r"^\d+$")
     nome: str = Field(min_length=1, max_length=200)
 
 
@@ -474,9 +476,22 @@ def perfis_iva():
             for p in iva.PERFIS.values()]
 
 
+def _dados_empresa(empresa: Empresa) -> dict:
+    return {
+        "nome": empresa.nome, "nif": empresa.nif, "regime_iva": empresa.regime_iva,
+        "fechado_ate": empresa.fechado_ate, "morada": empresa.morada, "codigo_postal": empresa.codigo_postal,
+        "localidade": empresa.localidade,
+    }
+
+
 class Configuracao(BaseModel):
     regime_iva: Literal["mensal", "trimestral"]
     fechado_ate: date | None = None
+    # Dados da sede (para o SAF-T). None: não mexer; texto vazio: apagar
+    nif: str | None = Field(None, max_length=9)
+    morada: str | None = Field(None, max_length=210)
+    codigo_postal: str | None = Field(None, max_length=8)
+    localidade: str | None = Field(None, max_length=50)
 
 
 @router.put("/configuracao")
@@ -485,11 +500,71 @@ def configurar(conf: Configuracao, db: Session = Depends(get_db), utilizador: Ut
         raise HTTPException(status_code=403, detail="A configuração não pode ser alterada na demonstração.")
     if utilizador.papel != PAPEL_ADMIN:
         raise HTTPException(status_code=403, detail="Só os administradores podem fechar períodos ou mudar o regime.")
+    if conf.nif and not validacao.nif_valido(conf.nif.strip()):
+        raise HTTPException(status_code=422, detail="O NIF da empresa não é válido.")
+    if conf.codigo_postal and not saft.PADRAO_CODIGO_POSTAL.match(conf.codigo_postal.strip()):
+        raise HTTPException(status_code=422, detail="O código postal tem de ter o formato 0000-000.")
     empresa = _empresa(db, utilizador)
     empresa.regime_iva = conf.regime_iva
     empresa.fechado_ate = conf.fechado_ate
+    for campo in ("nif", "morada", "codigo_postal", "localidade"):
+        valor = getattr(conf, campo)
+        if valor is not None:
+            setattr(empresa, campo, valor.strip() or None)
     db.commit()
-    return {"regime_iva": empresa.regime_iva, "fechado_ate": empresa.fechado_ate}
+    return _dados_empresa(empresa)
+
+
+# ---------- SAF-T (PT) da contabilidade ----------
+
+def _periodo_saft(ano: int | None, de: date | None, ate: date | None) -> tuple[date, date]:
+    """Com `ano`: o exercício inteiro (o ano em curso vai só até hoje). Sem `ano`: de/ate."""
+    if ano is None:
+        return _periodo(de, ate)
+    fim = date(ano, 12, 31)
+    if ano == date.today().year:
+        fim = date.today()
+    return date(ano, 1, 1), fim
+
+
+@router.get("/saft/verificar")
+def verificar_saft(
+    ano: int | None = Query(None, ge=2000, le=9999),
+    de: date | None = None,
+    ate: date | None = None,
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """O que falta para gerar o SAF-T do período (lista vazia: pronto a exportar)."""
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo_saft(ano, de, ate)
+    lancamentos_periodo = db.scalar(select(func.count(Lancamento.id)).where(
+        Lancamento.empresa_id == empresa.id, Lancamento.data >= de, Lancamento.data <= ate
+    ))
+    return {"de": de, "ate": ate, "problemas": saft.verificar(db, empresa, de, ate),
+            "lancamentos": lancamentos_periodo, "empresa": _dados_empresa(empresa)}
+
+
+@router.get("/saft")
+def exportar_saft(
+    ano: int | None = Query(None, ge=2000, le=9999),
+    de: date | None = None,
+    ate: date | None = None,
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Ficheiro SAF-T (PT) 1.04_01 da contabilidade (exercício inteiro com `ano`, ou de/ate no mesmo ano)."""
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo_saft(ano, de, ate)
+    try:
+        conteudo = saft.gerar(db, empresa, de, ate)
+    except saft.ErroSAFT as erro:
+        raise HTTPException(status_code=409, detail=" ".join(erro.problemas))
+    return Response(
+        content=conteudo,
+        media_type="application/xml; charset=windows-1252",
+        headers={"Content-Disposition": f'attachment; filename="{saft.nome_ficheiro(empresa, de, ate)}"'},
+    )
 
 
 # ---------- Assistente com IA ----------

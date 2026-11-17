@@ -40,6 +40,7 @@ def test_plano_snc_e_balancete_vazio(cliente):
     assert contas["6242"]["nome"] == "Combustíveis" and contas["6242"]["movimento"]
     assert not contas["62"]["movimento"]          # agregadora
     assert not contas["2211"]["movimento"]        # só se lança nas subcontas de cada fornecedor
+    assert not contas["12"]["movimento"] and contas["121"]["movimento"]  # 1.º grau: sempre agregadora
     balancete = cliente.get("/api/contabilidade/balancete").json()
     assert balancete["linhas"] == [] and balancete["equilibrado"]
 
@@ -93,7 +94,7 @@ def test_gasoleo_so_deduz_metade_do_iva(cliente, fabrica_sessoes, empresa_teste)
 
 def test_escolha_do_utilizador_prevalece_e_e_validada(cliente, fabrica_sessoes, empresa_teste):
     id_fatura = criar_fatura(fabrica_sessoes, empresa_teste, fornecedor="Fornecedor Desconhecido")
-    erro = cliente.post(f"/api/contabilidade/faturas/{id_fatura}/contabilizar", json={"conta_codigo": "12"})
+    erro = cliente.post(f"/api/contabilidade/faturas/{id_fatura}/contabilizar", json={"conta_codigo": "121"})
     assert erro.status_code == 409 and "não serve" in erro.json()["detail"]
     lancamento = cliente.post(
         f"/api/contabilidade/faturas/{id_fatura}/contabilizar",
@@ -115,19 +116,19 @@ def test_nota_de_credito_inverte_o_lancamento(cliente, fabrica_sessoes, empresa_
 def test_lancamento_manual_valida_partidas_dobradas(cliente):
     base = {"diario": "OD", "data": "2026-10-10", "descricao": "Renda de outubro"}
     desequilibrado = cliente.post("/api/contabilidade/lancamentos", json={**base, "linhas": [
-        {"conta": "6261", "debito": 800}, {"conta": "12", "credito": 700}]})
+        {"conta": "6261", "debito": 800}, {"conta": "121", "credito": 700}]})
     assert desequilibrado.status_code == 409 and "equilibrado" in desequilibrado.json()["detail"]
 
     agregadora = cliente.post("/api/contabilidade/lancamentos", json={**base, "linhas": [
-        {"conta": "62", "debito": 800}, {"conta": "12", "credito": 800}]})
+        {"conta": "62", "debito": 800}, {"conta": "121", "credito": 800}]})
     assert agregadora.status_code == 409 and "agregadora" in agregadora.json()["detail"]
 
     ok = cliente.post("/api/contabilidade/lancamentos", json={**base, "linhas": [
-        {"conta": "6261", "debito": 800}, {"conta": "12", "credito": 800}]})
+        {"conta": "6261", "debito": 800}, {"conta": "121", "credito": 800}]})
     assert ok.status_code == 201
     assert ok.json()["referencia"] == "OD 2026/1"
     segundo = cliente.post("/api/contabilidade/lancamentos", json={**base, "linhas": [
-        {"conta": "6261", "debito": 800}, {"conta": "12", "credito": 800}]}).json()
+        {"conta": "6261", "debito": 800}, {"conta": "121", "credito": 800}]}).json()
     assert segundo["referencia"] == "OD 2026/2"    # numeração sequencial por diário e ano
 
 
@@ -136,7 +137,7 @@ def test_periodo_fechado_bloqueia_lancamentos(cliente):
                        json={"regime_iva": "mensal", "fechado_ate": "2026-09-30"}).status_code == 200
     resposta = cliente.post("/api/contabilidade/lancamentos", json={
         "diario": "OD", "data": "2026-09-15", "descricao": "Fora de prazo",
-        "linhas": [{"conta": "6261", "debito": 10}, {"conta": "11", "credito": 10}]})
+        "linhas": [{"conta": "6261", "debito": 10}, {"conta": "111", "credito": 10}]})
     assert resposta.status_code == 409 and "fechado" in resposta.json()["detail"]
 
 
@@ -165,7 +166,7 @@ def test_pagamento_gera_lancamento_no_banco(cliente, fabrica_sessoes, empresa_te
     dados = cliente.get(f"/api/contabilidade/faturas/{id_fatura}").json()
     pagamento = next(la for la in dados["lancamentos"] if la["origem"] == "pagamento")
     assert pagamento["diario"] == "BAN"
-    assert linhas_por_conta(pagamento) == {"22110001": (123.0, 0.0), "12": (0.0, 123.0)}
+    assert linhas_por_conta(pagamento) == {"22110001": (123.0, 0.0), "121": (0.0, 123.0)}
 
     correntes = cliente.get("/api/contabilidade/fornecedores").json()
     assert correntes["total"] == 0
@@ -187,7 +188,7 @@ def test_apuramento_do_iva(cliente, fabrica_sessoes, empresa_teste):
     cliente.post(f"/api/contabilidade/faturas/{id_fatura}/contabilizar", json={})
     cliente.post("/api/contabilidade/lancamentos", json={
         "diario": "VEN", "data": "2026-10-20", "descricao": "Vendas de outubro",
-        "linhas": [{"conta": "12", "debito": 1230}, {"conta": "711", "credito": 1000},
+        "linhas": [{"conta": "121", "debito": 1230}, {"conta": "711", "credito": 1000},
                    {"conta": "24333", "credito": 230}]})
 
     resposta = cliente.post("/api/contabilidade/iva/apurar", json={"de": "2026-10-01", "ate": "2026-12-31"})
@@ -235,10 +236,12 @@ def test_resumo_e_alertas(cliente, fabrica_sessoes, empresa_teste):
 
 
 def test_criar_subconta(cliente):
-    assert cliente.post("/api/contabilidade/contas", json={"codigo": "121", "nome": "Banco A"}).status_code == 201
+    assert cliente.post("/api/contabilidade/contas", json={"codigo": "1211", "nome": "Banco A"}).status_code == 201
     contas = {c["codigo"]: c for c in cliente.get("/api/contabilidade/contas").json()}
-    assert not contas["12"]["movimento"] and contas["121"]["movimento"]
+    assert not contas["121"]["movimento"] and contas["1211"]["movimento"]
     assert cliente.post("/api/contabilidade/contas", json={"codigo": "999", "nome": "X"}).status_code == 422
+    # Contas de 1.º grau (2 dígitos) são sempre agregadoras: não se criam pela aplicação
+    assert cliente.post("/api/contabilidade/contas", json={"codigo": "14", "nome": "X"}).status_code == 422
 
 
 def test_assistente_sem_ia_explica_porque(cliente, monkeypatch):

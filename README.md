@@ -49,6 +49,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - **Apuramento do IVA num clique** (2432/2433/2434 → 2435 → 2436 a pagar ou 2437 a recuperar, com reporte do crédito anterior) e **mapa de apoio à declaração periódica** (campos 1 a 6 e 20 a 24).
 - **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**.
 - **Verificações automáticas** do dia a dia: faturas por contabilizar, IVA do período por apurar, caixa com saldo credor, fornecedores com saldo devedor, NIF inválido, **tributação autónoma estimada** das despesas de representação (art. 88.º do CIRC), retenção na fonte a pessoas singulares e faturas sem ATCUD.
+- **SAF-T (PT) da contabilidade** (versão 1.04_01, Portaria n.º 302/2016): plano de contas com saldos de abertura e de fecho, categorias GR/GA/GM e **códigos da taxonomia S**, fornecedores e todos os lançamentos do exercício. Antes de gerar, a aplicação diz o que falta (NIF, morada, contas sem taxonomia). O ficheiro é validado nos testes contra o **XSD oficial da AT**.
 - **Calendário fiscal** (IVA mensal ou trimestral, SAF-T, DMR, retenções, Segurança Social, Modelo 22, IES, pagamentos por conta) com os prazos **ajustados a fins de semana e feriados**, incluindo a Páscoa e o Corpo de Deus.
 - **Assistente com IA:** responde a perguntas ("quanto IVA vou pagar?", "a quem devo e há quanto tempo?") consultando o balancete, os extratos e o IVA através de ferramentas só de leitura, e **propõe lançamentos** que só ficam gravados depois de o utilizador carregar em "Lançar".
 
@@ -69,7 +70,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 133 testes automáticos (pytest), incluindo isolamento entre empresas, migrações e as regras contabilísticas. Correm sem Internet e sem chave da API.
+- 141 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -172,13 +173,13 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 133 testes, sem navegador
-pytest tests_ui                    # interface: 32 testes num Chromium a sério (Playwright)
+pytest                             # servidor: 141 testes, sem navegador
+pytest tests_ui                    # interface: 33 testes num Chromium a sério (Playwright)
 ```
 
 Nos testes do servidor, cada teste usa uma base de dados temporária, a IA é substituída por uma função falsa e o bucket S3 por um objeto falso.
 
-Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
+Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a exportação do SAF-T, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
 
 O **GitHub Actions** corre tudo em cada push (`.github/workflows/testes.yml`), incluindo o teste de PostgreSQL com uma base de dados verdadeira.
 
@@ -221,6 +222,7 @@ A demonstração e a versão dos clientes são **serviços separados**, a partir
 | PDFs e cópias | Bucket privado no Cloudflare R2 | `S3_BUCKET`, `S3_ENDPOINT_URL`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` |
 | Cópia diária | Tarefa agendada do Render (`python -m app.copias criar`) | as mesmas da base de dados e do bucket |
 | Erros | Sentry (opcional) | `SENTRY_DSN` |
+| SAF-T | NIF e nome de quem produz o programa (opcional; sem eles, usam-se os da empresa) | `SAFT_NIF_PRODUTOR`, `SAFT_NOME_PRODUTOR` |
 
 O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.
 
@@ -289,7 +291,9 @@ Um teste confirma que as migrações e os modelos não divergem.
 | GET | `/api/contabilidade/fornecedores` | Contas correntes e antiguidade de saldos |
 | GET | `/api/contabilidade/obrigacoes` | Calendário fiscal |
 | GET / POST | `/api/contabilidade/contas` | Plano de contas / nova subconta |
-| PUT | `/api/contabilidade/configuracao` | Regime do IVA e período fechado (administradores) |
+| PUT | `/api/contabilidade/configuracao` | Regime do IVA, período fechado, NIF e morada da sede (administradores) |
+| GET | `/api/contabilidade/saft/verificar` | O que falta para gerar o SAF-T (`ano`, ou `de` e `ate`) |
+| GET | `/api/contabilidade/saft` | Ficheiro SAF-T (PT) 1.04_01 da contabilidade (`ano`, ou `de` e `ate`) |
 | POST | `/api/contabilidade/assistente` | Pergunta ao assistente com IA (`pergunta`, `historico`) |
 
 ## Estrutura
@@ -327,12 +331,12 @@ leitor-faturas/
 │       ├── exportacao.py    # CSV e Excel
 │       ├── limites.py       # limite de pedidos (rate limiting)
 │       ├── contabilidade/   # SNC: plano de contas, IVA, classificação, lançamentos, relatórios,
-│       │                    #      verificações, calendário fiscal e assistente com IA
+│       │                    #      verificações, calendário fiscal, SAF-T e assistente com IA
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 133 testes do servidor (pytest)
-├── tests_ui/                # 32 testes da interface (Playwright)
+├── tests/                   # 141 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
+├── tests_ui/                # 33 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini
 ├── Dockerfile
@@ -358,6 +362,8 @@ leitor-faturas/
 - **Interface sem frameworks, com um sistema de cores.** Todas as cores, raios e sombras são variáveis CSS num só sítio; o modo escuro é o mesmo conjunto de variáveis com outros valores. Os contrastes cumprem a WCAG AA e o estado nunca é indicado só pela cor (há sempre ícone e texto).
 - **Linhas retas no gráfico mensal.** Uma curva suavizada sugere valores entre os meses que não existem.
 - **Contabilidade imutável.** Um lançamento nunca é alterado nem apagado: corrige-se com um estorno, e os relatórios contam os dois (anulam-se). O histórico fica completo, como espera um auditor, e o fecho de períodos é fácil de garantir.
+- **Plano de contas pensado para o SAF-T.** As contas de 2 dígitos são sempre agregadoras (os movimentos vão para 111, 121, 511...) e cada conta de movimento tem um código de taxonomia; as subcontas herdam o da conta-mãe, como manda a Portaria. Planos antigos são atualizados ao abrir a contabilidade, sem mudar valores nem datas.
+- **SAF-T validado contra o XSD oficial.** O esquema da AT usa XSD 1.1 (com `xs:assert`), que o `lxml` não suporta: os testes usam o `xmlschema`, que o valida por completo.
 - **Regras fiscais num só ficheiro.** Taxas, escalões, perfis de dedutibilidade e campos da declaração periódica estão em `contabilidade/iva.py`: quando a lei mudar, muda-se um ficheiro.
 - **A IA propõe, a pessoa decide.** O assistente só tem ferramentas de leitura; as propostas de lançamento são validadas com as mesmas regras de um lançamento manual, mas só são gravadas com um clique do utilizador. As chamadas usam o *fallback* do servidor da API (se o modelo recusar um pedido, outro modelo responde na mesma chamada).
 - **Exportação segura.** Os textos vêm de PDFs de terceiros, por isso valores começados por `=`, `+`, `-` ou `@` são neutralizados para o Excel não os executar como fórmulas.
@@ -369,5 +375,5 @@ leitor-faturas/
 - Pagamentos e planos por empresa (Stripe).
 - Processamento em segundo plano para lotes grandes de faturas.
 - Leitura por IA de faturas digitalizadas sem QR (envio da imagem da página).
-- Exportação do SAF-T (PT) da contabilidade e importação de extratos bancários para reconciliação automática.
+- Importação de extratos bancários para reconciliação automática.
 - Faturas de clientes (vendas), depreciações automáticas dos ativos fixos e fecho do exercício (classe 8).

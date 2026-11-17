@@ -941,21 +941,40 @@ async function carregarFornecedores(secao) {
 
 async function carregarObrigacoes(secao) {
   const [d, eu, resumo] = await Promise.all([obter("/api/contabilidade/obrigacoes"), obter("/api/auth/eu"), obter("/api/contabilidade/resumo")]);
+  const empresa = resumo.empresa;
+  const podeConfigurar = eu.papel === "admin" && !eu.modo_demo;
+
+  // Configuração: IVA, período fechado e dados da sede (para o SAF-T)
   const regime = h("select", { id: "conf-regime" },
     h("option", { value: "trimestral" }, "Trimestral"), h("option", { value: "mensal" }, "Mensal"));
   regime.value = d.regime_iva;
-  const fechado = h("input", { type: "date", id: "conf-fechado", value: resumo.empresa.fechado_ate || "" });
-  const podeConfigurar = eu.papel === "admin" && !eu.modo_demo;
+  const campoTexto = (id, valor, props = {}) => h("input", { type: "text", id, value: valor || "", ...props });
+  const fechado = h("input", { type: "date", id: "conf-fechado", value: empresa.fechado_ate || "" });
+  const nif = campoTexto("conf-nif", empresa.nif, { inputmode: "numeric", maxlength: "9", pattern: "[0-9]{9}", placeholder: "500000000" });
+  const morada = campoTexto("conf-morada", empresa.morada, { maxlength: "210", placeholder: "Rua, número, andar" });
+  const codigoPostal = campoTexto("conf-cp", empresa.codigo_postal, { maxlength: "8", pattern: "[0-9]{4}-[0-9]{3}", placeholder: "0000-000" });
+  const localidade = campoTexto("conf-localidade", empresa.localidade, { maxlength: "50", placeholder: "Lisboa" });
+  for (const campo of [regime, fechado, nif, morada, codigoPostal, localidade]) campo.disabled = !podeConfigurar;
   const gravar = h("button", { type: "submit", class: "botao", disabled: !podeConfigurar }, icone("cadeado"), "Guardar");
-  const form = h("form", { class: "filtros-linha" },
-    h("div", { class: "campo" }, h("label", { for: "conf-regime", texto: "Periodicidade do IVA" }), regime),
-    h("div", { class: "campo" }, h("label", { for: "conf-fechado", texto: "Período fechado até" }), fechado),
-    gravar);
+  const campo = (id, rotulo, el, classe = "campo") => h("div", { class: classe }, h("label", { for: id, texto: rotulo }), el);
+  const form = h("form", {},
+    h("div", { class: "filtros-linha" },
+      campo("conf-regime", "Periodicidade do IVA", regime),
+      campo("conf-fechado", "Período fechado até", fechado),
+      campo("conf-nif", "NIF da empresa", nif)),
+    h("div", { class: "filtros-linha" },
+      campo("conf-morada", "Morada da sede", morada, "campo largo"),
+      campo("conf-cp", "Código postal", codigoPostal),
+      campo("conf-localidade", "Localidade", localidade),
+      gravar));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     ocupado(gravar, true);
     try {
-      await enviar("/api/contabilidade/configuracao", { regime_iva: regime.value, fechado_ate: fechado.value || null }, "PUT");
+      await enviar("/api/contabilidade/configuracao", {
+        regime_iva: regime.value, fechado_ate: fechado.value || null, nif: nif.value.trim(),
+        morada: morada.value.trim(), codigo_postal: codigoPostal.value.trim(), localidade: localidade.value.trim(),
+      }, "PUT");
       notificar("Configuração guardada.", "ok");
       invalidar("resumo", "iva");
       mostrar("obrigacoes", true);
@@ -979,11 +998,57 @@ async function carregarObrigacoes(secao) {
           h("td", { class: "nome" }, h("span", { class: "titulo", texto: o.nome }), h("span", { class: "ajuda", texto: o.descricao })),
           td(o.periodo, "", "Período"), td(porCategoria[o.categoria] || o.categoria, "", "Tipo")))))),
       h("p", { class: "nota-rodape", texto: d.aviso })),
+    cartaoSAFT(),
     h("section", { class: "cartao" },
       h("h2", { texto: "Configuração da contabilidade" }),
-      h("p", { class: "ajuda", texto: "Fechar um período impede lançamentos (e estornos) com data igual ou anterior. Use-o depois de entregar a declaração do IVA." }),
+      h("p", { class: "ajuda", texto: "Fechar um período impede lançamentos (e estornos) com data igual ou anterior. Use-o depois de entregar a declaração do IVA. O NIF e a morada aparecem no cabeçalho do SAF-T." }),
       form,
       podeConfigurar ? null : h("p", { class: "ajuda", texto: eu.modo_demo ? "Na demonstração a configuração está bloqueada." : "Só os administradores podem alterar a configuração." })));
+}
+
+// Exportação do SAF-T (PT) da contabilidade: verifica primeiro o que falta e só depois deixa descarregar
+function cartaoSAFT() {
+  const esteAno = new Date().getFullYear();
+  const ano = h("select", { id: "saft-ano" }, [0, 1, 2, 3].map((i) => h("option", { value: esteAno - i }, String(esteAno - i))));
+  const estado = h("div", { "aria-live": "polite" });
+  const descarregar = h("a", { class: "botao", id: "saft-descarregar", download: "", "aria-disabled": "true" }, icone("descarregar"), "Descarregar SAF-T");
+
+  async function verificar() {
+    estado.replaceChildren(h("span", { class: "ajuda", texto: "A verificar…" }));
+    descarregar.removeAttribute("href");
+    descarregar.setAttribute("aria-disabled", "true");
+    try {
+      const r = await obter(`/api/contabilidade/saft/verificar?ano=${ano.value}`);
+      const periodo = `${formatarData(r.de)} a ${formatarData(r.ate)} · ${r.lancamentos} lançamento${r.lancamentos === 1 ? "" : "s"}`;
+      if (r.problemas.length) {
+        estado.replaceChildren(
+          h("p", { class: "ajuda", texto: periodo }),
+          h("ul", { class: "lista-alertas" }, r.problemas.map((p) => h("li", { class: "alerta aviso" },
+            icone("alerta"), h("div", {}, h("strong", { texto: "Falta corrigir" }), h("p", { texto: p }))))));
+        return;
+      }
+      estado.replaceChildren(h("p", { class: "ajuda" }, criarEtiqueta("Pronto a exportar", "ok", "check"), ` ${periodo}`));
+      descarregar.href = `/api/contabilidade/saft?ano=${ano.value}`;
+      descarregar.removeAttribute("aria-disabled");
+    } catch (erro) {
+      estado.replaceChildren(h("p", { class: "erro-campo", texto: erro.message }));
+    }
+  }
+  ano.addEventListener("change", verificar);
+  descarregar.addEventListener("click", (e) => {
+    if (descarregar.getAttribute("aria-disabled")) e.preventDefault();
+  });
+  verificar();
+
+  return h("section", { class: "cartao", "aria-labelledby": "titulo-saft" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { id: "titulo-saft", texto: "SAF-T (PT) da contabilidade" }),
+        h("p", { class: "subtitulo", texto: "Ficheiro XML na versão 1.04_01 (Portaria n.º 302/2016), com o plano de contas, as taxonomias SNC, os fornecedores e todos os lançamentos do exercício." })),
+      h("div", { class: "cabecalho-acoes" },
+        h("div", { class: "campo", style: "margin:0" }, h("label", { for: "saft-ano", class: "visualmente-oculto", texto: "Exercício" }), ano),
+        descarregar)),
+    estado,
+    h("p", { class: "nota-rodape", texto: "O SAF-T da contabilidade é entregue à AT juntamente com a IES. Confirme o ficheiro no validador do Portal das Finanças antes de o submeter." }));
 }
 
 // ---------- Plano de contas ----------
@@ -1007,7 +1072,7 @@ async function carregarPlano(secao) {
   filtro.addEventListener("input", desenhar);
   desenhar();
 
-  const codigo = h("input", { type: "text", id: "nova-conta-codigo", inputmode: "numeric", pattern: "\\d+", required: true, placeholder: "Ex.: 121" });
+  const codigo = h("input", { type: "text", id: "nova-conta-codigo", inputmode: "numeric", pattern: "\\d+", required: true, placeholder: "Ex.: 1211" });
   const nome = h("input", { type: "text", id: "nova-conta-nome", required: true, maxlength: "200", placeholder: "Ex.: Banco A - conta à ordem" });
   const criar = h("button", { type: "submit", class: "botao" }, icone("mais"), "Criar subconta");
   const form = h("form", { class: "filtros-linha" },

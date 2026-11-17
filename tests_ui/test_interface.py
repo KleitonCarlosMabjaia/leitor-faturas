@@ -206,8 +206,16 @@ def test_lancamento_desequilibrado_e_recusado(page: Page):
     linhas = page.locator("#lanc-linhas tr")
     linhas.nth(0).locator("input").nth(0).fill("6233")
     linhas.nth(0).locator("input").nth(1).fill("10")
-    linhas.nth(1).locator("input").nth(0).fill("12")
+    linhas.nth(1).locator("input").nth(0).fill("121")
     linhas.nth(1).locator("input").nth(2).fill("9")
     expect(page.locator("#lanc-diferenca")).to_have_text("Diferença 1,00 €")
     page.locator("#lanc-gravar").click()
     expect(page.locator("#lanc-erro")).to_contain_text("não está equilibrado")
+
+
+def test_saft_verificado_e_descarregado(page: Page):
+    page.goto("/contabilidade#obrigacoes")
+    expect(page.get_by_text("Pronto a exportar")).to_be_visible()
+    with page.expect_download() as info:
+        page.locator("#saft-descarregar").click()
+    assert re.match(r"SAFT-PT-contabilidade-\d{9}-\d{4}-01-01-a-\d{4}-\d{2}-\d{2}\.xml$", info.value.suggested_filename)

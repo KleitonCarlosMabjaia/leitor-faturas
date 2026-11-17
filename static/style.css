@@ -1448,3 +1448,4 @@ details .tabela { margin-top: 0.5rem; }
 @media (max-width: 40rem) {
   .celula-barra { display: none; }
 }
+.botao[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; pointer-events: auto; }
