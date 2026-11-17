@@ -248,3 +248,73 @@ class RegraFornecedor(Base):
     origem: Mapped[str] = mapped_column(String(12), default="utilizador")  # utilizador | ia | palavras
     usos: Mapped[int] = mapped_column(default=0)
     atualizada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+# ---------- Bancos (extratos e reconciliação) ----------
+
+MOVIMENTO_PENDENTE = "pendente"
+MOVIMENTO_RECONCILIADO = "reconciliado"
+MOVIMENTO_IGNORADO = "ignorado"  # já refletido na contabilidade por outra via
+
+
+class ExtratoBancario(Base):
+    """Um ficheiro de extrato importado (CSV, Excel ou OFX) de uma conta bancária."""
+
+    __tablename__ = "extratos_bancarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    conta_codigo: Mapped[str] = mapped_column(String(20))
+    nome_ficheiro: Mapped[str] = mapped_column(String(200))
+    formato: Mapped[str] = mapped_column(String(10))           # csv | xlsx | ofx
+    data_inicio: Mapped[date | None] = mapped_column(Date)
+    data_fim: Mapped[date | None] = mapped_column(Date)
+    saldo_final: Mapped[float | None] = mapped_column(Float)   # do ficheiro ou indicado na importação
+    importado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    importado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+
+
+class MovimentoBancario(Base):
+    """
+    Uma linha do extrato. Montante com sinal: positivo entra na conta, negativo sai.
+    Fica reconciliado quando está ligado à linha do lançamento que o reflete na contabilidade.
+    """
+
+    __tablename__ = "movimentos_bancarios"
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "conta_codigo", "referencia", name="uq_movimento_referencia"),
+        Index("ix_movimentos_empresa_conta_estado", "empresa_id", "conta_codigo", "estado"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    extrato_id: Mapped[int] = mapped_column(ForeignKey("extratos_bancarios.id", ondelete="CASCADE"), index=True)
+    conta_codigo: Mapped[str] = mapped_column(String(20))
+    data: Mapped[date] = mapped_column(Date)
+    descricao: Mapped[str] = mapped_column(String(300))
+    montante: Mapped[float] = mapped_column(Float)
+    saldo: Mapped[float | None] = mapped_column(Float)
+    # Identifica o movimento entre importações (FITID do OFX ou um hash): evita duplicados
+    referencia: Mapped[str] = mapped_column(String(64))
+    estado: Mapped[str] = mapped_column(String(12), default=MOVIMENTO_PENDENTE)
+    linha_id: Mapped[int | None] = mapped_column(
+        ForeignKey("linhas_lancamento.id", ondelete="SET NULL"), unique=True, index=True
+    )
+    linha: Mapped[LinhaLancamento | None] = relationship()
+    reconciliado_em: Mapped[datetime | None] = mapped_column(DateTime)
+    reconciliado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+
+
+class RegraBancaria(Base):
+    """Conta onde se lança um tipo de movimento do banco, aprendida com o utilizador (ex.: comissões)."""
+
+    __tablename__ = "regras_bancarias"
+    __table_args__ = (UniqueConstraint("empresa_id", "padrao", "sinal", name="uq_regra_bancaria"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    padrao: Mapped[str] = mapped_column(String(80))      # descrição normalizada, sem números
+    sinal: Mapped[int] = mapped_column()                  # 1 entradas, -1 saídas
+    conta_codigo: Mapped[str] = mapped_column(String(20))
+    usos: Mapped[int] = mapped_column(default=0)
+    atualizada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)

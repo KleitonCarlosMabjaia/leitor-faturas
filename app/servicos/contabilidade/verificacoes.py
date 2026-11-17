@@ -7,16 +7,18 @@ sentido, uma ação (a secção da página onde se resolve).
 
 from datetime import date, datetime, time, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modelos.tabelas import (
     ESTADO_CONFIRMADA,
     ESTADO_POR_REVER,
     LANCAMENTO_ATIVO,
+    MOVIMENTO_PENDENTE,
     Empresa,
     Fatura,
     Lancamento,
+    MovimentoBancario,
 )
 from app.servicos.contabilidade import obrigacoes, relatorios
 from app.servicos.contabilidade.lancamentos import _euros
@@ -125,7 +127,21 @@ def alertas(db: Session, empresa: Empresa, hoje: date | None = None) -> list[dic
             ("Ver extrato", "extrato:6266"),
         ))
 
-    # 6. NIF inválido em faturas confirmadas
+    # 6. Movimentos do banco por reconciliar
+    por_reconciliar = db.execute(
+        select(MovimentoBancario.conta_codigo, func.count(MovimentoBancario.id), func.min(MovimentoBancario.data))
+        .where(MovimentoBancario.empresa_id == empresa.id, MovimentoBancario.estado == MOVIMENTO_PENDENTE)
+        .group_by(MovimentoBancario.conta_codigo)
+    ).all()
+    for conta, quantidade, mais_antigo in por_reconciliar:
+        resultado.append(_alerta(
+            "aviso" if (hoje - mais_antigo).days > 30 else "info",
+            f"{quantidade} movimento{'s' if quantidade > 1 else ''} do banco por reconciliar (conta {conta})",
+            f"O mais antigo é de {mais_antigo:%d/%m/%Y}. Associe-os aos lançamentos ou lance-os a partir do extrato.",
+            ("Reconciliar", f"bancos:{conta}"),
+        ))
+
+    # 7. NIF inválido em faturas confirmadas
     nif_invalido = db.scalars(select(Fatura).where(
         Fatura.empresa_id == empresa.id, Fatura.estado == ESTADO_CONFIRMADA, Fatura.nif_valido.is_(False),
     )).all()

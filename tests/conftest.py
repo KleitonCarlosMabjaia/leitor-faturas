@@ -108,6 +108,15 @@ def fabrica_sessoes(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def sem_ia_real(monkeypatch):
+    """
+    Os testes nunca chamam a API da Anthropic, mesmo que o .env tenha uma chave:
+    não gastam créditos e correm sem Internet. Quem testa a IA substitui o cliente.
+    """
+    monkeypatch.setattr(config, "CHAVE_API_DEFINIDA", False)
+
+
+@pytest.fixture(autouse=True)
 def limites_limpos():
     """Os contadores de pedidos são globais: cada teste começa do zero."""
     limites.limpar_todos()

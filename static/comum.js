@@ -101,6 +101,7 @@ const ICONES = {
   loja: "M4 10v10h16V10M3 10l2-6h14l2 6M3 10h18M9 20v-6h6v6",
   cadeado: "M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3",
   arvore: "M5 4v15a1 1 0 0 0 1 1h3M5 9h4M9 7h11v4H9zM9 16h11v4H9z",
+  banco: "M3 9.5 12 4l9 5.5M4.5 10v8M9.5 10v8M14.5 10v8M19.5 10v8M3 20h18",
 };
 
 function icone(nome, classe = "") {

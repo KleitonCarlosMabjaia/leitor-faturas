@@ -153,7 +153,7 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
-    "obrigacoes", "plano", "assistente")]
+    "obrigacoes", "plano", "assistente", "bancos")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
@@ -219,3 +219,19 @@ def test_saft_verificado_e_descarregado(page: Page):
     with page.expect_download() as info:
         page.locator("#saft-descarregar").click()
     assert re.match(r"SAFT-PT-contabilidade-\d{9}-\d{4}-01-01-a-\d{4}-\d{2}-\d{2}\.xml$", info.value.suggested_filename)
+
+
+def test_reconciliacao_bancaria(page: Page, tmp_path):
+    page.goto("/contabilidade#bancos")
+    cartoes = page.locator(".proposta-banco")
+    expect(cartoes.first).to_be_visible()
+    antes = cartoes.count()
+    cartoes.filter(has_text="IMPOSTO SELO").first.get_by_role("button", name="Lançar").first.click()
+    expect(page.get_by_text("Lançado em 6812 e reconciliado.")).to_be_visible()
+    expect(cartoes).to_have_count(antes - 1)
+
+    extrato = tmp_path / "extrato.csv"
+    extrato.write_text("Data;Descrição;Montante\n02-01-2026;JUROS CREDORES;0,12\n", encoding="cp1252")
+    page.set_input_files("#banco-ficheiro", str(extrato))
+    page.get_by_role("button", name="Importar extrato").click()
+    expect(page.get_by_text("1 movimento importado")).to_be_visible()

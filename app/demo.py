@@ -31,17 +31,20 @@ from app.modelos.tabelas import (
     PAPEL_ADMIN,
     Conta,
     Empresa,
+    ExtratoBancario,
     Fatura,
     Fornecedor,
     Lancamento,
     LinhaLancamento,
+    MovimentoBancario,
+    RegraBancaria,
     RegraFornecedor,
     Sessao,
     TokenAcesso,
     Utilizador,
 )
 from app.servicos import armazenamento, autenticacao, repositorio
-from app.servicos.contabilidade import lancamentos, obrigacoes, plano_snc
+from app.servicos.contabilidade import banco, extratos, lancamentos, obrigacoes, plano_snc, relatorios
 from app.servicos.contabilidade.lancamentos import LinhaNova
 
 SEMENTE = 2026  # mesma semente -> mesmos dados em todas as execuções
@@ -443,6 +446,67 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                    [LinhaNova("2436", debito=a_pagar), LinhaNova("121", credito=a_pagar)])
         ano, trimestre = (ano + 1, 0) if trimestre == 3 else (ano, trimestre + 1)
     db.flush()
+    criar_extrato_demo(db, empresa, hoje)
+
+
+def _descricao_banco(descricao: str) -> str:
+    """Como o banco descreveria o movimento: em maiúsculas, abreviado e sem acentos."""
+    texto = descricao.split(" - ")[0]
+    for antes, depois in (("Pagamento ", "TRF SEPA "), ("Vendas de", "DEPOSITO VENDAS POS"),
+                          ("Renda do estabelecimento", "DD RENDA ESTABELECIMENTO"),
+                          ("Retenções de IRS e Segurança Social", "PAG ESTADO DUC SEG SOCIAL"),
+                          ("Pagamento de salários", "TRF ORDENADOS"), ("Almoço de negócios", "COMPRA TPA RESTAURANTE")):
+        if texto.startswith(antes):
+            texto = depois + texto[len(antes):]
+    return extratos.normalizar(texto).upper()[:60]
+
+
+def criar_extrato_demo(db: Session, empresa: Empresa, hoje: date, dias: int = 60) -> None:
+    """
+    Extrato do banco (conta 121) dos últimos `dias` dias, importado como CSV: os movimentos que
+    espelham os lançamentos (alguns com 1 a 2 dias de diferença), as comissões e o Imposto do Selo
+    que só o banco conhece, o pagamento de uma fatura vencida e, de fora, os últimos lançamentos
+    (ainda não refletidos no banco). Fica tudo por reconciliar, para a demonstração ter trabalho.
+    """
+    rng = random.Random(SEMENTE + 2)
+    inicio = hoje - timedelta(days=dias)
+    linhas = [
+        ln for ln in db.scalars(
+            select(LinhaLancamento).join(LinhaLancamento.lancamento).join(LinhaLancamento.conta)
+            .where(Lancamento.empresa_id == empresa.id, Conta.codigo == "121", Lancamento.data >= inicio)
+            .order_by(Lancamento.data, Lancamento.id)
+        )
+    ]
+    movimentos = []
+    for ln in linhas[:-2]:  # os dois últimos ainda não chegaram ao banco
+        data = min(ln.lancamento.data + timedelta(days=rng.choice((0, 0, 1, 2))), hoje)
+        movimentos.append((data, _descricao_banco(ln.lancamento.descricao), round(ln.debito - ln.credito, 2)))
+
+    # Só o banco: comissão de manutenção e Imposto do Selo, no dia 3 de cada mês
+    dia = date(inicio.year, inicio.month, 3)
+    while dia <= hoje:
+        if dia >= inicio:
+            mes = f"{dia.month:02d}/{dia.year}"
+            movimentos += [(dia, f"COMISSAO MANUTENCAO CONTA {mes}", -7.5), (dia, "IMPOSTO SELO S/COMISSAO", -0.3)]
+        dia = date(dia.year + dia.month // 12, dia.month % 12 + 1, 3)
+
+    # O pagamento de uma fatura vencida, feito no banco e ainda não registado na aplicação
+    vencida = db.scalar(select(Fatura).where(
+        Fatura.empresa_id == empresa.id, Fatura.paga.is_(False), Fatura.estado == ESTADO_CONFIRMADA,
+        Fatura.data_vencimento < hoje,
+    ).order_by(Fatura.data_vencimento))
+    if vencida:
+        movimentos.append((min(max(vencida.data_vencimento, inicio) + timedelta(days=5), hoje),
+                           f"TRF SEPA {extratos.normalizar(vencida.nome_fornecedor).upper()[:40]}", -vencida.total))
+
+    movimentos.sort(key=lambda m: m[0])
+    saldo = relatorios.saldos_por_conta(db, empresa.id, ate=inicio - timedelta(days=1)).get("121", 0.0)
+    texto = ["Consulta de movimentos - Conta à ordem", "", "Data movimento;Descrição;Montante;Saldo"]
+    for data, descricao, montante in movimentos:
+        saldo = round(saldo + montante, 2)
+        virgula = lambda v: f"{v:.2f}".replace(".", ",")  # noqa: E731  (números como os bancos portugueses)
+        texto.append(f"{data:%d-%m-%Y};{descricao};{virgula(montante)};{virgula(saldo)}")
+    banco.importar(db, empresa, "121", "\n".join(texto).encode("cp1252"), "extrato-demonstracao.csv")
 
 
 def apagar_empresa_demo(db: Session) -> None:
@@ -450,6 +514,9 @@ def apagar_empresa_demo(db: Session) -> None:
     empresa = empresa_demo(db)
     if empresa is None:
         return
+    db.execute(delete(MovimentoBancario).where(MovimentoBancario.empresa_id == empresa.id))
+    db.execute(delete(ExtratoBancario).where(ExtratoBancario.empresa_id == empresa.id))
+    db.execute(delete(RegraBancaria).where(RegraBancaria.empresa_id == empresa.id))
     ids_lancamentos = select(Lancamento.id).where(Lancamento.empresa_id == empresa.id)
     db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))

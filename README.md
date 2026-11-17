@@ -49,6 +49,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - **Apuramento do IVA num clique** (2432/2433/2434 → 2435 → 2436 a pagar ou 2437 a recuperar, com reporte do crédito anterior) e **mapa de apoio à declaração periódica** (campos 1 a 6 e 20 a 24).
 - **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**.
 - **Verificações automáticas** do dia a dia: faturas por contabilizar, IVA do período por apurar, caixa com saldo credor, fornecedores com saldo devedor, NIF inválido, **tributação autónoma estimada** das despesas de representação (art. 88.º do CIRC), retenção na fonte a pessoas singulares e faturas sem ATCUD.
+- **Reconciliação bancária com importação de extratos** em CSV, Excel ou OFX, como os bancos os exportam: colunas, separadores, codificação, números ("1.234,56") e datas reconhecidos sozinhos, e a IA identifica as colunas de formatos desconhecidos. Reimportar o mesmo extrato não duplica movimentos. Para cada movimento há sugestões: **associar** a um lançamento com o mesmo valor e data próxima, **pagar a fatura** em aberto com esse total (o pagamento fica com a data do banco) ou **lançar** numa conta (comissões, Imposto do Selo, Segurança Social...), com a escolha **memorizada** para o mesmo tipo de movimento nos meses seguintes. A **reconciliação automática** só aplica o que não tem dúvidas, e o **mapa de reconciliação** explica a diferença entre o saldo do banco e o da contabilidade.
 - **SAF-T (PT) da contabilidade** (versão 1.04_01, Portaria n.º 302/2016): plano de contas com saldos de abertura e de fecho, categorias GR/GA/GM e **códigos da taxonomia S**, fornecedores e todos os lançamentos do exercício. Antes de gerar, a aplicação diz o que falta (NIF, morada, contas sem taxonomia). O ficheiro é validado nos testes contra o **XSD oficial da AT**.
 - **Calendário fiscal** (IVA mensal ou trimestral, SAF-T, DMR, retenções, Segurança Social, Modelo 22, IES, pagamentos por conta) com os prazos **ajustados a fins de semana e feriados**, incluindo a Páscoa e o Corpo de Deus.
 - **Assistente com IA:** responde a perguntas ("quanto IVA vou pagar?", "a quem devo e há quanto tempo?") consultando o balancete, os extratos e o IVA através de ferramentas só de leitura, e **propõe lançamentos** que só ficam gravados depois de o utilizador carregar em "Lançar".
@@ -70,7 +71,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 141 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial. Correm sem Internet e sem chave da API.
+- 165 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -159,7 +160,7 @@ Faturas criadas antes das contas existirem passam para a primeira empresa que fo
 
 ## Dados de demonstração
 
-`python -m app.demo` cria uma empresa própria ("... (demonstração)"), separada das empresas reais, com 30 faturas de 7 fornecedores fictícios (bebidas, carne, peixe e legumes), espalhadas pelos últimos 6 meses. Algumas ficam por rever, algumas por pagar e duas vencidas. Tem também uma contabilidade completa: capital inicial, vendas mensais a 13% e 23%, rendas, salários, gasóleo (IVA a 50%), despesas de representação, as faturas contabilizadas (menos três, para haver trabalho pendente) e o apuramento e pagamento do IVA de cada trimestre terminado. Cada fatura tem um PDF gerado na hora, com texto e um QR da AT válido, por isso os PDFs (em `uploads/`) também servem para testar o carregamento.
+`python -m app.demo` cria uma empresa própria ("... (demonstração)"), separada das empresas reais, com 30 faturas de 7 fornecedores fictícios (bebidas, carne, peixe e legumes), espalhadas pelos últimos 6 meses. Algumas ficam por rever, algumas por pagar e duas vencidas. Tem também um extrato bancário dos últimos dois meses por reconciliar (com comissões, Imposto do Selo e o pagamento de uma fatura vencida) e uma contabilidade completa: capital inicial, vendas mensais a 13% e 23%, rendas, salários, gasóleo (IVA a 50%), despesas de representação, as faturas contabilizadas (menos três, para haver trabalho pendente) e o apuramento e pagamento do IVA de cada trimestre terminado. Cada fatura tem um PDF gerado na hora, com texto e um QR da AT válido, por isso os PDFs (em `uploads/`) também servem para testar o carregamento.
 
 - O comando mostra um link para definir a palavra-passe do utilizador `demo@demonstracao.pt`.
 - `python -m app.demo --limpar` apaga **só** a empresa de demonstração e cria-a de novo.
@@ -173,13 +174,13 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 141 testes, sem navegador
-pytest tests_ui                    # interface: 33 testes num Chromium a sério (Playwright)
+pytest                             # servidor: 165 testes, sem navegador
+pytest tests_ui                    # interface: 35 testes num Chromium a sério (Playwright)
 ```
 
-Nos testes do servidor, cada teste usa uma base de dados temporária, a IA é substituída por uma função falsa e o bucket S3 por um objeto falso.
+Nos testes do servidor, cada teste usa uma base de dados temporária, a IA nunca é chamada (mesmo que o `.env` tenha uma chave) e é substituída por uma função falsa e o bucket S3 por um objeto falso.
 
-Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a exportação do SAF-T, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
+Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a exportação do SAF-T, a reconciliação bancária, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
 
 O **GitHub Actions** corre tudo em cada push (`.github/workflows/testes.yml`), incluindo o teste de PostgreSQL com uma base de dados verdadeira.
 
@@ -292,6 +293,16 @@ Um teste confirma que as migrações e os modelos não divergem.
 | GET | `/api/contabilidade/obrigacoes` | Calendário fiscal |
 | GET / POST | `/api/contabilidade/contas` | Plano de contas / nova subconta |
 | PUT | `/api/contabilidade/configuracao` | Regime do IVA, período fechado, NIF e morada da sede (administradores) |
+| GET | `/api/contabilidade/banco/contas` | Contas de bancos e caixa, saldo e movimentos por reconciliar |
+| POST | `/api/contabilidade/banco/importar` | Importa um extrato (`ficheiro`, `conta`, `saldo_final` opcional) |
+| GET | `/api/contabilidade/banco/movimentos` | Movimentos do extrato, com as sugestões de reconciliação |
+| POST | `/api/contabilidade/banco/movimentos/{id}/associar` | Liga o movimento a um lançamento (`linha_id`) |
+| POST | `/api/contabilidade/banco/movimentos/{id}/pagar-fatura` | Regista o pagamento da fatura e reconcilia |
+| POST | `/api/contabilidade/banco/movimentos/{id}/lancar` | Lança o movimento numa conta (`conta`) e memoriza |
+| POST | `/api/contabilidade/banco/movimentos/{id}/ignorar` · `/desfazer` | Ignora / volta a pôr por reconciliar |
+| POST | `/api/contabilidade/banco/reconciliar-automaticamente` | Aplica só as sugestões seguras (`conta`) |
+| GET | `/api/contabilidade/banco/reconciliacao` | Mapa de reconciliação bancária |
+| GET / DELETE | `/api/contabilidade/banco/extratos` | Extratos importados / apagar uma importação |
 | GET | `/api/contabilidade/saft/verificar` | O que falta para gerar o SAF-T (`ano`, ou `de` e `ate`) |
 | GET | `/api/contabilidade/saft` | Ficheiro SAF-T (PT) 1.04_01 da contabilidade (`ano`, ou `de` e `ate`) |
 | POST | `/api/contabilidade/assistente` | Pergunta ao assistente com IA (`pergunta`, `historico`) |
@@ -331,12 +342,13 @@ leitor-faturas/
 │       ├── exportacao.py    # CSV e Excel
 │       ├── limites.py       # limite de pedidos (rate limiting)
 │       ├── contabilidade/   # SNC: plano de contas, IVA, classificação, lançamentos, relatórios,
-│       │                    #      verificações, calendário fiscal, SAF-T e assistente com IA
+│       │                    #      verificações, calendário fiscal, SAF-T, extratos e
+│       │                    #      reconciliação bancária e assistente com IA
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 141 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
-├── tests_ui/                # 33 testes da interface (Playwright)
+├── tests/                   # 165 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
+├── tests_ui/                # 35 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini
 ├── Dockerfile
@@ -364,6 +376,7 @@ leitor-faturas/
 - **Contabilidade imutável.** Um lançamento nunca é alterado nem apagado: corrige-se com um estorno, e os relatórios contam os dois (anulam-se). O histórico fica completo, como espera um auditor, e o fecho de períodos é fácil de garantir.
 - **Plano de contas pensado para o SAF-T.** As contas de 2 dígitos são sempre agregadoras (os movimentos vão para 111, 121, 511...) e cada conta de movimento tem um código de taxonomia; as subcontas herdam o da conta-mãe, como manda a Portaria. Planos antigos são atualizados ao abrir a contabilidade, sem mudar valores nem datas.
 - **SAF-T validado contra o XSD oficial.** O esquema da AT usa XSD 1.1 (com `xs:assert`), que o `lxml` não suporta: os testes usam o `xmlschema`, que o valida por completo.
+- **Reconciliação automática conservadora.** Só reconcilia sozinha quando há um único lançamento ou uma única fatura com aquele valor e data próxima, ou quando o utilizador já ensinou a regra. As sugestões por palavras-chave ficam sempre para uma pessoa confirmar. Estornar um lançamento reconciliado volta a pôr o movimento do banco por reconciliar.
 - **Regras fiscais num só ficheiro.** Taxas, escalões, perfis de dedutibilidade e campos da declaração periódica estão em `contabilidade/iva.py`: quando a lei mudar, muda-se um ficheiro.
 - **A IA propõe, a pessoa decide.** O assistente só tem ferramentas de leitura; as propostas de lançamento são validadas com as mesmas regras de um lançamento manual, mas só são gravadas com um clique do utilizador. As chamadas usam o *fallback* do servidor da API (se o modelo recusar um pedido, outro modelo responde na mesma chamada).
 - **Exportação segura.** Os textos vêm de PDFs de terceiros, por isso valores começados por `=`, `+`, `-` ou `@` são neutralizados para o Excel não os executar como fórmulas.
@@ -375,5 +388,4 @@ leitor-faturas/
 - Pagamentos e planos por empresa (Stripe).
 - Processamento em segundo plano para lotes grandes de faturas.
 - Leitura por IA de faturas digitalizadas sem QR (envio da imagem da página).
-- Importação de extratos bancários para reconciliação automática.
 - Faturas de clientes (vendas), depreciações automáticas dos ativos fixos e fecho do exercício (classe 8).

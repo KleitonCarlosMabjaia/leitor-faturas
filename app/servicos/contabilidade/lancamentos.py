@@ -21,10 +21,12 @@ from app.modelos.tabelas import (
     ESTADO_CONFIRMADA,
     LANCAMENTO_ATIVO,
     LANCAMENTO_ESTORNADO,
+    MOVIMENTO_PENDENTE,
     Empresa,
     Fatura,
     Lancamento,
     LinhaLancamento,
+    MovimentoBancario,
 )
 from app.servicos.contabilidade import classificacao, iva, plano_snc, relatorios
 
@@ -175,6 +177,10 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
         utilizador_id=utilizador_id, estorno_de_id=lancamento.id,
     )
     lancamento.estado = LANCAMENTO_ESTORNADO
+    # Movimentos do banco reconciliados com este lançamento voltam a estar por reconciliar
+    ids_linhas = [ln.id for ln in lancamento.linhas]
+    for mov in db.scalars(select(MovimentoBancario).where(MovimentoBancario.linha_id.in_(ids_linhas))):
+        mov.linha_id, mov.estado, mov.reconciliado_em, mov.reconciliado_por_id = None, MOVIMENTO_PENDENTE, None, None
     return estorno
 
 

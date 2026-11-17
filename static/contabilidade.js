@@ -87,7 +87,7 @@ const ORIGENS_CLASSIFICACAO = {
 
 const NOMES_ORIGEM_LANCAMENTO = {
   manual: "Manual", fatura: "Fatura", pagamento: "Pagamento", estorno: "Estorno",
-  apuramento: "Apuramento", assistente: "Assistente IA",
+  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário",
 };
 
 // ---------- Estado ----------
@@ -194,6 +194,7 @@ const SECOES = {
   iva: carregarIVA,
   resultados: carregarResultados,
   fornecedores: carregarFornecedores,
+  bancos: carregarBancos,
   obrigacoes: carregarObrigacoes,
   plano: carregarPlano,
   assistente: async () => {},
@@ -218,7 +219,7 @@ async function mostrar(nome, forcar = false) {
     botaoSep.tabIndex = sim ? 0 : -1;
   }
   for (const secao of document.querySelectorAll("[role=tabpanel]")) secao.hidden = secao.id !== `sec-${nome}`;
-  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores"].includes(nome);
+  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos"].includes(nome);
 
   if (carregadas.has(nome) && !forcar) return;
   const secao = document.getElementById(`sec-${nome}`);
@@ -236,6 +237,10 @@ function lerHash() {
   if (nome === "extrato" && parametro) {
     contaExtrato = parametro;
     carregadas.delete("extrato");
+  }
+  if (nome === "bancos" && parametro) {
+    contaBanco = parametro;
+    carregadas.delete("bancos");
   }
   mostrar(nome || "resumo");
 }
@@ -1107,6 +1112,230 @@ async function carregarPlano(secao) {
       h("h2", { texto: "Nova subconta" }),
       h("p", { class: "ajuda", texto: "O código tem de começar pelo de uma conta existente (ex.: 121 dentro de 12). A conta-mãe passa a agregadora, se ainda não tiver movimentos." }),
       form));
+}
+
+// ---------- Bancos: extratos e reconciliação ----------
+
+let contaBanco = "121";
+let filtroBanco = "pendente";
+
+const NOMES_SUGESTAO = { associar: "Associar", pagar_fatura: "Pagar fatura", lancar: "Lançar" };
+
+async function acaoMovimento(botaoAcao, url, corpo, mensagem) {
+  ocupado(botaoAcao, true);
+  try {
+    await enviar(url, corpo);
+    notificar(mensagem, "ok");
+    invalidar("resumo", "lancamentos", "balancete", "iva", "resultados", "fornecedores", "extrato", "por-contabilizar");
+    await mostrar("bancos", true);
+  } catch (erro) {
+    notificar(erro.message, "erro");
+    ocupado(botaoAcao, false);
+  }
+}
+
+function botaoSugestao(mov, s, principal = false) {
+  const base = `/api/contabilidade/banco/movimentos/${mov.id}`;
+  const classe = principal ? "botao pequeno" : "botao secundario pequeno";
+  const b = h("button", { type: "button", class: classe }, NOMES_SUGESTAO[s.tipo]);
+  b.addEventListener("click", () => {
+    if (s.tipo === "associar") acaoMovimento(b, `${base}/associar`, { linha_id: s.linha_id }, "Movimento reconciliado.");
+    else if (s.tipo === "pagar_fatura") acaoMovimento(b, `${base}/pagar-fatura`, { fatura_id: s.fatura_id }, "Pagamento registado e reconciliado.");
+    else acaoMovimento(b, `${base}/lancar`, { conta: s.conta }, `Lançado em ${s.conta} e reconciliado.`);
+  });
+  return b;
+}
+
+function cartaoMovimento(mov) {
+  const entrada = mov.montante > 0;
+  const valor = h("strong", { class: `num${entrada ? "" : " valor-negativo"}`, texto: `${entrada ? "+" : "−"} ${euros(Math.abs(mov.montante))}` });
+  const topo = h("div", { class: "lancamento-topo" },
+    h("time", { datetime: mov.data, texto: formatarData(mov.data) }),
+    h("span", { class: "desc", texto: mov.descricao }), valor);
+  const base = `/api/contabilidade/banco/movimentos/${mov.id}`;
+
+  if (mov.estado !== "pendente") {
+    const desfazer = h("button", { type: "button", class: "botao fantasma pequeno" }, icone("desfazer"), "Desfazer");
+    desfazer.addEventListener("click", () => acaoMovimento(desfazer, `${base}/desfazer`, {}, "O movimento voltou a estar por reconciliar."));
+    topo.append(
+      mov.estado === "reconciliado" ? criarEtiqueta("Reconciliado", "ok", "check") : criarEtiqueta("Ignorado", "neutro"),
+      desfazer);
+    return h("article", { class: "lancamento" }, topo,
+      mov.lancamento ? h("p", { class: "lancamento-notas" }, "Lançamento: ",
+        h("a", { href: "#lancamentos", texto: `${mov.lancamento.referencia} · ${mov.lancamento.descricao}` })) : null);
+  }
+
+  const sugs = mov.sugestoes || [];
+  const melhor = sugs[0];
+  const principal = melhor
+    ? h("div", { class: "sugestao-principal" },
+      h("span", { class: "explicacao" }, icone(melhor.tipo === "lancar" ? "livro" : "check"), h("span", { texto: melhor.texto })),
+      botaoSugestao(mov, melhor, true))
+    : h("p", { class: "ajuda sugestao-principal", texto: "Sem sugestão: escolha a conta onde lançar este movimento." });
+
+  // Lançar noutra conta (com as contas de movimento como sugestão) e ignorar
+  const idConta = `conta-mov-${mov.id}`;
+  const campoConta = h("input", { type: "text", id: idConta, list: "contas-movimento", placeholder: "Ex.: 6988", inputmode: "numeric", autocomplete: "off" });
+  const lancar = h("button", { type: "button", class: "botao secundario pequeno" }, "Lançar");
+  lancar.addEventListener("click", () => {
+    const conta = campoConta.value.split(" ")[0].trim();
+    if (!conta) return campoConta.focus();
+    acaoMovimento(lancar, `${base}/lancar`, { conta }, `Lançado em ${conta} e reconciliado.`);
+  });
+  const ignorar = h("button", { type: "button", class: "botao fantasma pequeno", title: "Use quando o movimento já está na contabilidade por outra via" }, "Ignorar");
+  ignorar.addEventListener("click", () => acaoMovimento(ignorar, `${base}/ignorar`, {}, "Movimento ignorado."));
+
+  const outras = h("details", {},
+    h("summary", { texto: sugs.length > 1 ? `Outras opções (${sugs.length - 1} sugest${sugs.length === 2 ? "ão" : "ões"})` : "Outras opções" }),
+    sugs.slice(1).map((s) => h("div", { class: "sugestao-principal" }, h("span", { class: "ajuda", texto: s.texto }), botaoSugestao(mov, s))),
+    h("div", { class: "filtros-linha", style: "margin:0.5rem 0 0" },
+      h("div", { class: "campo" }, h("label", { for: idConta, texto: "Lançar na conta" }), campoConta), lancar, ignorar));
+
+  return h("article", { class: "lancamento proposta-banco" }, topo, h("div", { class: "corpo-movimento" }, principal, outras));
+}
+
+function linhaMapa(rotulo, valor, sinal = "", destaque = false) {
+  return h("tr", { class: destaque ? "agregadora" : null }, td(rotulo), td(valor === null ? "—" : `${sinal}${euros(valor)}`, "num"));
+}
+
+async function carregarBancos(secao) {
+  const [contasBanco] = await Promise.all([obter("/api/contabilidade/banco/contas"), obterContas()]);
+  if (!contasBanco.some((c) => c.codigo === contaBanco)) contaBanco = contasBanco[0]?.codigo || "121";
+  const [dados, mapa, importacoes] = await Promise.all([
+    obter(`/api/contabilidade/banco/movimentos?conta=${contaBanco}${filtroBanco ? `&estado=${filtroBanco}` : ""}`),
+    obter(`/api/contabilidade/banco/reconciliacao?conta=${contaBanco}`),
+    obter(`/api/contabilidade/banco/extratos?conta=${contaBanco}`),
+  ]);
+  const conta = contasBanco.find((c) => c.codigo === contaBanco) || { saldo: 0, por_reconciliar: 0 };
+
+  // Escolha da conta
+  const seletor = h("select", { id: "banco-conta" }, contasBanco.map((c) => {
+    const o = h("option", { value: c.codigo }, `${c.codigo} · ${c.nome}${c.por_reconciliar ? ` (${c.por_reconciliar})` : ""}`);
+    if (c.codigo === contaBanco) o.selected = true;
+    return o;
+  }));
+  seletor.addEventListener("change", () => { contaBanco = seletor.value; mostrar("bancos", true); });
+
+  // Importação
+  const ficheiro = h("input", { type: "file", id: "banco-ficheiro", accept: ".csv,.txt,.xlsx,.ofx,.qfx", required: true });
+  const saldo = h("input", { type: "text", id: "banco-saldo", inputmode: "decimal", placeholder: "Opcional", autocomplete: "off" });
+  const importar = h("button", { type: "submit", class: "botao" }, icone("upload"), "Importar extrato");
+  const formImportar = h("form", { class: "filtros-linha" },
+    h("div", { class: "campo largo" }, h("label", { for: "banco-ficheiro", texto: "Extrato (CSV, Excel ou OFX)" }), ficheiro),
+    h("div", { class: "campo" }, h("label", { for: "banco-saldo", texto: "Saldo final do extrato" }), saldo),
+    importar);
+  formImportar.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!ficheiro.files.length) return ficheiro.focus();
+    const dadosForm = new FormData();
+    dadosForm.append("ficheiro", ficheiro.files[0]);
+    dadosForm.append("conta", contaBanco);
+    if (saldo.value.trim()) dadosForm.append("saldo_final", saldo.value.trim());
+    ocupado(importar, true);
+    try {
+      const resposta = await api("/api/contabilidade/banco/importar", { method: "POST", body: dadosForm });
+      if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível importar o extrato."));
+      const r = await resposta.json();
+      notificar(`${r.importados} movimento${r.importados === 1 ? "" : "s"} importado${r.importados === 1 ? "" : "s"}`
+        + (r.duplicados ? ` (${r.duplicados} já existia${r.duplicados === 1 ? "" : "m"})` : "")
+        + (r.mapeado_por_ia ? ". As colunas foram identificadas pela IA." : "."), "ok");
+      filtroBanco = "pendente";
+      invalidar("resumo");
+      await mostrar("bancos", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(importar, false);
+    }
+  });
+
+  const listaImportacoes = importacoes.length ? h("details", {},
+    h("summary", { texto: `Extratos importados (${importacoes.length})` }),
+    h("ul", { class: "lista-importacoes" }, importacoes.map((x) => {
+      const apagar = botaoIcone("lixo", `Apagar a importação ${x.nome_ficheiro}`, async () => {
+        const ok = await confirmar({ titulo: "Apagar esta importação?", texto: `Os ${x.movimentos} movimentos de ${x.nome_ficheiro} saem da lista. Só é possível se nenhum estiver reconciliado.`, botao: "Apagar", perigo: true });
+        if (!ok) return;
+        const r = await api(`/api/contabilidade/banco/extratos/${x.id}`, { method: "DELETE" });
+        if (!r.ok) return notificar(await lerErro(r, "Não foi possível apagar."), "erro");
+        notificar("Importação apagada.", "ok");
+        mostrar("bancos", true);
+      }, "pequeno perigo");
+      return h("li", {}, h("span", { texto: `${x.nome_ficheiro} · ${formatarData(x.data_inicio)} a ${formatarData(x.data_fim)} · ${x.movimentos} movimentos` }), apagar);
+    }))) : null;
+
+  // Movimentos
+  const filtros = h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar movimentos" },
+    [["pendente", "Por reconciliar"], ["reconciliado", "Reconciliados"], ["ignorado", "Ignorados"], ["", "Todos"]].map(([v, t]) => {
+      const b = h("button", { type: "button", "aria-pressed": String(filtroBanco === v) }, t);
+      b.addEventListener("click", () => { filtroBanco = v; mostrar("bancos", true); });
+      return b;
+    }));
+  const automatico = h("button", { type: "button", class: "botao", disabled: !dados.sugestoes_seguras },
+    icone("faisca"), `Reconciliar automaticamente (${dados.sugestoes_seguras})`);
+  automatico.title = "Aplica só as sugestões sem dúvidas: um único lançamento ou fatura com o mesmo valor e data próxima, ou uma regra que já ensinou";
+  automatico.addEventListener("click", async () => {
+    ocupado(automatico, true);
+    try {
+      const r = await enviar("/api/contabilidade/banco/reconciliar-automaticamente", { conta: contaBanco });
+      notificar(`${r.total} movimento${r.total === 1 ? "" : "s"} reconciliado${r.total === 1 ? "" : "s"}`
+        + (r.pagar_fatura ? ` (${r.pagar_fatura} fatura${r.pagar_fatura === 1 ? "" : "s"} paga${r.pagar_fatura === 1 ? "" : "s"})` : "") + ".", "ok");
+      invalidar("resumo", "lancamentos", "balancete", "fornecedores", "extrato");
+      await mostrar("bancos", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(automatico, false);
+    }
+  });
+  const lista = dados.movimentos.length
+    ? h("div", {}, dados.movimentos.map(cartaoMovimento))
+    : vazio("check", filtroBanco === "pendente" ? "Nada por reconciliar" : "Sem movimentos",
+      filtroBanco === "pendente" ? "Todos os movimentos importados estão reconciliados." : "Importe um extrato para começar.");
+
+  // Mapa de reconciliação
+  const diferenca = mapa.diferenca_por_explicar;
+  const estadoMapa = mapa.saldo_banco === null
+    ? criarEtiqueta("Sem saldo do banco: indique-o ao importar", "aviso", "alerta")
+    : Math.abs(diferenca) < 0.005 ? criarEtiqueta("Reconciliado: a diferença está toda explicada", "ok", "check")
+      : criarEtiqueta(`Diferença por explicar: ${euros(diferenca)}`, "aviso", "alerta");
+  const foraDoBanco = mapa.lancamentos_fora_do_banco;
+
+  secao.replaceChildren(
+    h("section", { class: "indicadores", "aria-label": "Resumo da conta" },
+      indicador("Saldo na contabilidade", euros(conta.saldo), `conta ${contaBanco} até hoje`, "livro", true),
+      indicador("Saldo do banco", mapa.saldo_banco === null ? "—" : euros(mapa.saldo_banco),
+        mapa.saldo_banco === null ? "importe um extrato com saldo" : `último extrato, ${formatarData(mapa.data)}`, "carteira"),
+      indicador("Por reconciliar", String(conta.por_reconciliar), "movimentos do banco", "relogio"),
+      indicador("Diferença por explicar", diferenca === null ? "—" : euros(diferenca),
+        diferenca === null ? "sem saldo do banco" : Math.abs(diferenca) < 0.005 ? "tudo explicado" : "desaparece à medida que reconcilia", "balanca")),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: "Importar extrato" }),
+          h("p", { class: "subtitulo", texto: "Exporte o extrato no site do banco em CSV, Excel ou OFX. As colunas são reconhecidas sozinhas e os movimentos já importados não se repetem." })),
+        h("div", { class: "campo", style: "margin:0" }, h("label", { for: "banco-conta", class: "visualmente-oculto", texto: "Conta bancária" }), seletor)),
+      formImportar, listaImportacoes),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, filtros, automatico),
+      lista),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: "Mapa de reconciliação bancária" }),
+          h("p", { class: "subtitulo", texto: `Conta ${contaBanco} em ${formatarData(mapa.data)}` })),
+        estadoMapa),
+      h("div", { class: "tabela-caixa" }, h("table", { class: "tabela dr" }, h("tbody", {},
+        linhaMapa("Saldo na contabilidade nessa data", mapa.saldo_contabilistico_na_data),
+        linhaMapa("Entradas no banco ainda por lançar", mapa.entradas_banco_por_lancar, "+ "),
+        linhaMapa("Saídas no banco ainda por lançar", mapa.saidas_banco_por_lancar, "− "),
+        linhaMapa("Débitos na contabilidade que ainda não estão no banco", mapa.debitos_contabilidade_fora_do_banco, "− "),
+        linhaMapa("Créditos na contabilidade que ainda não estão no banco (ex.: cheques por descontar)", mapa.creditos_contabilidade_fora_do_banco, "+ "),
+        linhaMapa("Saldo explicado", mapa.saldo_explicado, "", true),
+        linhaMapa("Saldo do banco (extrato)", mapa.saldo_banco, "", true)))),
+      foraDoBanco.length ? h("details", {},
+        h("summary", { texto: `Lançamentos que ainda não estão no banco (${foraDoBanco.length})` }),
+        h("div", { class: "tabela-caixa" }, h("table", { class: "tabela razao" }, h("tbody", {}, foraDoBanco.map((l) => h("tr", {},
+          td(formatarData(l.data)), h("td", { class: "conta-codigo", texto: l.referencia }), td(l.descricao),
+          td(eurosOuVazio(l.debito), "num"), td(eurosOuVazio(l.credito), "num")))))))
+        : null,
+      h("p", { class: "nota-rodape", texto: "Só contam os lançamentos a partir do primeiro movimento importado. Diferenças de datas (um pagamento lançado num dia e debitado no seguinte) desaparecem quando o movimento é reconciliado." })),
+  );
 }
 
 // ---------- Assistente ----------

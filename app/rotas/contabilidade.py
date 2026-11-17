@@ -9,19 +9,32 @@ utilizador como 409 com a explicação em português.
 from datetime import date
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, func, select
+from sqlalchemy.orm import Session, joinedload
 
 from app import config
 from app.db import get_db
 from app.dependencias import utilizador_atual
-from app.modelos.tabelas import PAPEL_ADMIN, Conta, Empresa, Fatura, Lancamento, Utilizador
-from app.servicos import armazenamento, exportacao, repositorio, validacao
+from app.modelos.tabelas import (
+    MOVIMENTO_PENDENTE,
+    PAPEL_ADMIN,
+    Conta,
+    Empresa,
+    ExtratoBancario,
+    Fatura,
+    Lancamento,
+    LinhaLancamento,
+    MovimentoBancario,
+    Utilizador,
+)
+from app.servicos import armazenamento, exportacao, limites, repositorio, validacao
 from app.servicos.contabilidade import (
     assistente,
+    banco,
     classificacao,
+    extratos,
     ia,
     iva,
     lancamentos,
@@ -591,3 +604,222 @@ def perguntar(pergunta: Pergunta, db: Session = Depends(get_db), utilizador: Uti
         raise HTTPException(status_code=503, detail=str(erro))
     db.rollback()  # o assistente só lê: nada do que fez fica gravado
     return resposta
+
+
+# ---------- Bancos: extratos e reconciliação ----------
+
+def _movimento_dict(mov: MovimentoBancario, sugs: list[dict] | None = None) -> dict:
+    ligado = None
+    if mov.linha_id and mov.linha:
+        la = mov.linha.lancamento
+        ligado = {"lancamento_id": la.id, "referencia": f"{la.diario} {la.ano}/{la.numero}", "descricao": la.descricao}
+    return {
+        "id": mov.id, "conta": mov.conta_codigo, "data": mov.data, "descricao": mov.descricao,
+        "montante": mov.montante, "saldo": mov.saldo, "estado": mov.estado, "lancamento": ligado,
+        "sugestoes": sugs,
+    }
+
+
+def _movimento(db: Session, utilizador: Utilizador, movimento_id: int) -> MovimentoBancario:
+    mov = db.scalar(select(MovimentoBancario).where(
+        MovimentoBancario.id == movimento_id, MovimentoBancario.empresa_id == utilizador.empresa_id
+    ))
+    if mov is None:
+        raise HTTPException(status_code=404, detail="Movimento não encontrado.")
+    return mov
+
+
+@router.get("/banco/contas")
+def listar_contas_bancarias(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    """Contas de bancos e caixa, com o saldo contabilístico e os movimentos por reconciliar."""
+    empresa = _empresa(db, utilizador)
+    saldos = relatorios.saldos_por_conta(db, empresa.id)
+    pendentes = dict(db.execute(
+        select(MovimentoBancario.conta_codigo, func.count(MovimentoBancario.id))
+        .where(MovimentoBancario.empresa_id == empresa.id, MovimentoBancario.estado == MOVIMENTO_PENDENTE)
+        .group_by(MovimentoBancario.conta_codigo)
+    ).all())
+    return [{"codigo": c.codigo, "nome": c.nome, "saldo": saldos.get(c.codigo, 0.0),
+             "por_reconciliar": pendentes.get(c.codigo, 0)} for c in banco.contas_bancarias(db, empresa.id)]
+
+
+@router.post("/banco/importar", status_code=201)
+def importar_extrato(
+    ficheiro: UploadFile = File(...),
+    conta: str = Form("121", pattern=r"^1[123]\d+$"),
+    saldo_final: str | None = Form(None),
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Importa um extrato (CSV, Excel ou OFX). Movimentos já importados são ignorados."""
+    limites.verificar(limites.envios, f"utilizador-{utilizador.id}")
+    conteudo = ficheiro.file.read()
+    if len(conteudo) > config.TAMANHO_MAXIMO:
+        raise HTTPException(status_code=413, detail="O ficheiro tem mais de 10 MB.")
+    saldo = None
+    if saldo_final and saldo_final.strip():
+        saldo = extratos.ler_numero(saldo_final)
+        if saldo is None:
+            raise HTTPException(status_code=422, detail="O saldo final não é um número válido.")
+    empresa = _empresa(db, utilizador)
+    try:
+        resultado = banco.importar(db, empresa, conta, conteudo, ficheiro.filename or "extrato", saldo, utilizador.id)
+    except (extratos.ErroExtrato, lancamentos.ErroContabilistico, ia.ErroIA) as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    e = resultado.extrato
+    return {
+        "extrato_id": e.id, "formato": e.formato, "importados": resultado.importados,
+        "duplicados": resultado.duplicados, "data_inicio": e.data_inicio, "data_fim": e.data_fim,
+        "saldo_final": e.saldo_final, "mapeado_por_ia": resultado.lido.mapeado_por_ia,
+    }
+
+
+@router.get("/banco/movimentos")
+def listar_movimentos(
+    conta: str = Query("121", pattern=r"^1[123]\d+$"),
+    estado: Literal["pendente", "reconciliado", "ignorado"] | None = None,
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Movimentos do banco (mais recentes primeiro); os pendentes trazem as sugestões de reconciliação."""
+    empresa = _empresa(db, utilizador)
+    consulta = (
+        select(MovimentoBancario)
+        .options(joinedload(MovimentoBancario.linha).joinedload(LinhaLancamento.lancamento))
+        .where(MovimentoBancario.empresa_id == empresa.id, MovimentoBancario.conta_codigo == conta)
+        .order_by(MovimentoBancario.data.desc(), MovimentoBancario.id.desc())
+        .limit(1000)
+    )
+    if estado:
+        consulta = consulta.where(MovimentoBancario.estado == estado)
+    movimentos = list(db.scalars(consulta))
+    # Os candidatos carregam-se uma só vez para todos os movimentos pendentes
+    linhas = banco.linhas_por_reconciliar(db, empresa.id, conta)
+    faturas = banco.faturas_por_pagar(db, empresa.id)
+    resultado = [
+        _movimento_dict(m, banco.sugestoes(db, empresa.id, m, linhas, faturas)
+                        if m.estado == MOVIMENTO_PENDENTE else None)
+        for m in movimentos
+    ]
+    seguras = sum(1 for r in resultado if r["sugestoes"] and banco.sugestao_segura(r["sugestoes"]))
+    return {"movimentos": resultado, "sugestoes_seguras": seguras}
+
+
+class Associacao(BaseModel):
+    linha_id: int
+
+
+class PagamentoFatura(BaseModel):
+    fatura_id: str = Field(min_length=1, max_length=12)
+
+
+class LancamentoBanco(BaseModel):
+    conta: str = Field(min_length=3, max_length=20, pattern=r"^\d+$")
+    descricao: str | None = Field(None, max_length=300)
+
+
+def _acao_banco(db: Session, utilizador: Utilizador, movimento_id: int, acao) -> dict:
+    empresa = _empresa(db, utilizador)
+    mov = _movimento(db, utilizador, movimento_id)
+    try:
+        acao(empresa, mov)
+    except lancamentos.ErroContabilistico as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    db.refresh(mov)
+    return _movimento_dict(mov)
+
+
+@router.post("/banco/movimentos/{movimento_id}/associar")
+def associar_movimento(movimento_id: int, dados: Associacao, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    return _acao_banco(db, utilizador, movimento_id,
+                       lambda e, m: banco.associar(db, e.id, m, dados.linha_id, utilizador.id))
+
+
+@router.post("/banco/movimentos/{movimento_id}/pagar-fatura")
+def pagar_fatura_movimento(movimento_id: int, dados: PagamentoFatura, db: Session = Depends(get_db),
+                           utilizador: Utilizador = Depends(utilizador_atual)):
+    return _acao_banco(db, utilizador, movimento_id,
+                       lambda e, m: banco.pagar_fatura(db, e, m, dados.fatura_id, utilizador.id))
+
+
+@router.post("/banco/movimentos/{movimento_id}/lancar")
+def lancar_movimento(movimento_id: int, dados: LancamentoBanco, db: Session = Depends(get_db),
+                     utilizador: Utilizador = Depends(utilizador_atual)):
+    return _acao_banco(db, utilizador, movimento_id,
+                       lambda e, m: banco.lancar(db, e, m, dados.conta, dados.descricao, utilizador.id))
+
+
+@router.post("/banco/movimentos/{movimento_id}/ignorar")
+def ignorar_movimento(movimento_id: int, db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    return _acao_banco(db, utilizador, movimento_id, lambda e, m: banco.ignorar(m, utilizador.id))
+
+
+@router.post("/banco/movimentos/{movimento_id}/desfazer")
+def desfazer_movimento(movimento_id: int, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    """Volta a pôr o movimento por reconciliar (o lançamento, se foi criado, fica e pode ser estornado)."""
+    return _acao_banco(db, utilizador, movimento_id, lambda e, m: banco.desfazer(m))
+
+
+class ContaBanco(BaseModel):
+    conta: str = Field("121", pattern=r"^1[123]\d+$")
+
+
+@router.post("/banco/reconciliar-automaticamente")
+def reconciliar_automaticamente(dados: ContaBanco, db: Session = Depends(get_db),
+                                utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        contagem = banco.reconciliar_automaticamente(db, empresa, dados.conta, utilizador.id)
+    except lancamentos.ErroContabilistico as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return {**contagem, "total": sum(contagem.values())}
+
+
+@router.get("/banco/reconciliacao")
+def mapa_reconciliacao(conta: str = Query("121", pattern=r"^1[123]\d+$"), ate: date | None = None,
+                       db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    return banco.mapa(db, utilizador.empresa_id, conta, ate)
+
+
+@router.get("/banco/extratos")
+def listar_extratos(conta: str = Query("121", pattern=r"^1[123]\d+$"), db: Session = Depends(get_db),
+                    utilizador: Utilizador = Depends(utilizador_atual)):
+    extratos_conta = db.execute(
+        select(ExtratoBancario, func.count(MovimentoBancario.id))
+        .outerjoin(MovimentoBancario, MovimentoBancario.extrato_id == ExtratoBancario.id)
+        .where(ExtratoBancario.empresa_id == utilizador.empresa_id, ExtratoBancario.conta_codigo == conta)
+        .group_by(ExtratoBancario.id)
+        .order_by(ExtratoBancario.importado_em.desc())
+    ).all()
+    return [{"id": e.id, "nome_ficheiro": e.nome_ficheiro, "formato": e.formato, "data_inicio": e.data_inicio,
+             "data_fim": e.data_fim, "saldo_final": e.saldo_final, "importado_em": e.importado_em,
+             "movimentos": n} for e, n in extratos_conta]
+
+
+@router.delete("/banco/extratos/{extrato_id}", status_code=204)
+def apagar_extrato(extrato_id: int, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    """Apaga uma importação feita por engano, se nenhum dos seus movimentos estiver reconciliado."""
+    extrato = db.scalar(select(ExtratoBancario).where(
+        ExtratoBancario.id == extrato_id, ExtratoBancario.empresa_id == utilizador.empresa_id
+    ))
+    if extrato is None:
+        raise HTTPException(status_code=404, detail="Extrato não encontrado.")
+    tratados = db.scalar(select(func.count(MovimentoBancario.id)).where(
+        MovimentoBancario.extrato_id == extrato.id, MovimentoBancario.estado != MOVIMENTO_PENDENTE
+    ))
+    if tratados:
+        raise HTTPException(status_code=409,
+                            detail="Há movimentos deste extrato já reconciliados: desfaça-os primeiro.")
+    db.execute(delete(MovimentoBancario).where(MovimentoBancario.extrato_id == extrato.id))
+    db.delete(extrato)
+    db.commit()
