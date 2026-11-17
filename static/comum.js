@@ -91,6 +91,16 @@ const ICONES = {
   mais: "M12 5v14M5 12h14",
   "chevron-baixo": "M6 9l6 6 6-6",
   teclado: "M3 6.5A1.5 1.5 0 0 1 4.5 5h15A1.5 1.5 0 0 1 21 6.5v11a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 17.5zM7 9h.01M11 9h.01M15 9h.01M7 13h.01M17 13h.01M8 16h8",
+  livro: "M4 5.5A1.5 1.5 0 0 1 5.5 4H11v16H5.5A1.5 1.5 0 0 1 4 18.5zM20 5.5A1.5 1.5 0 0 0 18.5 4H13v16h5.5a1.5 1.5 0 0 0 1.5-1.5z",
+  balanca: "M12 4v16M7 20h10M5 7h14M5 7l-3 7a3 3 0 0 0 6 0zM19 7l-3 7a3 3 0 0 0 6 0z",
+  faisca: "M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 15l.7 1.8 1.8.7-1.8.7L19 20l-.7-1.8-1.8-.7 1.8-.7z",
+  lista: "M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01",
+  grafico: "M4 20V11M10 20V5M16 20v-6M2 20h20",
+  enviar: "M4 12 20 4l-6 16-2.5-6.5z",
+  desfazer: "M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11",
+  loja: "M4 10v10h16V10M3 10l2-6h14l2 6M3 10h18M9 20v-6h6v6",
+  cadeado: "M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3",
+  arvore: "M5 4v15a1 1 0 0 0 1 1h3M5 9h4M9 7h11v4H9zM9 16h11v4H9z",
 };
 
 function icone(nome, classe = "") {
@@ -296,6 +306,7 @@ async function api(url, opcoes) {
 const PAGINAS = [
   { chave: "faturas", href: "/", texto: "Faturas", icone: "recibo" },
   { chave: "dashboard", href: "/dashboard", texto: "Dashboard", icone: "euro" },
+  { chave: "contabilidade", href: "/contabilidade", texto: "Contabilidade", icone: "livro" },
 ];
 
 function iniciais(nome) {

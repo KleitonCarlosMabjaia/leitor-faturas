@@ -29,14 +29,20 @@ from app.modelos.tabelas import (
     ESTADO_CONFIRMADA,
     ESTADO_POR_REVER,
     PAPEL_ADMIN,
+    Conta,
     Empresa,
     Fatura,
     Fornecedor,
+    Lancamento,
+    LinhaLancamento,
+    RegraFornecedor,
     Sessao,
     TokenAcesso,
     Utilizador,
 )
 from app.servicos import armazenamento, autenticacao, repositorio
+from app.servicos.contabilidade import lancamentos, obrigacoes, plano_snc
+from app.servicos.contabilidade.lancamentos import LinhaNova
 
 SEMENTE = 2026  # mesma semente -> mesmos dados em todas as execuções
 
@@ -318,8 +324,120 @@ def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int
         db.add(fatura)
         db.flush()  # para o fornecedor criado ficar visível nas próximas faturas
 
+    criar_contabilidade_demo(db, empresa_id, min(datas), hoje)
     db.commit()
     return quantidade
+
+
+def _fim_do_mes(ano: int, mes: int) -> date:
+    return date(ano + mes // 12, mes % 12 + 1, 1) - timedelta(days=1)
+
+
+def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: date,
+                             por_contabilizar: int = 3) -> None:
+    """
+    Contabilidade de um restaurante: capital inicial, vendas, rendas, salários, as faturas
+    confirmadas (menos as mais recentes, para haver trabalho pendente) e o apuramento do IVA
+    de cada trimestre já terminado, com o respetivo pagamento.
+    """
+    rng = random.Random(SEMENTE + 1)
+    empresa = db.get(Empresa, empresa_id)
+    plano_snc.garantir_plano(db, empresa_id)
+
+    def lancar(diario: str, data: date, descricao: str, linhas: list[LinhaNova], documento: str | None = None):
+        if data <= hoje:
+            lancamentos.criar(db, empresa, diario, data, descricao, linhas, documento=documento)
+
+    abertura = date(inicio.year, inicio.month, 1)
+    posto = plano_snc.subconta_terceiro(db, empresa_id, "2211", gerar_nif(rng, "5"),
+                                        "Posto de Combustíveis da Estrada, Lda.")
+    lancar("OD", abertura, "Entrada de capital e saldo bancário inicial",
+           [LinhaNova("12", debito=25000), LinhaNova("51", credito=25000)])
+
+    ano, mes = abertura.year, abertura.month
+    while date(ano, mes, 1) <= hoje:
+        fim_mes = _fim_do_mes(ano, mes)
+        fim = min(fim_mes, hoje)
+        periodo = f"{obrigacoes.NOMES_MESES[mes - 1]} de {ano}"
+
+        # Vendas do mês: refeições a 13% e bebidas a 23% (depositadas no banco)
+        proporcao = fim.day / fim_mes.day
+        refeicoes = round(rng.uniform(7000, 9000) * proporcao, 2)
+        bebidas = round(rng.uniform(1800, 2600) * proporcao, 2)
+        iva_refeicoes, iva_bebidas = round(refeicoes * 0.13, 2), round(bebidas * 0.23, 2)
+        lancar("VEN", fim, f"Vendas de {periodo} (resumo do POS)", [
+            LinhaNova("12", debito=round(refeicoes + bebidas + iva_refeicoes + iva_bebidas, 2)),
+            LinhaNova("721", credito=refeicoes, descricao="Refeições", tipo_iva="base", taxa_iva=13),
+            LinhaNova("24332", credito=iva_refeicoes, descricao="IVA 13%", tipo_iva="iva", taxa_iva=13),
+            LinhaNova("711", credito=bebidas, descricao="Bebidas", tipo_iva="base", taxa_iva=23),
+            LinhaNova("24333", credito=iva_bebidas, descricao="IVA 23%", tipo_iva="iva", taxa_iva=23),
+        ], documento=f"Z {ano}/{mes:02d}")
+
+        lancar("BAN", date(ano, mes, 8), f"Renda do estabelecimento - {periodo}",
+               [LinhaNova("6261", debito=1500), LinhaNova("12", credito=1500)], documento="Recibo de renda")
+
+        # Gasóleo da carrinha (só 50% do IVA é dedutível) e um almoço com um fornecedor (representação)
+        dia = date(ano, mes, 15)
+        if dia <= hoje:
+            base = round(rng.uniform(90, 160), 2)
+            iva_total = round(base * 0.23, 2)
+            dedutivel = round(iva_total / 2, 2)
+            documento = f"FS {ano}/{mes:02d}15"
+            lancar("COM", dia, f"{posto.nome} - {documento}", [
+                LinhaNova("6242", debito=base, descricao="Base 23%", tipo_iva="base", taxa_iva=23),
+                LinhaNova("24323", debito=dedutivel, descricao="IVA dedutível 23%", tipo_iva="iva", taxa_iva=23),
+                LinhaNova("6242", debito=round(iva_total - dedutivel, 2), descricao="IVA não dedutível 23%",
+                          tipo_iva="iva_nd", taxa_iva=23),
+                LinhaNova(posto.codigo, credito=round(base + iva_total, 2)),
+            ], documento=documento)
+            lancar("BAN", dia, f"Pagamento {posto.nome} - {documento}",
+                   [LinhaNova(posto.codigo, debito=round(base + iva_total, 2)),
+                    LinhaNova("12", credito=round(base + iva_total, 2))], documento=documento)
+        if mes % 2 == 0 and date(ano, mes, 22) <= hoje:
+            refeicao = round(rng.uniform(60, 110), 2)
+            iva_refeicao = round(refeicao * 0.13, 2)
+            lancar("BAN", date(ano, mes, 22), "Almoço de negócios com fornecedor (despesa de representação)", [
+                LinhaNova("6266", debito=refeicao, descricao="Base 13%", tipo_iva="base", taxa_iva=13),
+                LinhaNova("6266", debito=iva_refeicao, descricao="IVA não dedutível 13%",
+                          tipo_iva="iva_nd", taxa_iva=13),
+                LinhaNova("12", credito=round(refeicao + iva_refeicao, 2)),
+            ], documento=f"FS {ano}/{mes:02d}22")
+
+        # Salários: processamento, pagamento ao pessoal e entrega ao Estado no mês seguinte
+        if fim_mes <= hoje:
+            lancar("OD", fim_mes, f"Processamento de salários - {periodo}", [
+                LinhaNova("632", debito=6000), LinhaNova("635", debito=1425),
+                LinhaNova("2312", credito=4740), LinhaNova("2421", credito=600), LinhaNova("245", credito=2085),
+            ])
+            lancar("BAN", fim_mes, f"Pagamento de salários - {periodo}",
+                   [LinhaNova("2312", debito=4740), LinhaNova("12", credito=4740)])
+            lancar("BAN", fim_mes + timedelta(days=20), f"Retenções de IRS e Segurança Social - {periodo}", [
+                LinhaNova("2421", debito=600), LinhaNova("245", debito=2085), LinhaNova("12", credito=2685),
+            ])
+        ano, mes = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
+
+    # Faturas confirmadas (as mais recentes ficam por contabilizar)
+    confirmadas = db.scalars(select(Fatura).where(
+        Fatura.empresa_id == empresa_id, Fatura.estado == ESTADO_CONFIRMADA
+    ).order_by(Fatura.data_emissao)).all()
+    for fatura in confirmadas[: max(len(confirmadas) - por_contabilizar, 0)]:
+        lancamentos.contabilizar_fatura(db, empresa, fatura, hoje=hoje)
+
+    # Apuramento do IVA de cada trimestre terminado e pagamento até dia 25 do 2.º mês seguinte
+    ano, trimestre = abertura.year, (abertura.month - 1) // 3
+    while (fim := _fim_do_mes(ano, trimestre * 3 + 3)) < hoje:
+        try:
+            apuramento = lancamentos.apurar_iva(db, empresa, fim, f"{trimestre + 1}.º trimestre de {ano}")
+            a_pagar = sum(ln.credito for ln in apuramento.linhas if ln.conta.codigo == "2436")
+        except lancamentos.ErroContabilistico:
+            a_pagar = 0
+        if a_pagar:
+            pagamento = fim + timedelta(days=1)
+            pagamento = date(pagamento.year + (pagamento.month + 1 > 12), (pagamento.month % 12) + 1, 25)
+            lancar("BAN", pagamento, f"Pagamento do IVA - {trimestre + 1}.º trimestre de {ano}",
+                   [LinhaNova("2436", debito=a_pagar), LinhaNova("12", credito=a_pagar)])
+        ano, trimestre = (ano + 1, 0) if trimestre == 3 else (ano, trimestre + 1)
+    db.flush()
 
 
 def apagar_empresa_demo(db: Session) -> None:
@@ -327,6 +445,11 @@ def apagar_empresa_demo(db: Session) -> None:
     empresa = empresa_demo(db)
     if empresa is None:
         return
+    ids_lancamentos = select(Lancamento.id).where(Lancamento.empresa_id == empresa.id)
+    db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
+    db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))
+    db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))
+    db.execute(delete(Conta).where(Conta.empresa_id == empresa.id))
     for fatura in db.scalars(select(Fatura).where(Fatura.empresa_id == empresa.id)):
         armazenamento.apagar_pdf(fatura.ficheiro)
         db.delete(fatura)

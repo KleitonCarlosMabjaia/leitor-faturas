@@ -25,6 +25,7 @@ from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
 from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
 from app.servicos import armazenamento, exportacao, limites, processamento, repositorio
+from app.servicos.contabilidade import lancamentos
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
 logger = logging.getLogger(__name__)
@@ -44,6 +45,17 @@ def _obter_ou_404(db: Session, utilizador: Utilizador, id_fatura: str) -> Fatura
         # Também para faturas de outras empresas: não se revela que o id existe
         raise HTTPException(status_code=404, detail="Fatura não encontrada.")
     return fatura
+
+
+def _bloquear_se_contabilizada(db: Session, fatura: Fatura, acao: str) -> None:
+    """Uma fatura já lançada na contabilidade não muda: estorna-se o lançamento primeiro."""
+    compra = lancamentos.lancamento_ativo(db, fatura.empresa_id, fatura.id, "fatura")
+    if compra:
+        raise HTTPException(
+            status_code=409,
+            detail=f"A fatura está contabilizada ({compra.diario} {compra.ano}/{compra.numero}). Para a {acao}, "
+            "estorne primeiro o lançamento na Contabilidade.",
+        )
 
 
 @router.post("", status_code=201, response_model=FaturaSaida)
@@ -177,6 +189,7 @@ def editar_fatura(
 ):
     """Guarda as correções do utilizador. Com confirmar=true, marca a fatura como confirmada."""
     fatura = _obter_ou_404(db, utilizador, id_fatura)
+    _bloquear_se_contabilizada(db, fatura, "alterar")
 
     if edicao.confirmar:
         # Para confirmar, os campos essenciais têm de estar preenchidos
@@ -224,6 +237,17 @@ def marcar_pagamento(
 ):
     """Marca a fatura como paga ou por pagar (separado da edição dos dados da fatura)."""
     fatura = _obter_ou_404(db, utilizador, id_fatura)
+    # Se a fatura já está na contabilidade, o pagamento também fica lá (banco, com a data de hoje)
+    if pagamento.paga != fatura.paga and lancamentos.lancamento_ativo(db, fatura.empresa_id, fatura.id, "fatura"):
+        try:
+            if pagamento.paga:
+                lancamentos.registar_pagamento(db, utilizador.empresa, fatura, date.today(),
+                                               utilizador_id=utilizador.id)
+            else:
+                lancamentos.anular_pagamento(db, utilizador.empresa, fatura, utilizador.id)
+        except lancamentos.ErroContabilistico as erro:
+            db.rollback()
+            raise HTTPException(status_code=409, detail=str(erro))
     fatura.paga = pagamento.paga
     db.commit()
     return fatura
@@ -235,6 +259,7 @@ def extrair_novamente(
 ):
     """Volta a ler uma fatura já guardada (útil depois de um erro)."""
     fatura = _obter_ou_404(db, utilizador, id_fatura)
+    _bloquear_se_contabilizada(db, fatura, "ler de novo")
     conteudo = armazenamento.ler_pdf(fatura.ficheiro)
     if conteudo is None:
         raise HTTPException(status_code=404, detail="O ficheiro PDF desta fatura não foi encontrado.")
@@ -251,6 +276,7 @@ def extrair_novamente(
 @router.delete("/{id_fatura}", status_code=204)
 def apagar_fatura(id_fatura: str, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
     fatura = _obter_ou_404(db, utilizador, id_fatura)
+    _bloquear_se_contabilizada(db, fatura, "apagar")
     db.delete(fatura)
     db.commit()
     # O ficheiro só é apagado depois de a base de dados confirmar

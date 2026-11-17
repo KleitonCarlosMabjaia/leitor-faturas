@@ -11,7 +11,7 @@ um tipo decimal verdadeiro, por isso aqui a diferença não existiria.
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -33,6 +33,9 @@ class Empresa(Base):
     nif: Mapped[str | None] = mapped_column(String(9))
     ativa: Mapped[bool] = mapped_column(default=True)
     criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    # Contabilidade: periodicidade da declaração de IVA e data até à qual os períodos estão fechados
+    regime_iva: Mapped[str] = mapped_column(String(12), default="trimestral", server_default="trimestral")
+    fechado_ate: Mapped[date | None] = mapped_column(Date)
 
     utilizadores: Mapped[list["Utilizador"]] = relationship(back_populates="empresa")
 
@@ -143,3 +146,101 @@ class Fatura(Base):
     alertas: Mapped[list | None] = mapped_column(JSON)
     nif_valido: Mapped[bool | None]
     totais_batem: Mapped[bool | None]
+
+
+# ---------- Contabilidade (SNC) ----------
+
+LANCAMENTO_ATIVO = "ativo"
+LANCAMENTO_ESTORNADO = "estornado"  # anulado por um lançamento de estorno (nunca se apaga)
+
+
+class Conta(Base):
+    """
+    Conta do plano de contas da empresa (SNC). A hierarquia vem do próprio código:
+    "6242" é filha de "624", que é filha de "62", que pertence à classe "6".
+    Só as contas de movimento (sem subcontas) recebem lançamentos.
+    """
+
+    __tablename__ = "contas"
+    __table_args__ = (UniqueConstraint("empresa_id", "codigo", name="uq_conta_empresa_codigo"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    codigo: Mapped[str] = mapped_column(String(20))
+    nome: Mapped[str] = mapped_column(String(200))
+    movimento: Mapped[bool] = mapped_column(default=True)  # False: conta agregadora
+    # Subcontas de terceiros (2211xxxx fornecedores, 2711xxxx fornecedores de investimentos)
+    nif: Mapped[str | None] = mapped_column(String(9), index=True)
+    criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class Lancamento(Base):
+    """
+    Lançamento contabilístico (partidas dobradas): a soma dos débitos é sempre igual
+    à soma dos créditos. Um lançamento nunca é apagado nem alterado: corrige-se com
+    um estorno (lançamento simétrico), como exige a boa prática e o SAF-T.
+    """
+
+    __tablename__ = "lancamentos"
+    __table_args__ = (
+        UniqueConstraint("empresa_id", "diario", "ano", "numero", name="uq_lancamento_numero"),
+        Index("ix_lancamentos_empresa_data", "empresa_id", "data"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    diario: Mapped[str] = mapped_column(String(4))     # COM, VEN, BAN, CX, OD, APU
+    ano: Mapped[int] = mapped_column()
+    numero: Mapped[int] = mapped_column()               # sequencial por diário e ano
+    data: Mapped[date] = mapped_column(Date)
+    descricao: Mapped[str] = mapped_column(String(300))
+    documento: Mapped[str | None] = mapped_column(String(80))
+    # manual | fatura | pagamento | estorno | apuramento | assistente
+    origem: Mapped[str] = mapped_column(String(12), default="manual")
+    fatura_id: Mapped[str | None] = mapped_column(ForeignKey("faturas.id", ondelete="SET NULL"), index=True)
+    estado: Mapped[str] = mapped_column(String(10), default=LANCAMENTO_ATIVO)
+    estorno_de_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id"))
+    notas: Mapped[list | None] = mapped_column(JSON)    # explicações da classificação (art. 21.º CIVA, etc.)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    linhas: Mapped[list["LinhaLancamento"]] = relationship(
+        back_populates="lancamento", cascade="all, delete-orphan", order_by="LinhaLancamento.ordem"
+    )
+    criado_por: Mapped[Utilizador | None] = relationship()
+
+
+class LinhaLancamento(Base):
+    __tablename__ = "linhas_lancamento"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    lancamento_id: Mapped[int] = mapped_column(ForeignKey("lancamentos.id", ondelete="CASCADE"), index=True)
+    lancamento: Mapped[Lancamento] = relationship(back_populates="linhas")
+    ordem: Mapped[int] = mapped_column(default=0)
+    conta_id: Mapped[int] = mapped_column(ForeignKey("contas.id"), index=True)
+    conta: Mapped[Conta] = relationship()
+    debito: Mapped[float] = mapped_column(Float, default=0.0)
+    credito: Mapped[float] = mapped_column(Float, default=0.0)
+    descricao: Mapped[str | None] = mapped_column(String(200))
+    # Para o apuramento do IVA: base | iva | iva_nd (IVA não dedutível levado a gasto)
+    tipo_iva: Mapped[str | None] = mapped_column(String(8))
+    taxa_iva: Mapped[float | None] = mapped_column(Float)
+
+
+class RegraFornecedor(Base):
+    """
+    O que a aplicação aprendeu sobre cada fornecedor: em que conta se lança e como se
+    trata o IVA. Criada (ou corrigida) sempre que alguém contabiliza uma fatura dele.
+    """
+
+    __tablename__ = "regras_fornecedor"
+    __table_args__ = (UniqueConstraint("empresa_id", "nif", name="uq_regra_empresa_nif"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    nif: Mapped[str] = mapped_column(String(9))
+    conta_codigo: Mapped[str] = mapped_column(String(20))
+    perfil_iva: Mapped[str] = mapped_column(String(20))
+    origem: Mapped[str] = mapped_column(String(12), default="utilizador")  # utilizador | ia | palavras
+    usos: Mapped[int] = mapped_column(default=0)
+    atualizada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)

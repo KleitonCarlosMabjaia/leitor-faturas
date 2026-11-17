@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Contabilidade · Leitor de Faturas</title>
+  <script src="/static/tema.js?v=2026-11-18"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-18">
+</head>
+<body data-pagina="contabilidade">
+  <header id="barra"></header>
+
+  <main class="conteudo">
+    <div class="cabecalho-pagina">
+      <div>
+        <h1>Contabilidade</h1>
+        <p class="subtitulo">Plano de contas SNC, lançamentos em partidas dobradas, IVA e relatórios, a partir das faturas lidas.</p>
+      </div>
+      <form class="periodo" id="periodo" aria-label="Período dos relatórios">
+        <div class="campo">
+          <label for="periodo-atalho">Período</label>
+          <select id="periodo-atalho">
+            <option value="este-mes">Este mês</option>
+            <option value="mes-anterior">Mês anterior</option>
+            <option value="este-trimestre">Este trimestre</option>
+            <option value="trimestre-anterior">Trimestre anterior</option>
+            <option value="este-ano" selected>Este ano</option>
+            <option value="ano-anterior">Ano anterior</option>
+            <option value="personalizado">Personalizado</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="periodo-de">De</label>
+          <input type="date" id="periodo-de" required>
+        </div>
+        <div class="campo">
+          <label for="periodo-ate">Até</label>
+          <input type="date" id="periodo-ate" required>
+        </div>
+      </form>
+    </div>
+
+    <nav class="separadores" role="tablist" aria-label="Secções da contabilidade" id="separadores">
+      <button type="button" role="tab" data-sec="resumo" id="sep-resumo" aria-controls="sec-resumo"><span data-icone="grafico"></span>Resumo</button>
+      <button type="button" role="tab" data-sec="por-contabilizar" id="sep-por-contabilizar" aria-controls="sec-por-contabilizar"><span data-icone="recibo"></span>Por contabilizar <span class="contador" id="n-por-contabilizar"></span></button>
+      <button type="button" role="tab" data-sec="lancamentos" id="sep-lancamentos" aria-controls="sec-lancamentos"><span data-icone="lista"></span>Lançamentos</button>
+      <button type="button" role="tab" data-sec="balancete" id="sep-balancete" aria-controls="sec-balancete"><span data-icone="balanca"></span>Balancete</button>
+      <button type="button" role="tab" data-sec="extrato" id="sep-extrato" aria-controls="sec-extrato"><span data-icone="livro"></span>Extratos</button>
+      <button type="button" role="tab" data-sec="iva" id="sep-iva" aria-controls="sec-iva"><span data-icone="percentagem"></span>IVA</button>
+      <button type="button" role="tab" data-sec="resultados" id="sep-resultados" aria-controls="sec-resultados"><span data-icone="euro"></span>Resultados</button>
+      <button type="button" role="tab" data-sec="fornecedores" id="sep-fornecedores" aria-controls="sec-fornecedores"><span data-icone="loja"></span>Fornecedores</button>
+      <button type="button" role="tab" data-sec="obrigacoes" id="sep-obrigacoes" aria-controls="sec-obrigacoes"><span data-icone="calendario"></span>Obrigações</button>
+      <button type="button" role="tab" data-sec="plano" id="sep-plano" aria-controls="sec-plano"><span data-icone="arvore"></span>Plano de contas</button>
+      <button type="button" role="tab" data-sec="assistente" id="sep-assistente" aria-controls="sec-assistente"><span data-icone="faisca"></span>Assistente IA</button>
+    </nav>
+
+    <section id="sec-resumo" role="tabpanel" aria-labelledby="sep-resumo" hidden></section>
+    <section id="sec-por-contabilizar" role="tabpanel" aria-labelledby="sep-por-contabilizar" hidden></section>
+    <section id="sec-lancamentos" role="tabpanel" aria-labelledby="sep-lancamentos" hidden></section>
+    <section id="sec-balancete" role="tabpanel" aria-labelledby="sep-balancete" hidden></section>
+    <section id="sec-extrato" role="tabpanel" aria-labelledby="sep-extrato" hidden></section>
+    <section id="sec-iva" role="tabpanel" aria-labelledby="sep-iva" hidden></section>
+    <section id="sec-resultados" role="tabpanel" aria-labelledby="sep-resultados" hidden></section>
+    <section id="sec-fornecedores" role="tabpanel" aria-labelledby="sep-fornecedores" hidden></section>
+    <section id="sec-obrigacoes" role="tabpanel" aria-labelledby="sep-obrigacoes" hidden></section>
+    <section id="sec-plano" role="tabpanel" aria-labelledby="sep-plano" hidden></section>
+    <section id="sec-assistente" role="tabpanel" aria-labelledby="sep-assistente" hidden>
+      <div class="cartao painel-assistente">
+        <div class="conversa" id="conversa" aria-live="polite">
+          <div class="mensagem assistente">
+            <p><strong>Olá! Sou o assistente de contabilidade.</strong> Consulto o balancete, os extratos, o IVA e as contas correntes da empresa para responder com números reais, e explico as regras do SNC e do Código do IVA.</p>
+            <p>Também posso preparar lançamentos (ex.: "lança a renda de dezembro, 1500 €, paga por transferência"). Mostro-os primeiro: só ficam gravados se carregar em <em>Lançar</em>.</p>
+          </div>
+          <div class="sugestoes" id="sugestoes">
+            <button type="button">Quanto IVA vou pagar neste trimestre?</button>
+            <button type="button">Quais foram os maiores gastos deste ano?</button>
+            <button type="button">A quem devo dinheiro e há quanto tempo?</button>
+            <button type="button">Que prazos fiscais tenho nas próximas semanas?</button>
+            <button type="button">Porque é que o IVA do gasóleo não é todo dedutível?</button>
+          </div>
+        </div>
+        <form class="compositor" id="compositor">
+          <label for="pergunta" class="visualmente-oculto">Pergunta ao assistente</label>
+          <textarea id="pergunta" rows="1" maxlength="2000" placeholder="Pergunte sobre a contabilidade da empresa… (Enter envia, Shift+Enter muda de linha)"></textarea>
+          <button type="submit" class="botao" id="enviar"><span data-icone="enviar"></span>Enviar</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <dialog class="janela larga" id="janela-lancamento" aria-labelledby="titulo-lancamento">
+    <form id="form-lancamento" novalidate>
+      <h2 id="titulo-lancamento">Novo lançamento</h2>
+      <div class="grelha-3">
+        <div class="campo">
+          <label for="lanc-diario">Diário</label>
+          <select id="lanc-diario">
+            <option value="OD">Operações diversas</option>
+            <option value="BAN">Bancos</option>
+            <option value="CX">Caixa</option>
+            <option value="VEN">Vendas</option>
+            <option value="COM">Compras</option>
+          </select>
+        </div>
+        <div class="campo">
+          <label for="lanc-data">Data</label>
+          <input type="date" id="lanc-data" required>
+        </div>
+        <div class="campo">
+          <label for="lanc-documento">Documento <span class="opcional">(opcional)</span></label>
+          <input type="text" id="lanc-documento" maxlength="80" placeholder="Ex.: Recibo n.º 12">
+        </div>
+      </div>
+      <div class="campo">
+        <label for="lanc-descricao">Descrição</label>
+        <input type="text" id="lanc-descricao" maxlength="300" required placeholder="Ex.: Renda de dezembro">
+      </div>
+      <table class="editor-linhas">
+        <thead><tr><th scope="col">Conta</th><th scope="col">Débito</th><th scope="col">Crédito</th><th scope="col"><span class="visualmente-oculto">Remover</span></th></tr></thead>
+        <tbody id="lanc-linhas"></tbody>
+      </table>
+      <datalist id="contas-movimento"></datalist>
+      <div class="editor-totais">
+        <button type="button" class="botao secundario pequeno" id="lanc-mais"><span data-icone="mais"></span>Linha</button>
+        <span>Débito <b id="lanc-total-d">0,00 €</b> · Crédito <b id="lanc-total-c">0,00 €</b> · <span class="diferenca" id="lanc-diferenca"></span></span>
+      </div>
+      <p class="erro-campo" id="lanc-erro" role="alert" hidden></p>
+      <div class="janela-botoes">
+        <button type="button" class="botao secundario" value="cancelar" id="lanc-cancelar">Cancelar</button>
+        <button type="submit" class="botao" id="lanc-gravar">Lançar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="/static/comum.js?v=2026-11-18"></script>
+  <script src="/static/contabilidade.js?v=2026-11-18"></script>
+</body>
+</html>

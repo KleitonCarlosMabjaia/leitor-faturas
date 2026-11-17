@@ -23,7 +23,7 @@ from app import config
 from app.db import SessaoLocal, get_db, preparar_base_dados
 from app.dependencias import utilizador_opcional
 from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
-from app.rotas import auth, dashboard, equipa, faturas, fornecedores
+from app.rotas import auth, contabilidade, dashboard, equipa, faturas, fornecedores
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -67,11 +67,11 @@ async def ciclo_de_vida(app: FastAPI):
 
 app = FastAPI(title="Leitor de Faturas", version="2.0.0", lifespan=ciclo_de_vida)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
-for modulo in (auth, faturas, fornecedores, dashboard, equipa):
+for modulo in (auth, faturas, fornecedores, dashboard, contabilidade, equipa):
     app.include_router(modulo.router)
 
 
-PAGINAS_HTML = {"/", "/dashboard", "/equipa", "/entrar", "/definir-palavra-passe"}
+PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/entrar", "/definir-palavra-passe"}
 
 
 @app.middleware("http")
@@ -127,6 +127,11 @@ def pagina_fatura(request: Request, utilizador: Utilizador | None = Depends(util
 @app.get("/dashboard", include_in_schema=False)
 def pagina_dashboard(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
     return _protegida(request, utilizador, "dashboard.html")
+
+
+@app.get("/contabilidade", include_in_schema=False)
+def pagina_contabilidade(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "contabilidade.html")
 
 
 @app.get("/equipa", include_in_schema=False)

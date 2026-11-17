@@ -151,7 +151,12 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 # ---------- Em todas as páginas ----------
 
-@pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO"])
+CONTABILIDADE = [f"/contabilidade#{s}" for s in (
+    "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
+    "obrigacoes", "plano", "assistente")]
+
+
+@pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
 def test_paginas_sem_erros_de_javascript(page: Page, api, erros_js, caminho):
     if caminho == "REVISAO":
         caminho = f"/faturas/{_uma_por_rever(api)['id']}"
@@ -160,7 +165,8 @@ def test_paginas_sem_erros_de_javascript(page: Page, api, erros_js, caminho):
     assert erros_js == []
 
 
-@pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO"])
+@pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", "/contabilidade#resumo",
+                                     "/contabilidade#balancete", "/contabilidade#por-contabilizar"])
 def test_telemovel_sem_deslocamento_horizontal(page: Page, api, caminho):
     if caminho == "REVISAO":
         caminho = f"/faturas/{_uma_por_rever(api)['id']}"
@@ -169,3 +175,39 @@ def test_telemovel_sem_deslocamento_horizontal(page: Page, api, caminho):
     page.wait_for_load_state("networkidle")
     largura = page.evaluate("document.documentElement.scrollWidth")
     assert largura <= 375, f"A página tem {largura}px de largura num ecrã de 375px"
+
+
+# ---------- Contabilidade ----------
+
+def test_balancete_equilibrado_e_extrato(page: Page):
+    page.goto("/contabilidade#balancete")
+    expect(page.get_by_text("Débito = Crédito")).to_be_visible()
+    page.locator("tr", has=page.get_by_role("cell", name="Depósitos à ordem", exact=True)).click()
+    expect(page).to_have_url(re.compile(r"#extrato:12$"))
+    expect(page.locator("#sec-extrato")).to_contain_text("Saldo anterior")
+
+
+def test_contabilizar_fatura_pela_interface(page: Page, api):
+    pendentes = api("/api/contabilidade/por-contabilizar")
+    if not pendentes:
+        pytest.skip("Sem faturas por contabilizar na demonstração")
+    page.goto("/contabilidade#por-contabilizar")
+    propostas = page.locator(".proposta")
+    expect(propostas).to_have_count(len(pendentes))
+    propostas.first.get_by_role("button", name="Contabilizar").click()
+    expect(propostas).to_have_count(len(pendentes) - 1)
+    expect(page.locator(".notificacao.ok")).to_contain_text("Lançado: COM")
+
+
+def test_lancamento_desequilibrado_e_recusado(page: Page):
+    page.goto("/contabilidade#lancamentos")
+    page.get_by_role("button", name="Novo lançamento").click()
+    page.locator("#lanc-descricao").fill("Teste")
+    linhas = page.locator("#lanc-linhas tr")
+    linhas.nth(0).locator("input").nth(0).fill("6233")
+    linhas.nth(0).locator("input").nth(1).fill("10")
+    linhas.nth(1).locator("input").nth(0).fill("12")
+    linhas.nth(1).locator("input").nth(2).fill("9")
+    expect(page.locator("#lanc-diferenca")).to_have_text("Diferença 1,00 €")
+    page.locator("#lanc-gravar").click()
+    expect(page.locator("#lanc-erro")).to_contain_text("não está equilibrado")

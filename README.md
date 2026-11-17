@@ -2,7 +2,7 @@
 
 [![Testes](https://github.com/KleitonCarlosMabjaia/leitor-faturas/actions/workflows/testes.yml/badge.svg)](https://github.com/KleitonCarlosMabjaia/leitor-faturas/actions/workflows/testes.yml)
 
-Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, lojas, escritórios de contabilidade), com **acesso por convite e dados separados por empresa**, que **lê faturas de fornecedores em PDF**, extrai os dados automaticamente, guarda-os numa base de dados e mostra os gastos num dashboard, com exportação para Excel.
+Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, lojas, escritórios de contabilidade), com **acesso por convite e dados separados por empresa**, que **lê faturas de fornecedores em PDF**, extrai os dados automaticamente, **contabiliza-as segundo o SNC** (partidas dobradas, IVA por taxa, art. 21.º do CIVA) e mostra gastos, balancete, apuramento do IVA e prazos fiscais, com um **assistente de IA** que consulta a contabilidade e propõe lançamentos.
 
 A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o **código QR da AT** (gratuito e exato), depois uma **cache de fornecedores** por NIF e, só no fim, **IA** (API do Claude) para o que falta.
 
@@ -38,6 +38,18 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Gráficos de **gasto por fornecedor** e de **evolução mensal** (Chart.js), com tabela alternativa para leitores de ecrã.
 - **Exportação para Excel e CSV** com os filtros ativos: colunas de base e IVA por taxa, linha de totais e proteção contra *CSV injection*.
 
+**Contabilidade (SNC)**
+- **Plano de contas SNC** criado para cada empresa, com as subcontas de IVA dedutível e liquidado **divididas por taxa**, já alinhadas com os campos da declaração periódica. Subconta automática para cada fornecedor (2211xxxx; 2711xxxx nos fornecedores de investimentos).
+- **Lançamentos em partidas dobradas**, numerados por diário e ano (COM, VEN, BAN, CX, OD). Nunca se apagam nem se alteram: anulam-se com **estorno**. Lançamentos desequilibrados, em contas agregadoras ou em **períodos fechados** são recusados.
+- **Contabilização das faturas num clique, ou em lote.** A conta é sugerida em cascata: o que a aplicação **aprendeu** com esse fornecedor → palavras-chave no nome → **IA**, que lê a fatura e o plano de contas. A escolha fica memorizada por NIF.
+- **IVA não dedutível automático (art. 21.º do CIVA):** gasóleo a 50%, gasolina, viaturas ligeiras, refeições e deslocações. A parte não dedutível vai para o gasto e fica explicada no lançamento. As notas de crédito invertem o lançamento.
+- Marcar uma fatura como paga gera o **pagamento no banco**; desmarcar estorna-o. Uma fatura contabilizada fica protegida contra alterações.
+- **Apuramento do IVA num clique** (2432/2433/2434 → 2435 → 2436 a pagar ou 2437 a recuperar, com reporte do crédito anterior) e **mapa de apoio à declaração periódica** (campos 1 a 6 e 20 a 24).
+- **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**.
+- **Verificações automáticas** do dia a dia: faturas por contabilizar, IVA do período por apurar, caixa com saldo credor, fornecedores com saldo devedor, NIF inválido, **tributação autónoma estimada** das despesas de representação (art. 88.º do CIRC), retenção na fonte a pessoas singulares e faturas sem ATCUD.
+- **Calendário fiscal** (IVA mensal ou trimestral, SAF-T, DMR, retenções, Segurança Social, Modelo 22, IES, pagamentos por conta) com os prazos **ajustados a fins de semana e feriados**, incluindo a Páscoa e o Corpo de Deus.
+- **Assistente com IA:** responde a perguntas ("quanto IVA vou pagar?", "a quem devo e há quanto tempo?") consultando o balancete, os extratos e o IVA através de ferramentas só de leitura, e **propõe lançamentos** que só ficam gravados depois de o utilizador carregar em "Lançar".
+
 **Contas e várias empresas**
 - Acesso **só por convite**, sem registo público. Cada empresa cliente vê apenas os seus dados.
 - Palavras-passe com **Argon2**, sessão em cookie `HttpOnly` + `SameSite`, bloqueio depois de 5 tentativas falhadas.
@@ -55,7 +67,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 102 testes automáticos (pytest), incluindo isolamento entre empresas e migrações. Correm sem Internet e sem chave da API.
+- 133 testes automáticos (pytest), incluindo isolamento entre empresas, migrações e as regras contabilísticas. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -144,7 +156,7 @@ Faturas criadas antes das contas existirem passam para a primeira empresa que fo
 
 ## Dados de demonstração
 
-`python -m app.demo` cria uma empresa própria ("... (demonstração)"), separada das empresas reais, com 30 faturas de 7 fornecedores fictícios (bebidas, carne, peixe e legumes), espalhadas pelos últimos 6 meses. Algumas ficam por rever, algumas por pagar e duas vencidas. Cada fatura tem um PDF gerado na hora, com texto e um QR da AT válido, por isso os PDFs (em `uploads/`) também servem para testar o carregamento.
+`python -m app.demo` cria uma empresa própria ("... (demonstração)"), separada das empresas reais, com 30 faturas de 7 fornecedores fictícios (bebidas, carne, peixe e legumes), espalhadas pelos últimos 6 meses. Algumas ficam por rever, algumas por pagar e duas vencidas. Tem também uma contabilidade completa: capital inicial, vendas mensais a 13% e 23%, rendas, salários, gasóleo (IVA a 50%), despesas de representação, as faturas contabilizadas (menos três, para haver trabalho pendente) e o apuramento e pagamento do IVA de cada trimestre terminado. Cada fatura tem um PDF gerado na hora, com texto e um QR da AT válido, por isso os PDFs (em `uploads/`) também servem para testar o carregamento.
 
 - O comando mostra um link para definir a palavra-passe do utilizador `demo@demonstracao.pt`.
 - `python -m app.demo --limpar` apaga **só** a empresa de demonstração e cria-a de novo.
@@ -158,13 +170,13 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 102 testes, poucos segundos, sem navegador
-pytest tests_ui                    # interface: 15 testes num Chromium a sério (Playwright)
+pytest                             # servidor: 133 testes, sem navegador
+pytest tests_ui                    # interface: 32 testes num Chromium a sério (Playwright)
 ```
 
 Nos testes do servidor, cada teste usa uma base de dados temporária, a IA é substituída por uma função falsa e o bucket S3 por um objeto falso.
 
-Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
+Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
 
 O **GitHub Actions** corre tudo em cada push (`.github/workflows/testes.yml`), incluindo o teste de PostgreSQL com uma base de dados verdadeira.
 
@@ -260,6 +272,23 @@ Um teste confirma que as migrações e os modelos não divergem.
 | DELETE | `/api/faturas/{id}` | Apaga a fatura e o PDF |
 | GET | `/api/fornecedores` | Fornecedores conhecidos |
 | GET | `/api/dashboard` | Números do dashboard (`mes` opcional) |
+| GET | `/api/contabilidade/resumo` | Indicadores, verificações automáticas e próximos prazos |
+| GET | `/api/contabilidade/por-contabilizar` | Faturas confirmadas por lançar, com a classificação e o lançamento propostos |
+| GET | `/api/contabilidade/faturas/{id}` | Lançamentos da fatura ou proposta (`ia=1` pede a sugestão à IA) |
+| POST | `/api/contabilidade/faturas/{id}/contabilizar` | Lança a fatura (`conta_codigo` e `perfil_iva` opcionais) |
+| POST | `/api/contabilidade/contabilizar-lote` | Lança várias faturas com a sugestão (`ids`) |
+| POST | `/api/contabilidade/faturas/{id}/pagamento` | Regista o pagamento (`data`, `conta` 11/12/13) |
+| GET / POST | `/api/contabilidade/lancamentos` | Diário (filtros `de`, `ate`, `diario`, `pesquisa`) / lançamento manual |
+| POST | `/api/contabilidade/lancamentos/{id}/estornar` | Estorna um lançamento |
+| GET | `/api/contabilidade/balancete` | Balancete analítico (`/balancete/exportar` para Excel) |
+| GET | `/api/contabilidade/extrato` | Extrato de uma conta e subcontas (`conta`, `de`, `ate`) |
+| GET | `/api/contabilidade/iva` | Mapa da declaração periódica; `POST /api/contabilidade/iva/apurar` gera o apuramento |
+| GET | `/api/contabilidade/resultados` | Demonstração de resultados por naturezas |
+| GET | `/api/contabilidade/fornecedores` | Contas correntes e antiguidade de saldos |
+| GET | `/api/contabilidade/obrigacoes` | Calendário fiscal |
+| GET / POST | `/api/contabilidade/contas` | Plano de contas / nova subconta |
+| PUT | `/api/contabilidade/configuracao` | Regime do IVA e período fechado (administradores) |
+| POST | `/api/contabilidade/assistente` | Pergunta ao assistente com IA (`pergunta`, `historico`) |
 
 ## Estrutura
 
@@ -281,6 +310,7 @@ leitor-faturas/
 │   │   ├── faturas.py       # /api/faturas
 │   │   ├── fornecedores.py  # /api/fornecedores
 │   │   ├── dashboard.py     # /api/dashboard
+│   │   ├── contabilidade.py # /api/contabilidade
 │   │   ├── auth.py          # /api/auth (entrar, sair, convites)
 │   │   └── equipa.py        # /api/equipa
 │   └── servicos/
@@ -294,11 +324,13 @@ leitor-faturas/
 │       ├── estatisticas.py  # números do dashboard
 │       ├── exportacao.py    # CSV e Excel
 │       ├── limites.py       # limite de pedidos (rate limiting)
+│       ├── contabilidade/   # SNC: plano de contas, IVA, classificação, lançamentos, relatórios,
+│       │                    #      verificações, calendário fiscal e assistente com IA
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 102 testes do servidor (pytest)
-├── tests_ui/                # 15 testes da interface (Playwright)
+├── tests/                   # 133 testes do servidor (pytest)
+├── tests_ui/                # 32 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini
 ├── Dockerfile
@@ -323,6 +355,9 @@ leitor-faturas/
 - **Limite de pedidos em memória.** Chega para uma instância e não acrescenta serviços. Com várias instâncias, o contador passaria para o Redis.
 - **Interface sem frameworks, com um sistema de cores.** Todas as cores, raios e sombras são variáveis CSS num só sítio; o modo escuro é o mesmo conjunto de variáveis com outros valores. Os contrastes cumprem a WCAG AA e o estado nunca é indicado só pela cor (há sempre ícone e texto).
 - **Linhas retas no gráfico mensal.** Uma curva suavizada sugere valores entre os meses que não existem.
+- **Contabilidade imutável.** Um lançamento nunca é alterado nem apagado: corrige-se com um estorno, e os relatórios contam os dois (anulam-se). O histórico fica completo, como espera um auditor, e o fecho de períodos é fácil de garantir.
+- **Regras fiscais num só ficheiro.** Taxas, escalões, perfis de dedutibilidade e campos da declaração periódica estão em `contabilidade/iva.py`: quando a lei mudar, muda-se um ficheiro.
+- **A IA propõe, a pessoa decide.** O assistente só tem ferramentas de leitura; as propostas de lançamento são validadas com as mesmas regras de um lançamento manual, mas só são gravadas com um clique do utilizador. As chamadas usam o *fallback* do servidor da API (se o modelo recusar um pedido, outro modelo responde na mesma chamada).
 - **Exportação segura.** Os textos vêm de PDFs de terceiros, por isso valores começados por `=`, `+`, `-` ou `@` são neutralizados para o Excel não os executar como fórmulas.
 
 ## Próximos passos
@@ -332,3 +367,5 @@ leitor-faturas/
 - Pagamentos e planos por empresa (Stripe).
 - Processamento em segundo plano para lotes grandes de faturas.
 - Leitura por IA de faturas digitalizadas sem QR (envio da imagem da página).
+- Exportação do SAF-T (PT) da contabilidade e importação de extratos bancários para reconciliação automática.
+- Faturas de clientes (vendas), depreciações automáticas dos ativos fixos e fecho do exercício (classe 8).

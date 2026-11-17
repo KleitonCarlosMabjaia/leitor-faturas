@@ -140,3 +140,44 @@ def gerar_xlsx(faturas: list[Fatura]) -> bytes:
     saida = io.BytesIO()
     livro.save(saida)
     return saida.getvalue()
+
+
+def gerar_balancete_xlsx(dados: dict, empresa: str) -> bytes:
+    """Balancete analítico em Excel: contas agregadoras a negrito, totais no fim."""
+    livro = Workbook()
+    folha = livro.active
+    folha.title = "Balancete"
+    folha.append([f"Balancete analítico - {_seguro(empresa)}"])
+    folha.append([f"De {dados['de']:%d/%m/%Y} a {dados['ate']:%d/%m/%Y}"])
+    folha.append([])
+    cabecalho = ["Conta", "Descrição", "Débito do período", "Crédito do período", "Débito acumulado",
+                 "Crédito acumulado", "Saldo devedor", "Saldo credor"]
+    folha.append(cabecalho)
+    chaves = ["debito_periodo", "credito_periodo", "debito_acumulado", "credito_acumulado", "saldo_devedor",
+              "saldo_credor"]
+    for linha in dados["linhas"]:
+        folha.append([linha["codigo"], _seguro(linha["nome"]), *(linha[k] for k in chaves)])
+        if not linha["movimento"]:
+            for celula in folha[folha.max_row]:
+                celula.font = Font(bold=linha["nivel"] <= 2)
+    folha.append(["Total", "", *(dados["totais"][k] for k in chaves)])
+    for celula in folha[folha.max_row]:
+        celula.font = Font(bold=True)
+
+    folha["A1"].font = Font(bold=True, size=13)
+    for celula in folha[4]:
+        celula.font = Font(bold=True, color="FFFFFF")
+        celula.fill = PatternFill("solid", fgColor="1C1917")
+        celula.alignment = Alignment(vertical="center", wrap_text=True)
+    for linha in folha.iter_rows(min_row=5):
+        for celula in linha[2:]:
+            celula.number_format = FORMATO_EUROS
+    folha.column_dimensions["A"].width = 12
+    folha.column_dimensions["B"].width = 48
+    for letra in "CDEFGH":
+        folha.column_dimensions[letra].width = 16
+    folha.freeze_panes = "C5"
+
+    saida = io.BytesIO()
+    livro.save(saida)
+    return saida.getvalue()
