@@ -406,3 +406,53 @@ class LinhaInventario(Base):
     quantidade: Mapped[float] = mapped_column(Float)
     custo_unitario: Mapped[float] = mapped_column(Float)
     valor: Mapped[float] = mapped_column(Float)
+
+
+# ---------- Ativos fixos e depreciações ----------
+
+ATIVO_EM_USO = "em_uso"
+ATIVO_ABATIDO = "abatido"
+ATIVO_ALIENADO = "alienado"
+
+
+class AtivoFixo(Base):
+    """Ativo fixo tangível ou intangível, depreciado por quotas constantes (em duodécimos)."""
+
+    __tablename__ = "ativos_fixos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    codigo: Mapped[str] = mapped_column(String(20))               # AF0001, AF0002...
+    descricao: Mapped[str] = mapped_column(String(200))
+    conta_ativo: Mapped[str] = mapped_column(String(20))          # 432..437, 443
+    conta_depreciacao: Mapped[str] = mapped_column(String(20))    # 438x / 4483
+    conta_gasto: Mapped[str] = mapped_column(String(20))          # 642x / 6433
+    data_aquisicao: Mapped[date] = mapped_column(Date)
+    data_inicio: Mapped[date] = mapped_column(Date)               # entrada em funcionamento
+    valor_aquisicao: Mapped[float] = mapped_column(Float)
+    valor_residual: Mapped[float] = mapped_column(Float, default=0.0)
+    taxa: Mapped[float] = mapped_column(Float)                     # % ao ano
+    estado: Mapped[str] = mapped_column(String(10), default=ATIVO_EM_USO)
+    data_saida: Mapped[date | None] = mapped_column(Date)
+    fatura_id: Mapped[str | None] = mapped_column(ForeignKey("faturas.id", ondelete="SET NULL"))
+    lancamento_saida_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id", ondelete="SET NULL"))
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    depreciacoes: Mapped[list["DepreciacaoAtivo"]] = relationship(
+        back_populates="ativo", cascade="all, delete-orphan", order_by="DepreciacaoAtivo.ate"
+    )
+
+
+class DepreciacaoAtivo(Base):
+    """Depreciação de um ativo num intervalo de meses, lançada num lançamento (estornável)."""
+
+    __tablename__ = "depreciacoes_ativos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ativo_id: Mapped[int] = mapped_column(ForeignKey("ativos_fixos.id", ondelete="CASCADE"), index=True)
+    ativo: Mapped[AtivoFixo] = relationship(back_populates="depreciacoes")
+    de: Mapped[date] = mapped_column(Date)
+    ate: Mapped[date] = mapped_column(Date)
+    meses: Mapped[int] = mapped_column()
+    valor: Mapped[float] = mapped_column(Float)
+    lancamento_id: Mapped[int] = mapped_column(ForeignKey("lancamentos.id", ondelete="CASCADE"), index=True)

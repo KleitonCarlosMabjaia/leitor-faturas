@@ -18,10 +18,12 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modelos.tabelas import (
+    ATIVO_EM_USO,
     ESTADO_CONFIRMADA,
     LANCAMENTO_ATIVO,
     LANCAMENTO_ESTORNADO,
     MOVIMENTO_PENDENTE,
+    AtivoFixo,
     Empresa,
     Fatura,
     FaturaVenda,
@@ -184,6 +186,9 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
     ids_linhas = [ln.id for ln in lancamento.linhas]
     for mov in db.scalars(select(MovimentoBancario).where(MovimentoBancario.linha_id.in_(ids_linhas))):
         mov.linha_id, mov.estado, mov.reconciliado_em, mov.reconciliado_por_id = None, MOVIMENTO_PENDENTE, None, None
+    # Estornar o abate ou a alienação de um ativo volta a pô-lo em uso
+    for ativo in db.scalars(select(AtivoFixo).where(AtivoFixo.lancamento_saida_id == lancamento.id)):
+        ativo.estado, ativo.data_saida, ativo.lancamento_saida_id = ATIVO_EM_USO, None, None
     # Estornar um recebimento de um cliente volta a pôr esse valor em dívida
     if lancamento.origem == "recebimento" and lancamento.venda_id:
         venda = db.get(FaturaVenda, lancamento.venda_id)

@@ -6,7 +6,7 @@ Os erros contabilísticos (lançamento desequilibrado, período fechado...) cheg
 utilizador como 409 com a explicação em português.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
@@ -21,6 +21,7 @@ from app.modelos.tabelas import (
     MOVIMENTO_PENDENTE,
     PAPEL_ADMIN,
     VENDA_NORMAL,
+    AtivoFixo,
     Conta,
     Empresa,
     ExtratoBancario,
@@ -35,6 +36,7 @@ from app.modelos.tabelas import (
 from app.servicos import armazenamento, exportacao, limites, repositorio, validacao
 from app.servicos.contabilidade import (
     assistente,
+    ativos,
     banco,
     classificacao,
     extratos,
@@ -905,6 +907,131 @@ def inventario_inicial(inventario_id: int, db: Session = Depends(get_db),
     """Usa a contagem como inventário de abertura (contrapartida em resultados transitados)."""
     return _lancar_inventario(db, utilizador, inventario_id,
                               lambda e, inv: inventarios.registar_inicial(db, e, inv, utilizador.id))
+
+
+# ---------- Ativos fixos e depreciações ----------
+
+def _ativo(db: Session, utilizador: Utilizador, ativo_id: int) -> AtivoFixo:
+    a = ativos.obter(db, utilizador.empresa_id, ativo_id)
+    if a is None:
+        raise HTTPException(status_code=404, detail="Ativo não encontrado.")
+    return a
+
+
+@router.get("/ativos")
+def listar_ativos(ano: int | None = Query(None, ge=2000, le=9999), db: Session = Depends(get_db),
+                  utilizador: Utilizador = Depends(utilizador_atual)):
+    """Ativos com a depreciação do ano, depreciações por lançar até ao fim do mês passado e diferenças."""
+    empresa = _empresa(db, utilizador)
+    hoje = date.today()
+    ano = ano or hoje.year
+    lista = db.scalars(select(AtivoFixo).options(selectinload(AtivoFixo.depreciacoes))
+                       .where(AtivoFixo.empresa_id == empresa.id).order_by(AtivoFixo.codigo)).all()
+    resumos = [ativos.resumo(db, a, ano) for a in lista]
+    fim_mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+    quotas = ativos.calcular(db, empresa.id, fim_mes_passado)
+    em_uso = [r for r in resumos if r["estado"] == "em_uso"]
+    return {
+        "ano": ano,
+        "ativos": resumos,
+        "totais": {
+            "valor_aquisicao": round(sum(r["valor_aquisicao"] for r in em_uso), 2),
+            "acumulada": round(sum(r["acumulada"] for r in em_uso), 2),
+            "valor_liquido": round(sum(r["valor_liquido"] for r in em_uso), 2),
+            "depreciacao_ano": round(sum(r["depreciacao_ano"] for r in resumos), 2),
+        },
+        "por_lancar": {"ate": fim_mes_passado, "ativos": len(quotas), "valor": round(sum(q.valor for q in quotas), 2)},
+        "diferencas": ativos.diferencas_com_contabilidade(db, empresa.id),
+        "taxas_referencia": [{"descricao": d, "conta": c, "taxa": t} for d, c, t in ativos.TAXAS_REFERENCIA],
+        "contas": [{"conta": c, "nome": n} for c, n in ativos.NOMES_CONTAS.items()],
+    }
+
+
+class AtivoEntrada(BaseModel):
+    descricao: str = Field(min_length=1, max_length=200)
+    conta_ativo: Literal["432", "433", "434", "435", "437", "443"]
+    data_aquisicao: date
+    data_inicio: date | None = None
+    valor_aquisicao: float = Field(gt=0)
+    valor_residual: float = Field(0, ge=0)
+    taxa: float = Field(gt=0, le=100)
+    fatura_id: str | None = Field(None, max_length=12)
+
+
+@router.post("/ativos", status_code=201)
+def registar_ativo(entrada: AtivoEntrada, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    """Regista o ativo na ficha de ativos (a aquisição já está lançada pela fatura ou à mão)."""
+    empresa = _empresa(db, utilizador)
+    if entrada.fatura_id and repositorio.obter_fatura(db, empresa.id, entrada.fatura_id) is None:
+        raise HTTPException(status_code=404, detail="Fatura não encontrada.")
+    try:
+        ativo = ativos.registar(
+            db, empresa, descricao=entrada.descricao, conta_ativo=entrada.conta_ativo,
+            data_aquisicao=entrada.data_aquisicao, data_inicio=entrada.data_inicio,
+            valor_aquisicao=entrada.valor_aquisicao, valor_residual=entrada.valor_residual, taxa=entrada.taxa,
+            fatura_id=entrada.fatura_id,
+        )
+    except ativos.ErroAtivo as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return ativos.resumo(db, ativo)
+
+
+class Depreciacao(BaseModel):
+    ate: date
+
+
+@router.post("/ativos/depreciar", status_code=201)
+def lancar_depreciacoes(dados: Depreciacao, db: Session = Depends(get_db),
+                        utilizador: Utilizador = Depends(utilizador_atual)):
+    """Lança as depreciações de todos os ativos em uso até ao fim do mês de `ate`."""
+    empresa = _empresa(db, utilizador)
+    try:
+        lancamento = ativos.lancar_depreciacoes(db, empresa, dados.ate, utilizador.id)
+    except (ativos.ErroAtivo, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+class SaidaAtivo(BaseModel):
+    data: date
+    valor_venda: float | None = Field(None, ge=0)   # sem valor: abate; com valor: alienação
+    taxa_iva: float = Field(23.0, ge=0, le=100)
+    conta: str = Field("121", pattern=r"^1[123]\d+$|^2\d+$")
+
+
+@router.post("/ativos/{ativo_id}/saida", status_code=201)
+def saida_ativo(ativo_id: int, dados: SaidaAtivo, db: Session = Depends(get_db),
+                utilizador: Utilizador = Depends(utilizador_atual)):
+    """Abate (sem valor de venda) ou alienação (com valor de venda) do ativo."""
+    empresa = _empresa(db, utilizador)
+    ativo = _ativo(db, utilizador, ativo_id)
+    try:
+        if dados.valor_venda is None:
+            lancamento = ativos.abater(db, empresa, ativo, dados.data, utilizador.id)
+        else:
+            lancamento = ativos.alienar(db, empresa, ativo, dados.data, dados.valor_venda, dados.taxa_iva,
+                                        dados.conta, utilizador.id)
+    except (ativos.ErroAtivo, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+@router.delete("/ativos/{ativo_id}", status_code=204)
+def apagar_ativo(ativo_id: int, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    """Apaga um ativo registado por engano (só sem depreciações lançadas e em uso)."""
+    ativo = _ativo(db, utilizador, ativo_id)
+    if ativo.estado != "em_uso" or ativos.acumulada(db, ativo):
+        raise HTTPException(status_code=409,
+                            detail="O ativo já tem depreciações ou saiu: estorne os lançamentos primeiro.")
+    db.delete(ativo)
+    db.commit()
 
 
 # ---------- Assistente com IA ----------

@@ -20,7 +20,7 @@ from app.modelos.tabelas import (
     Lancamento,
     MovimentoBancario,
 )
-from app.servicos.contabilidade import obrigacoes, relatorios, vendas
+from app.servicos.contabilidade import ativos, obrigacoes, relatorios, vendas
 from app.servicos.contabilidade.lancamentos import _euros
 
 TAXA_TA_REPRESENTACAO = 0.10  # art. 88.º, n.º 7 do CIRC
@@ -159,7 +159,25 @@ def alertas(db: Session, empresa: Empresa, hoje: date | None = None) -> list[dic
             ("Ver vendas", "vendas"),
         ))
 
-    # 8. NIF inválido em faturas confirmadas
+    # 8. Ativos fixos: depreciações em atraso e ficha diferente da contabilidade
+    fim_mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+    quotas = ativos.calcular(db, empresa.id, fim_mes_passado)
+    if quotas:
+        resultado.append(_alerta(
+            "aviso", f"Depreciações por lançar até {fim_mes_passado:%m/%Y}",
+            f"{len(quotas)} ativo{'s' if len(quotas) > 1 else ''}, {_euros(sum(q.valor for q in quotas))}. Sem elas o "
+            "resultado e o balanço ficam sobreavaliados.",
+            ("Lançar depreciações", "ativos"),
+        ))
+    for d in ativos.diferencas_com_contabilidade(db, empresa.id):
+        resultado.append(_alerta(
+            "info", f"Ativos da conta {d['conta']} diferentes da contabilidade",
+            f"Na contabilidade: {_euros(d['contabilidade'])}; na ficha de ativos: {_euros(d['registados'])}. "
+            "Registe na ficha os ativos comprados (ou lance a aquisição que falta).",
+            ("Ver ativos", "ativos"),
+        ))
+
+    # 9. NIF inválido em faturas confirmadas
     nif_invalido = db.scalars(select(Fatura).where(
         Fatura.empresa_id == empresa.id, Fatura.estado == ESTADO_CONFIRMADA, Fatura.nif_valido.is_(False),
     )).all()

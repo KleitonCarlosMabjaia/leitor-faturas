@@ -29,7 +29,9 @@ from app.modelos.tabelas import (
     ESTADO_CONFIRMADA,
     ESTADO_POR_REVER,
     PAPEL_ADMIN,
+    AtivoFixo,
     Conta,
+    DepreciacaoAtivo,
     Empresa,
     ExtratoBancario,
     Fatura,
@@ -48,6 +50,7 @@ from app.modelos.tabelas import (
 )
 from app.servicos import armazenamento, autenticacao, repositorio
 from app.servicos.contabilidade import (
+    ativos,
     banco,
     extratos,
     inventarios,
@@ -445,6 +448,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
 
     # Inventários: contagem inicial na abertura e contagem do fim do mês passado, com o CMVMC apurado
     criar_inventarios_demo(db, empresa, abertura, hoje)
+    criar_ativos_demo(db, empresa, abertura, hoje)
 
     # Apuramento do IVA de cada trimestre terminado e pagamento até dia 25 do 2.º mês seguinte
     ano, trimestre = abertura.year, (abertura.month - 1) // 3
@@ -491,6 +495,31 @@ def criar_inventarios_demo(db: Session, empresa: Empresa, abertura: date, hoje: 
     if fim_mes_passado > abertura:
         final = contagem(fim_mes_passado, 5, "Contagem do fim do mês")
         inventarios.apurar(db, empresa, final)
+    db.flush()
+
+
+ATIVOS_DEMO = [
+    # (descrição, conta, valor sem IVA, taxa)
+    ("Fogão e forno industriais", "433", 4800.0, 12.5),
+    ("Máquina de café profissional", "433", 1350.0, 12.5),
+    ("Computador e impressora do escritório", "435", 890.0, 33.33),
+]
+
+
+def criar_ativos_demo(db: Session, empresa: Empresa, abertura: date, hoje: date) -> None:
+    """Equipamento comprado na abertura (pago por transferência) e depreciado até ao fim do mês passado."""
+    for descricao, conta, valor, taxa in ATIVOS_DEMO:
+        imposto = round(valor * 0.23, 2)
+        lancamentos.criar(db, empresa, "COM", abertura + timedelta(days=2), f"Compra: {descricao}", [
+            LinhaNova(conta, debito=valor, descricao=descricao, tipo_iva="base", taxa_iva=23),
+            LinhaNova("24322", debito=imposto, descricao="IVA dedutível 23%", tipo_iva="iva", taxa_iva=23),
+            LinhaNova("121", credito=round(valor + imposto, 2)),
+        ], documento="Fatura do fornecedor")
+        ativos.registar(db, empresa, descricao=descricao, conta_ativo=conta,
+                        data_aquisicao=abertura + timedelta(days=2), valor_aquisicao=valor, taxa=taxa)
+    fim_mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+    if fim_mes_passado > abertura:
+        ativos.lancar_depreciacoes(db, empresa, fim_mes_passado)
     db.flush()
 
 
@@ -604,6 +633,9 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(MovimentoBancario).where(MovimentoBancario.empresa_id == empresa.id))
     db.execute(delete(ExtratoBancario).where(ExtratoBancario.empresa_id == empresa.id))
     db.execute(delete(RegraBancaria).where(RegraBancaria.empresa_id == empresa.id))
+    ids_ativos = select(AtivoFixo.id).where(AtivoFixo.empresa_id == empresa.id)
+    db.execute(delete(DepreciacaoAtivo).where(DepreciacaoAtivo.ativo_id.in_(ids_ativos)))
+    db.execute(delete(AtivoFixo).where(AtivoFixo.empresa_id == empresa.id))
     ids_lancamentos = select(Lancamento.id).where(Lancamento.empresa_id == empresa.id)
     db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))

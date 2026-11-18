@@ -104,6 +104,7 @@ const ICONES = {
   banco: "M3 9.5 12 4l9 5.5M4.5 10v8M9.5 10v8M14.5 10v8M19.5 10v8M3 20h18",
   venda: "M3 12.5V4h8.5L21 13.5 13.5 21zM7.5 8h.01",
   caixa: "M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9",
+  edificio: "M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 10h4a1 1 0 0 1 1 1v10M3 21h18M8 8h3M8 12h3M8 16h3",
 };
 
 function icone(nome, classe = "") {

@@ -1469,3 +1469,4 @@ details .tabela { margin-top: 0.5rem; }
 .janela .editor-linhas td:first-child { width: auto; }
 .janela .editor-linhas td:nth-child(2) { width: 6.5rem; }
 .janela .editor-linhas td:nth-child(3) { width: 9rem; }
+.janela .grelha-3[hidden] { display: none; }

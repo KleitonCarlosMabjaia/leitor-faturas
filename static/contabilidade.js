@@ -87,7 +87,7 @@ const ORIGENS_CLASSIFICACAO = {
 
 const NOMES_ORIGEM_LANCAMENTO = {
   manual: "Manual", fatura: "Fatura", pagamento: "Pagamento", estorno: "Estorno",
-  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário",
+  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário", depreciacao: "Depreciações", ativo: "Ativo fixo",
 };
 
 // ---------- Estado ----------
@@ -190,6 +190,7 @@ const SECOES = {
   "por-contabilizar": carregarPorContabilizar,
   vendas: carregarVendas,
   inventarios: carregarInventarios,
+  ativos: carregarAtivos,
   lancamentos: carregarLancamentos,
   balancete: carregarBalancete,
   extrato: carregarExtrato,
@@ -221,7 +222,7 @@ async function mostrar(nome, forcar = false) {
     botaoSep.tabIndex = sim ? 0 : -1;
   }
   for (const secao of document.querySelectorAll("[role=tabpanel]")) secao.hidden = secao.id !== `sec-${nome}`;
-  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios"].includes(nome);
+  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos"].includes(nome);
 
   if (carregadas.has(nome) && !forcar) return;
   const secao = document.getElementById(`sec-${nome}`);
@@ -1562,6 +1563,132 @@ async function carregarInventarios(secao) {
         h("tbody", {}, linhas)))
         : vazio("lista", "Ainda não há contagens", "Importe a contagem de um CSV ou Excel, ou escreva-a à mão.")),
     inventarioAberto ? await detalheInventario(inventarioAberto) : null,
+  );
+}
+
+// ---------- Ativos fixos e depreciações ----------
+
+const ESTADOS_ATIVO = { em_uso: ["Em uso", "info"], abatido: ["Abatido", "neutro"], alienado: ["Vendido", "neutro"] };
+
+function abrirRegistoAtivo(dados) {
+  const referencia = h("select", { id: "ativo-referencia" }, h("option", { value: "" }, "Escolha um tipo de ativo…"),
+    dados.taxas_referencia.map((t, i) => h("option", { value: i }, `${t.descricao} · ${t.taxa}%`)));
+  const descricao = h("input", { type: "text", id: "ativo-descricao", maxlength: "200", placeholder: "Ex.: Forno industrial" });
+  const conta = h("select", { id: "ativo-conta" }, dados.contas.map((c) => h("option", { value: c.conta }, `${c.conta} · ${c.nome}`)));
+  const taxa = h("input", { type: "number", id: "ativo-taxa", min: "0.01", max: "100", step: "0.01", value: "12.5" });
+  const valor = h("input", { type: "number", id: "ativo-valor", min: "0.01", step: "0.01", placeholder: "Sem IVA dedutível" });
+  const residual = h("input", { type: "number", id: "ativo-residual", min: "0", step: "0.01", value: "0" });
+  const aquisicao = h("input", { type: "date", id: "ativo-aquisicao", value: iso(new Date()) });
+  const inicio = h("input", { type: "date", id: "ativo-inicio" });
+  const mensalidade = h("p", { class: "ajuda" });
+  const atualizar = () => {
+    const m = ((Number(valor.value) || 0) - (Number(residual.value) || 0)) * (Number(taxa.value) || 0) / 100 / 12;
+    mensalidade.textContent = m > 0 ? `Depreciação mensal: ${euros(Math.round(m * 100) / 100)} · anual: ${euros(Math.round(m * 1200) / 100)}` : "";
+  };
+  referencia.addEventListener("change", () => {
+    const t = dados.taxas_referencia[referencia.value];
+    if (!t) return;
+    conta.value = t.conta;
+    taxa.value = t.taxa;
+    atualizar();
+  });
+  for (const el of [taxa, valor, residual]) el.addEventListener("input", atualizar);
+  janelaTemporaria("Registar ativo fixo", h("div", {},
+    h("p", { class: "ajuda", texto: "A compra já deve estar lançada (pela fatura ou à mão) na conta do ativo. Aqui fica a ficha que calcula as depreciações. As taxas propostas são as máximas de referência do Decreto Regulamentar n.º 25/2009: confirme a da sua atividade." }),
+    campoJanela("ativo-referencia", "Tipo de ativo", referencia),
+    h("div", { class: "grelha-3" }, campoJanela("ativo-descricao", "Descrição", descricao), campoJanela("ativo-conta", "Conta", conta),
+      campoJanela("ativo-taxa", "Taxa anual (%)", taxa)),
+    h("div", { class: "grelha-3" }, campoJanela("ativo-valor", "Valor de aquisição", valor), campoJanela("ativo-residual", "Valor residual", residual),
+      campoJanela("ativo-aquisicao", "Data de aquisição", aquisicao)),
+    h("div", { class: "grelha-3" }, campoJanela("ativo-inicio", "Entrada em funcionamento (se diferente)", inicio)),
+    mensalidade), async () => {
+    if (!descricao.value.trim() || !Number(valor.value)) throw new Error("Indique a descrição e o valor de aquisição.");
+    const a = await enviar("/api/contabilidade/ativos", {
+      descricao: descricao.value.trim(), conta_ativo: conta.value, taxa: Number(taxa.value), valor_aquisicao: Number(valor.value),
+      valor_residual: Number(residual.value) || 0, data_aquisicao: aquisicao.value, data_inicio: inicio.value || null,
+    });
+    notificar(`Ativo ${a.codigo} registado (depreciação mensal de ${euros(a.depreciacao_mensal)}).`, "ok");
+    await mostrar("ativos", true);
+  }, "Registar ativo");
+  descricao.focus();
+}
+
+function abrirSaidaAtivo(a) {
+  const data = h("input", { type: "date", id: "saida-data", value: iso(new Date()) });
+  const tipo = h("select", { id: "saida-tipo" }, h("option", { value: "abate" }, "Abate (avaria, obsolescência, roubo)"),
+    h("option", { value: "venda" }, "Venda"));
+  const valor = h("input", { type: "number", id: "saida-valor", min: "0", step: "0.01", placeholder: "Sem IVA" });
+  const taxa = h("select", { id: "saida-taxa" }, [23, 13, 6, 0].map((t) => h("option", { value: t }, `${t}%`)));
+  const venda = h("div", { class: "grelha-3", hidden: true }, campoJanela("saida-valor", "Valor de venda", valor), campoJanela("saida-taxa", "IVA", taxa));
+  tipo.addEventListener("change", () => { venda.hidden = tipo.value !== "venda"; });
+  janelaTemporaria(`Saída do ativo ${a.codigo}`, h("div", {},
+    h("p", { class: "ajuda", texto: `${a.descricao} · valor líquido ${euros(a.valor_liquido)}. As depreciações até ao mês da saída são lançadas primeiro.` }),
+    h("div", { class: "grelha-3" }, campoJanela("saida-tipo", "Tipo de saída", tipo), campoJanela("saida-data", "Data", data)),
+    venda), async () => {
+    const corpo = { data: data.value };
+    if (tipo.value === "venda") {
+      corpo.valor_venda = Number(valor.value) || 0;
+      corpo.taxa_iva = Number(taxa.value);
+    }
+    const la = await enviar(`/api/contabilidade/ativos/${a.id}/saida`, corpo);
+    notificar(`Saída lançada: ${la.referencia}.`, "ok");
+    invalidar("resumo", "lancamentos", "balancete", "resultados", "extrato");
+    await mostrar("ativos", true);
+  }, "Lançar saída");
+}
+
+async function carregarAtivos(secao) {
+  const d = await obter("/api/contabilidade/ativos");
+  const t = d.totais;
+  const pl = d.por_lancar;
+
+  const lancarDep = h("button", { type: "button", class: "botao", disabled: !pl.ativos }, icone("balanca"),
+    pl.ativos ? `Lançar depreciações até ${formatarData(pl.ate).slice(3)} (${euros(pl.valor)})` : "Depreciações em dia");
+  lancarDep.addEventListener("click", async () => {
+    ocupado(lancarDep, true);
+    try {
+      const la = await enviar("/api/contabilidade/ativos/depreciar", { ate: pl.ate });
+      notificar(`Depreciações lançadas: ${la.referencia}.`, "ok");
+      invalidar("resumo", "lancamentos", "balancete", "resultados", "extrato");
+      await mostrar("ativos", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(lancarDep, false);
+    }
+  });
+
+  const linhas = d.ativos.map((a) => {
+    const [estado, classe] = ESTADOS_ATIVO[a.estado] || [a.estado, "neutro"];
+    return h("tr", { class: a.estado !== "em_uso" ? "estornado" : null },
+      h("td", { class: "nome" }, h("span", { class: "titulo", texto: `${a.codigo} · ${a.descricao}` }),
+        h("span", { class: "ajuda", texto: ` ${a.conta_ativo} ${a.conta_nome} · desde ${formatarData(a.data_inicio)}` })),
+      td(euros(a.valor_aquisicao), "num", "Aquisição"), td(`${a.taxa.toLocaleString("pt-PT")}%`, "num", "Taxa"),
+      td(euros(a.depreciacao_ano), "num", `Depreciação ${d.ano}`), td(euros(a.acumulada), "num", "Acumulada"),
+      td(euros(a.valor_liquido), "num", "Valor líquido"),
+      h("td", {}, criarEtiqueta(estado, classe)),
+      h("td", { class: "acoes" }, a.estado === "em_uso" ? botao("Saída", () => abrirSaidaAtivo(a), "botao secundario pequeno") : null));
+  });
+
+  secao.replaceChildren(
+    h("section", { class: "indicadores", "aria-label": "Ativos fixos" },
+      indicador("Valor de aquisição", euros(t.valor_aquisicao), "ativos em uso", "caixa", true),
+      indicador("Depreciações acumuladas", euros(t.acumulada), "até à última depreciação lançada", "balanca"),
+      indicador("Valor líquido", euros(t.valor_liquido), "aquisição menos depreciações", "euro"),
+      indicador(`Depreciações de ${d.ano}`, euros(t.depreciacao_ano), "gasto do exercício (642x / 6433)", "grafico")),
+    d.diferencas.length ? h("ul", { class: "lista-alertas", style: "margin-bottom:1.25rem" }, d.diferencas.map((x) => h("li", { class: "alerta info" },
+      icone("relogio"), h("div", {}, h("strong", { texto: `Conta ${x.conta} ${x.nome}` }),
+        h("p", { texto: `Contabilidade: ${euros(x.contabilidade)} · ficha de ativos: ${euros(x.registados)}. Registe na ficha os ativos comprados ou lance a aquisição que falta.` }))))) : null,
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: `Mapa de depreciações de ${d.ano}` }),
+          h("p", { class: "subtitulo", texto: "Quotas constantes, em duodécimos a partir do mês de entrada em funcionamento. Lança-se tudo de uma vez, sem repetir meses." })),
+        h("div", { class: "cabecalho-acoes" }, botao("Registar ativo", () => abrirRegistoAtivo(d), "botao secundario", "mais"), lancarDep)),
+      linhas.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Ativo" }),
+          ...["Aquisição", "Taxa", `Deprec. ${d.ano}`, "Acumulada", "Valor líquido"].map((x) => h("th", { scope: "col", class: "num", texto: x })),
+          h("th", { scope: "col", texto: "Estado" }), h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Ações" })))),
+        h("tbody", {}, linhas)))
+        : vazio("caixa", "Sem ativos registados", "Registe os equipamentos, viaturas e programas comprados para as depreciações serem calculadas e lançadas.")),
   );
 }
 

@@ -153,7 +153,7 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
-    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios")]
+    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios", "ativos")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
@@ -266,3 +266,19 @@ def test_inventario_importado_e_apuramento(page: Page, tmp_path):
     page.get_by_role("button", name="Importar contagem").click()
     expect(page.get_by_text("1 artigo importado")).to_be_visible()
     expect(page.locator("#detalhe-inventario")).to_contain_text("Custo das vendas e consumos")
+
+
+def test_registar_ativo_e_lancar_depreciacoes(page: Page):
+    page.goto("/contabilidade#ativos")
+    expect(page.get_by_role("heading", name=re.compile("Mapa de depreciações"))).to_be_visible()
+    page.get_by_role("button", name="Registar ativo").click()
+    page.locator("#ativo-referencia").select_option(value="4")  # computadores e equipamento informático
+    page.locator("#ativo-descricao").fill("Portátil de teste")
+    page.locator("#ativo-valor").fill("1200")
+    page.locator("#ativo-aquisicao").fill("2026-01-10")
+    expect(page.locator("#janela-temporaria")).to_contain_text("Depreciação mensal: 33,33")
+    page.get_by_role("button", name="Registar ativo").last.click()
+    expect(page.get_by_text(re.compile(r"registado \(depreciação mensal"))).to_be_visible()
+    page.get_by_role("button", name=re.compile("Lançar depreciações até")).click()
+    expect(page.get_by_text(re.compile("Depreciações lançadas"))).to_be_visible()
+    expect(page.locator("tr", has_text="Portátil de teste")).not_to_contain_text("0,00 €  0,00 €")
