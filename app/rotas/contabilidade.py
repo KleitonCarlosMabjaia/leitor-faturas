@@ -23,18 +23,22 @@ from app.modelos.tabelas import (
     VENDA_NORMAL,
     AtivoFixo,
     Conta,
+    Diferimento,
     Empresa,
     ExtratoBancario,
     Fatura,
     FaturaVenda,
+    Funcionario,
     Inventario,
     Lancamento,
     LinhaLancamento,
     MovimentoBancario,
+    ProcessamentoSalarial,
     Utilizador,
 )
 from app.servicos import armazenamento, exportacao, limites, repositorio, validacao
 from app.servicos.contabilidade import (
+    abertura,
     assistente,
     ativos,
     banco,
@@ -46,9 +50,11 @@ from app.servicos.contabilidade import (
     iva,
     lancamentos,
     obrigacoes,
+    periodizacao,
     plano_snc,
     relatorios,
     saft,
+    salarios,
     vendas,
     verificacoes,
 )
@@ -115,7 +121,8 @@ def lancamento_dict(la: Lancamento) -> dict:
 def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = False) -> dict:
     """Classificação sugerida e pré-visualização das linhas, sem gravar nada."""
     c = classificacao.classificar(db, empresa.id, fatura, usar_ia=usar_ia)
-    linhas = lancamentos.linhas_fatura(db, empresa.id, fatura, c.conta_codigo, c.perfil_iva)
+    regime = iva.regime_sugerido(fatura.nif_fornecedor, fatura.total_iva)
+    linhas = lancamentos.linhas_fatura(db, empresa.id, fatura, c.conta_codigo, c.perfil_iva, regime)
     contas = plano_snc.contas_por_codigo(db, empresa.id)
     return {
         "fatura": {
@@ -127,6 +134,7 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
             "conta": c.conta_codigo, "conta_nome": contas[c.conta_codigo].nome if c.conta_codigo in contas else "",
             "perfil_iva": c.perfil_iva, "perfil_nome": iva.PERFIS[c.perfil_iva].nome, "origem": c.origem,
             "confianca": c.confianca, "explicacao": c.explicacao, "alertas": c.alertas,
+            "regime_iva": regime, "regime_nome": iva.REGIMES[regime],
         },
         "linhas": [{
             "conta": ln.conta_codigo, "nome": contas[ln.conta_codigo].nome if ln.conta_codigo in contas else "",
@@ -206,9 +214,14 @@ def contabilidade_da_fatura(
     return resposta
 
 
+RegimeIVA = Literal["nacional", "intracomunitario_bens", "intracomunitario_servicos", "autoliquidacao"]
+
+
 class Contabilizacao(BaseModel):
     conta_codigo: str | None = None
     perfil_iva: str | None = None
+    regime_iva: RegimeIVA | None = None
+    taxa_autoliquidacao: float = Field(23.0, gt=0, le=100)
 
 
 @router.post("/faturas/{id_fatura}/contabilizar", status_code=201)
@@ -223,6 +236,7 @@ def contabilizar(
     try:
         lancamento = lancamentos.contabilizar_fatura(
             db, empresa, fatura, conta_codigo=escolha.conta_codigo, perfil_iva=escolha.perfil_iva,
+            regime_iva=escolha.regime_iva, taxa_autoliquidacao=escolha.taxa_autoliquidacao,
             utilizador_id=utilizador.id,
         )
     except lancamentos.ErroContabilistico as erro:
@@ -902,6 +916,17 @@ def apurar_cmvmc(inventario_id: int, db: Session = Depends(get_db),
                               lambda e, inv: inventarios.apurar(db, e, inv, utilizador.id))
 
 
+@router.get("/inventarios/{inventario_id}/at")
+def ficheiro_inventario_at(inventario_id: int, db: Session = Depends(get_db),
+                           utilizador: Utilizador = Depends(utilizador_atual)):
+    """Ficheiro CSV da comunicação do inventário à AT (Portaria n.º 2/2015)."""
+    inv = _inventario(db, utilizador, inventario_id)
+    empresa = db.get(Empresa, utilizador.empresa_id)
+    return Response(content=inventarios.ficheiro_at(inv), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{inventarios.nome_ficheiro_at(empresa, inv)}"'})
+
+
 @router.post("/inventarios/{inventario_id}/inicial", status_code=201)
 def inventario_inicial(inventario_id: int, db: Session = Depends(get_db),
                        utilizador: Utilizador = Depends(utilizador_atual)):
@@ -1370,3 +1395,365 @@ def apagar_extrato(extrato_id: int, db: Session = Depends(get_db),
     db.execute(delete(MovimentoBancario).where(MovimentoBancario.extrato_id == extrato.id))
     db.delete(extrato)
     db.commit()
+
+
+# ---------- Salários ----------
+
+class FuncionarioEntrada(BaseModel):
+    nome: str = Field(min_length=1, max_length=200)
+    tipo: Literal["pessoal", "orgaos_sociais"] = "pessoal"
+    nif: str | None = Field(None, max_length=9)
+    niss: str | None = Field(None, max_length=11)
+    data_admissao: date
+    data_saida: date | None = None
+    salario_base: float = Field(ge=0)
+    subsidio_alimentacao: float = Field(0, ge=0, le=100)
+    alimentacao_cartao: bool = True
+    duodecimos: bool = False
+    taxa_irs: float = Field(0, ge=0, le=100)
+    taxa_ss_trabalhador: float | None = Field(None, ge=0, le=100)
+    taxa_ss_entidade: float | None = Field(None, ge=0, le=100)
+
+
+def _funcionario(db: Session, utilizador: Utilizador, funcionario_id: int) -> Funcionario:
+    f = db.scalar(select(Funcionario).where(Funcionario.id == funcionario_id,
+                                            Funcionario.empresa_id == utilizador.empresa_id))
+    if f is None:
+        raise HTTPException(status_code=404, detail="Pessoa não encontrada.")
+    return f
+
+
+@router.get("/salarios")
+def resumo_salarios(ano: int | None = Query(None, ge=2000, le=9999), db: Session = Depends(get_db),
+                    utilizador: Utilizador = Depends(utilizador_atual)):
+    """Pessoas, processamentos do ano e o que está por processar ou por pagar."""
+    empresa = _empresa(db, utilizador)
+    hoje = date.today()
+    ano = ano or hoje.year
+    pessoas = db.scalars(select(Funcionario).where(Funcionario.empresa_id == empresa.id)
+                         .order_by(Funcionario.numero)).all()
+    return {
+        "ano": ano,
+        "funcionarios": [salarios.funcionario_dict(f) for f in pessoas],
+        "mapa": salarios.mapa_anual(db, empresa.id, ano),
+        "por_processar": [{"ano": a, "mes": m, "nome_mes": salarios.nome_mes(a, m)}
+                          for a, m in salarios.por_processar(db, empresa.id, hoje)],
+        "pagamentos_em_atraso": salarios.pagamentos_em_atraso(db, empresa.id, hoje),
+        "limites_alimentacao": {"numerario": salarios.LIMITE_ALIMENTACAO_NUMERARIO,
+                                "cartao": salarios.LIMITE_ALIMENTACAO_CARTAO},
+        "taxas_ss": {t: {"trabalhador": a, "entidade": b} for t, (a, b) in salarios.TAXAS_SS.items()},
+        "aviso": salarios.AVISO,
+    }
+
+
+@router.post("/salarios/funcionarios", status_code=201)
+def registar_funcionario(entrada: FuncionarioEntrada, db: Session = Depends(get_db),
+                         utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        f = salarios.registar(db, empresa, **entrada.model_dump(exclude={"data_saida"}))
+        f.data_saida = entrada.data_saida
+    except salarios.ErroSalarios as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return salarios.funcionario_dict(f)
+
+
+@router.put("/salarios/funcionarios/{funcionario_id}")
+def alterar_funcionario(funcionario_id: int, entrada: FuncionarioEntrada, db: Session = Depends(get_db),
+                        utilizador: Utilizador = Depends(utilizador_atual)):
+    """Altera a ficha (os meses já processados guardam os valores com que foram calculados)."""
+    f = _funcionario(db, utilizador, funcionario_id)
+    try:
+        salarios.alterar(f, **entrada.model_dump())
+    except salarios.ErroSalarios as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return salarios.funcionario_dict(f)
+
+
+@router.delete("/salarios/funcionarios/{funcionario_id}", status_code=204)
+def apagar_funcionario(funcionario_id: int, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    f = _funcionario(db, utilizador, funcionario_id)
+    for p in db.scalars(select(ProcessamentoSalarial).where(ProcessamentoSalarial.empresa_id == f.empresa_id)):
+        if salarios.processado(db, p) and any(r["funcionario_id"] == f.id for r in p.recibos):
+            raise HTTPException(status_code=409, detail="Esta pessoa já tem salários processados: indique a data "
+                                                        "de saída em vez de a apagar.")
+    db.delete(f)
+    db.commit()
+
+
+class VariaveisEntrada(BaseModel):
+    funcionario_id: int
+    dias: int = Field(salarios.DIAS_UTEIS, ge=0, le=31)
+    outros: float = Field(0, ge=0)
+    faltas: float = Field(0, ge=0)
+
+
+class ProcessamentoEntrada(BaseModel):
+    ano: int = Field(ge=2000, le=9999)
+    mes: int = Field(ge=1, le=12)
+    subsidio_ferias: bool | None = None
+    subsidio_natal: bool | None = None
+    variaveis: list[VariaveisEntrada] = Field(default_factory=list, max_length=1000)
+
+
+def _opcoes(entrada: ProcessamentoEntrada) -> salarios.Opcoes:
+    extra = {}
+    if entrada.subsidio_ferias is not None:
+        extra["subsidio_ferias"] = entrada.subsidio_ferias
+    if entrada.subsidio_natal is not None:
+        extra["subsidio_natal"] = entrada.subsidio_natal
+    variaveis = {v.funcionario_id: salarios.Variaveis(v.dias, v.outros, v.faltas) for v in entrada.variaveis}
+    return salarios.opcoes_do_mes(entrada.mes, variaveis=variaveis, **extra)
+
+
+@router.get("/salarios/ferias")
+def estimativa_ferias(ano: int = Query(..., ge=2000, le=9999), db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    return salarios.estimativa_ferias(db, utilizador.empresa_id, ano)
+
+
+class AnoEntrada(BaseModel):
+    ano: int = Field(ge=2000, le=9999)
+
+
+@router.post("/salarios/ferias", status_code=201)
+def lancar_acrescimo_ferias(dados: AnoEntrada, db: Session = Depends(get_db),
+                            utilizador: Utilizador = Depends(utilizador_atual)):
+    """Acréscimo de férias e subsídio de férias a 31/12, com reversão a 1 de janeiro."""
+    empresa = _empresa(db, utilizador)
+    try:
+        lancamento = salarios.acrescimo_ferias(db, empresa, dados.ano, utilizador.id)
+    except (salarios.ErroSalarios, periodizacao.ErroPeriodizacao, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+@router.get("/salarios/{ano}/{mes}")
+def processamento_do_mes(ano: int, mes: int, db: Session = Depends(get_db),
+                         utilizador: Utilizador = Depends(utilizador_atual)):
+    """O processamento do mês, se existir; senão, a pré-visualização dos recibos com os valores da ficha."""
+    if not (2000 <= ano <= 9999 and 1 <= mes <= 12):
+        raise HTTPException(status_code=422, detail="Mês inválido.")
+    empresa = _empresa(db, utilizador)
+    p = salarios.obter(db, empresa.id, ano, mes)
+    if salarios.processado(db, p):
+        return salarios.processamento_dict(db, p)
+    opcoes = salarios.opcoes_do_mes(mes)
+    try:
+        recibos = salarios.calcular(db, empresa.id, ano, mes, opcoes)
+    except salarios.ErroSalarios as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    return {"ano": ano, "mes": mes, "nome_mes": salarios.nome_mes(ano, mes), "processado": False,
+            "recibos": recibos, "totais": salarios.totais(recibos), "subsidio_ferias": opcoes.subsidio_ferias,
+            "subsidio_natal": opcoes.subsidio_natal}
+
+
+@router.post("/salarios/simular")
+def simular_processamento(entrada: ProcessamentoEntrada, db: Session = Depends(get_db),
+                          utilizador: Utilizador = Depends(utilizador_atual)):
+    try:
+        recibos = salarios.calcular(db, utilizador.empresa_id, entrada.ano, entrada.mes, _opcoes(entrada))
+    except salarios.ErroSalarios as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    return {"recibos": recibos, "totais": salarios.totais(recibos)}
+
+
+@router.post("/salarios/processar", status_code=201)
+def processar_salarios(entrada: ProcessamentoEntrada, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        p = salarios.processar(db, empresa, entrada.ano, entrada.mes, _opcoes(entrada), utilizador.id)
+    except (salarios.ErroSalarios, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return salarios.processamento_dict(db, p)
+
+
+class PagamentoSalarios(BaseModel):
+    tipo: Literal["salarios", "seguranca_social", "irs"]
+    data: date | None = None
+    conta: str = Field("121", pattern=r"^1[123]\d+$")
+
+
+@router.post("/salarios/{ano}/{mes}/pagar", status_code=201)
+def pagar_salarios(ano: int, mes: int, dados: PagamentoSalarios, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    """Pagamento dos salários, da Segurança Social ou do IRS retido (por omissão, na data-limite)."""
+    empresa = _empresa(db, utilizador)
+    p = salarios.obter(db, empresa.id, ano, mes)
+    if p is None:
+        raise HTTPException(status_code=404, detail="Processamento não encontrado.")
+    data = dados.data or salarios.prazo_pagamento(ano, mes, dados.tipo)
+    try:
+        lancamento = salarios.pagar(db, empresa, p, dados.tipo, data, dados.conta, utilizador.id)
+    except (salarios.ErroSalarios, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+# ---------- Acréscimos e diferimentos ----------
+
+@router.get("/periodizacao")
+def resumo_periodizacao(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    hoje = date.today()
+    lista = db.scalars(select(Diferimento).where(Diferimento.empresa_id == empresa.id)
+                       .order_by(Diferimento.inicio.desc(), Diferimento.id.desc())).all()
+    dif = [periodizacao.diferimento_dict(db, d, hoje) for d in lista]
+    validos = [d for d in dif if not d["anulado"]]
+    fim_mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+    atraso = periodizacao.em_atraso(db, empresa.id, fim_mes_passado)
+    saldos = relatorios.saldos_por_conta(db, empresa.id, ate=hoje)
+    return {
+        "diferimentos": dif,
+        "acrescimos": periodizacao.listar_acrescimos(db, empresa.id),
+        "por_reconhecer": {"ate": fim_mes_passado, "quantidade": len(atraso),
+                           "valor": round(sum(v for _, _, v in atraso), 2)},
+        "totais": {
+            "gastos_a_reconhecer": round(sum(d["por_reconhecer"] for d in validos if d["tipo"] == "gasto"), 2),
+            "rendimentos_a_reconhecer": round(sum(d["por_reconhecer"] for d in validos
+                                                  if d["tipo"] == "rendimento"), 2),
+        },
+        "saldos": {c: round(saldos.get(c, 0.0), 2) for c in ("281", "282", "2721", "2722")},
+    }
+
+
+class DiferimentoEntrada(BaseModel):
+    tipo: Literal["gasto", "rendimento"] = "gasto"
+    descricao: str = Field(min_length=1, max_length=200)
+    conta: str = Field(min_length=2, max_length=20)
+    valor: float = Field(gt=0)
+    inicio: date
+    meses: int = Field(ge=2, le=120)
+    data: date | None = None
+
+
+@router.post("/periodizacao/diferimentos", status_code=201)
+def registar_diferimento(entrada: DiferimentoEntrada, db: Session = Depends(get_db),
+                         utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        d = periodizacao.registar(db, empresa, **entrada.model_dump(), utilizador_id=utilizador.id)
+    except (periodizacao.ErroPeriodizacao, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return periodizacao.diferimento_dict(db, d)
+
+
+class AteEntrada(BaseModel):
+    ate: date
+
+
+@router.post("/periodizacao/reconhecer", status_code=201)
+def reconhecer_diferimentos(dados: AteEntrada, db: Session = Depends(get_db),
+                            utilizador: Utilizador = Depends(utilizador_atual)):
+    """Lança a parte dos diferimentos que diz respeito aos meses até ao fim do mês de `ate`."""
+    empresa = _empresa(db, utilizador)
+    try:
+        lancamento = periodizacao.reconhecer(db, empresa, dados.ate, utilizador.id)
+    except (periodizacao.ErroPeriodizacao, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+class LinhaAcrescimo(BaseModel):
+    conta: str = Field(min_length=2, max_length=20)
+    valor: float = Field(gt=0)
+    descricao: str | None = Field(None, max_length=200)
+
+
+class AcrescimoEntrada(BaseModel):
+    tipo: Literal["gasto", "rendimento"] = "gasto"
+    data: date
+    descricao: str = Field(min_length=1, max_length=300)
+    linhas: list[LinhaAcrescimo] = Field(min_length=1, max_length=50)
+    reversao: date | None = None
+
+
+@router.post("/periodizacao/acrescimos", status_code=201)
+def lancar_acrescimo(entrada: AcrescimoEntrada, db: Session = Depends(get_db),
+                     utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        lancamento = periodizacao.acrescimo(
+            db, empresa, entrada.tipo, entrada.data, entrada.descricao,
+            [(ln.conta, ln.valor, ln.descricao) for ln in entrada.linhas], entrada.reversao, utilizador.id)
+    except (periodizacao.ErroPeriodizacao, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+# ---------- Balanço e saldos de abertura ----------
+
+@router.get("/balanco")
+def obter_balanco(ate: date | None = None, db: Session = Depends(get_db),
+                  utilizador: Utilizador = Depends(utilizador_atual)):
+    _empresa(db, utilizador)
+    return relatorios.balanco(db, utilizador.empresa_id, ate or date.today())
+
+
+@router.get("/abertura")
+def estado_abertura(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    la = abertura.existente(db, utilizador.empresa_id)
+    return {"lancamento": lancamento_dict(la) if la else None}
+
+
+class SaldoAberturaEntrada(BaseModel):
+    conta: str = Field(min_length=1, max_length=20)
+    nome: str | None = Field(None, max_length=200)
+    nif: str | None = Field(None, max_length=20)
+    debito: float = Field(0, ge=0)
+    credito: float = Field(0, ge=0)
+
+
+class AberturaEntrada(BaseModel):
+    data: date
+    saldos: list[SaldoAberturaEntrada] = Field(min_length=1, max_length=20000)
+
+
+def _lancar_abertura(db: Session, utilizador: Utilizador, data: date, saldos: list) -> dict:
+    empresa = _empresa(db, utilizador)
+    try:
+        lancamento = abertura.lancar(db, empresa, data, saldos, utilizador.id)
+    except (abertura.ErroAbertura, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+@router.post("/abertura", status_code=201)
+def lancar_abertura(entrada: AberturaEntrada, db: Session = Depends(get_db),
+                    utilizador: Utilizador = Depends(utilizador_atual)):
+    saldos = [abertura.SaldoAbertura(s.conta, s.debito, s.credito, s.nome, s.nif) for s in entrada.saldos]
+    return _lancar_abertura(db, utilizador, entrada.data, saldos)
+
+
+@router.post("/abertura/importar", status_code=201)
+def importar_abertura(ficheiro: UploadFile = File(...), data: date = Form(...), db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    """Balancete do programa anterior em CSV ou Excel (conta, nome, débito, crédito)."""
+    conteudo = ficheiro.file.read()
+    if len(conteudo) > config.TAMANHO_MAXIMO:
+        raise HTTPException(status_code=413, detail="O ficheiro tem mais de 10 MB.")
+    try:
+        saldos = abertura.ler_ficheiro(conteudo, ficheiro.filename or "balancete.csv")
+    except abertura.ErroAbertura as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    return _lancar_abertura(db, utilizador, data, saldos)

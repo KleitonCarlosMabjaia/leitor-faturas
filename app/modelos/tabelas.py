@@ -456,3 +456,77 @@ class DepreciacaoAtivo(Base):
     meses: Mapped[int] = mapped_column()
     valor: Mapped[float] = mapped_column(Float)
     lancamento_id: Mapped[int] = mapped_column(ForeignKey("lancamentos.id", ondelete="CASCADE"), index=True)
+
+
+# ---------- Pessoal e processamento de salários ----------
+
+FUNCIONARIO_PESSOAL = "pessoal"          # trabalhador por conta de outrem (632, 2312)
+FUNCIONARIO_ORGAOS = "orgaos_sociais"    # gerente ou administrador (631, 2311)
+
+
+class Funcionario(Base):
+    """Trabalhador (ou membro dos órgãos sociais) com os dados de que o processamento precisa."""
+
+    __tablename__ = "funcionarios"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    numero: Mapped[int] = mapped_column()
+    nome: Mapped[str] = mapped_column(String(200))
+    nif: Mapped[str | None] = mapped_column(String(9))
+    niss: Mapped[str | None] = mapped_column(String(11))
+    tipo: Mapped[str] = mapped_column(String(15), default=FUNCIONARIO_PESSOAL)
+    data_admissao: Mapped[date] = mapped_column(Date)
+    data_saida: Mapped[date | None] = mapped_column(Date)
+    salario_base: Mapped[float] = mapped_column(Float)              # mensal, ilíquido
+    subsidio_alimentacao: Mapped[float] = mapped_column(Float, default=0.0)  # por dia útil
+    alimentacao_cartao: Mapped[bool] = mapped_column(default=True)
+    duodecimos: Mapped[bool] = mapped_column(default=False)        # subsídios de férias e de Natal em duodécimos
+    taxa_irs: Mapped[float] = mapped_column(Float, default=0.0)     # % de retenção (tabelas da AT)
+    taxa_ss_trabalhador: Mapped[float] = mapped_column(Float, default=11.0)
+    taxa_ss_entidade: Mapped[float] = mapped_column(Float, default=23.75)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class ProcessamentoSalarial(Base):
+    """
+    Processamento de um mês: o recibo de cada pessoa (guardado tal como foi calculado) e o
+    lançamento dos gastos. Os pagamentos (salários, Segurança Social, IRS) são lançamentos à parte.
+    """
+
+    __tablename__ = "processamentos_salariais"
+    __table_args__ = (UniqueConstraint("empresa_id", "ano", "mes", name="uq_processamento_empresa_mes"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    ano: Mapped[int] = mapped_column()
+    mes: Mapped[int] = mapped_column()
+    recibos: Mapped[list] = mapped_column(JSON)
+    pagamentos: Mapped[dict] = mapped_column(JSON, default=dict)  # {tipo de pagamento: lancamento_id}
+    lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id", ondelete="SET NULL"))
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+
+
+# ---------- Diferimentos (gastos e rendimentos a reconhecer) ----------
+
+class Diferimento(Base):
+    """
+    Gasto pago (ou rendimento faturado) que diz respeito a vários meses, ex.: seguro anual.
+    O valor sai da conta de gasto/rendimento para 281/282 e volta mês a mês.
+    """
+
+    __tablename__ = "diferimentos"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    tipo: Mapped[str] = mapped_column(String(10))                  # gasto | rendimento
+    descricao: Mapped[str] = mapped_column(String(200))
+    conta: Mapped[str] = mapped_column(String(20))                 # conta de gasto (6) ou de rendimento (7)
+    valor: Mapped[float] = mapped_column(Float)
+    inicio: Mapped[date] = mapped_column(Date)                     # 1.º dia do primeiro mês a reconhecer
+    meses: Mapped[int] = mapped_column()
+    lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id", ondelete="SET NULL"))
+    # [{"ate": "AAAA-MM-DD", "meses": n, "valor": v, "lancamento_id": id}]
+    reconhecimentos: Mapped[list] = mapped_column(JSON, default=list)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

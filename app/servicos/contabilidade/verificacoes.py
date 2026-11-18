@@ -20,7 +20,7 @@ from app.modelos.tabelas import (
     Lancamento,
     MovimentoBancario,
 )
-from app.servicos.contabilidade import ativos, obrigacoes, relatorios, vendas
+from app.servicos.contabilidade import ativos, iva, obrigacoes, periodizacao, relatorios, salarios, vendas
 from app.servicos.contabilidade.lancamentos import _euros
 
 TAXA_TA_REPRESENTACAO = 0.10  # art. 88.º, n.º 7 do CIRC
@@ -177,10 +177,40 @@ def alertas(db: Session, empresa: Empresa, hoje: date | None = None) -> list[dic
             ("Ver ativos", "ativos"),
         ))
 
-    # 9. NIF inválido em faturas confirmadas
+    # 9. Salários por processar ou pagamentos ao Estado em atraso
+    meses = salarios.por_processar(db, empresa.id, hoje)
+    if meses:
+        nomes = ", ".join(salarios.NOMES_MESES[m - 1] for _, m in meses)
+        resultado.append(_alerta(
+            "aviso", f"Salários por processar: {nomes}",
+            "Há pessoas ao serviço nesses meses sem processamento. Sem ele faltam os gastos com o pessoal e as "
+            "dívidas à Segurança Social e ao Estado.",
+            ("Processar salários", "salarios"),
+        ))
+    for a in salarios.pagamentos_em_atraso(db, empresa.id, hoje):
+        resultado.append(_alerta(
+            "erro" if a["tipo"] != "salarios" else "aviso",
+            f"{a['nome']} de {salarios.nome_mes(a['ano'], a['mes'])} por pagar",
+            f"{_euros(a['valor'])}. O prazo já passou: pagamentos fora de prazo à Segurança Social e à AT têm juros "
+            "e coimas.",
+            ("Ver salários", "salarios"),
+        ))
+
+    # 10. Diferimentos por reconhecer
+    atraso = periodizacao.em_atraso(db, empresa.id, fim_mes_passado)
+    if atraso:
+        resultado.append(_alerta(
+            "aviso", f"Diferimentos por reconhecer até {fim_mes_passado:%m/%Y}",
+            f"{len(atraso)} diferimento{'s' if len(atraso) > 1 else ''}, {_euros(sum(v for _, _, v in atraso))}.",
+            ("Reconhecer", "periodizacao"),
+        ))
+
+    # 11. NIF inválido em faturas confirmadas
     nif_invalido = db.scalars(select(Fatura).where(
         Fatura.empresa_id == empresa.id, Fatura.estado == ESTADO_CONFIRMADA, Fatura.nif_valido.is_(False),
     )).all()
+    # Fornecedores de outros Estados-membros têm número de IVA estrangeiro (não é um NIF português)
+    nif_invalido = [f for f in nif_invalido if not iva.fornecedor_da_ue(f.nif_fornecedor)]
     if nif_invalido:
         resultado.append(_alerta(
             "erro", f"{len(nif_invalido)} fatura{'s' if len(nif_invalido) > 1 else ''} com NIF inválido",

@@ -4,11 +4,11 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Contabilidade · Leitor de Faturas</title>
-  <script src="/static/tema.js?v=2026-11-18.10"></script>
+  <script src="/static/tema.js?v=2026-11-18.11"></script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-18.10">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-18.11">
 </head>
 <body data-pagina="contabilidade">
   <header id="barra"></header>
@@ -49,11 +49,14 @@
       <button type="button" role="tab" data-sec="vendas" id="sep-vendas" aria-controls="sec-vendas"><span data-icone="venda"></span>Vendas</button>
       <button type="button" role="tab" data-sec="inventarios" id="sep-inventarios" aria-controls="sec-inventarios"><span data-icone="caixa"></span>Inventários</button>
       <button type="button" role="tab" data-sec="ativos" id="sep-ativos" aria-controls="sec-ativos"><span data-icone="edificio"></span>Ativos fixos</button>
+      <button type="button" role="tab" data-sec="salarios" id="sep-salarios" aria-controls="sec-salarios"><span data-icone="equipa"></span>Salários</button>
+      <button type="button" role="tab" data-sec="periodizacao" id="sep-periodizacao" aria-controls="sec-periodizacao"><span data-icone="relogio"></span>Acréscimos e diferimentos</button>
       <button type="button" role="tab" data-sec="lancamentos" id="sep-lancamentos" aria-controls="sec-lancamentos"><span data-icone="lista"></span>Lançamentos</button>
       <button type="button" role="tab" data-sec="balancete" id="sep-balancete" aria-controls="sec-balancete"><span data-icone="balanca"></span>Balancete</button>
       <button type="button" role="tab" data-sec="extrato" id="sep-extrato" aria-controls="sec-extrato"><span data-icone="livro"></span>Extratos</button>
       <button type="button" role="tab" data-sec="iva" id="sep-iva" aria-controls="sec-iva"><span data-icone="percentagem"></span>IVA</button>
       <button type="button" role="tab" data-sec="resultados" id="sep-resultados" aria-controls="sec-resultados"><span data-icone="euro"></span>Resultados</button>
+      <button type="button" role="tab" data-sec="balanco" id="sep-balanco" aria-controls="sec-balanco"><span data-icone="carteira"></span>Balanço</button>
       <button type="button" role="tab" data-sec="fornecedores" id="sep-fornecedores" aria-controls="sec-fornecedores"><span data-icone="loja"></span>Fornecedores</button>
       <button type="button" role="tab" data-sec="bancos" id="sep-bancos" aria-controls="sec-bancos"><span data-icone="banco"></span>Bancos</button>
       <button type="button" role="tab" data-sec="obrigacoes" id="sep-obrigacoes" aria-controls="sec-obrigacoes"><span data-icone="calendario"></span>Obrigações</button>
@@ -67,11 +70,14 @@
     <section id="sec-vendas" role="tabpanel" aria-labelledby="sep-vendas" hidden></section>
     <section id="sec-inventarios" role="tabpanel" aria-labelledby="sep-inventarios" hidden></section>
     <section id="sec-ativos" role="tabpanel" aria-labelledby="sep-ativos" hidden></section>
+    <section id="sec-salarios" role="tabpanel" aria-labelledby="sep-salarios" hidden></section>
+    <section id="sec-periodizacao" role="tabpanel" aria-labelledby="sep-periodizacao" hidden></section>
     <section id="sec-lancamentos" role="tabpanel" aria-labelledby="sep-lancamentos" hidden></section>
     <section id="sec-balancete" role="tabpanel" aria-labelledby="sep-balancete" hidden></section>
     <section id="sec-extrato" role="tabpanel" aria-labelledby="sep-extrato" hidden></section>
     <section id="sec-iva" role="tabpanel" aria-labelledby="sep-iva" hidden></section>
     <section id="sec-resultados" role="tabpanel" aria-labelledby="sep-resultados" hidden></section>
+    <section id="sec-balanco" role="tabpanel" aria-labelledby="sep-balanco" hidden></section>
     <section id="sec-fornecedores" role="tabpanel" aria-labelledby="sep-fornecedores" hidden></section>
     <section id="sec-bancos" role="tabpanel" aria-labelledby="sep-bancos" hidden></section>
     <section id="sec-obrigacoes" role="tabpanel" aria-labelledby="sep-obrigacoes" hidden></section>
@@ -145,7 +151,7 @@
     </form>
   </dialog>
 
-  <script src="/static/comum.js?v=2026-11-18.10"></script>
-  <script src="/static/contabilidade.js?v=2026-11-18.10"></script>
+  <script src="/static/comum.js?v=2026-11-18.11"></script>
+  <script src="/static/contabilidade.js?v=2026-11-18.11"></script>
 </body>
 </html>

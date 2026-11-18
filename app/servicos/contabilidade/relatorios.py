@@ -26,7 +26,13 @@ from app.modelos.tabelas import (
     LinhaLancamento,
 )
 from app.servicos.contabilidade import plano_snc
-from app.servicos.contabilidade.iva import CAMPOS_DEDUTIVEL, CAMPOS_LIQUIDADO, escalao
+from app.servicos.contabilidade.iva import (
+    CAMPO_AUTOLIQUIDACAO_INTERNA,
+    CAMPOS_AUTOLIQUIDADO,
+    CAMPOS_DEDUTIVEL,
+    CAMPOS_LIQUIDADO,
+    escalao,
+)
 
 # Gastos e rendimentos recomeçam em cada exercício. A classe 8 não: o resultado líquido (818) só passa
 # para resultados transitados (56) no exercício seguinte, por isso transita como as contas de balanço.
@@ -209,6 +215,7 @@ def mapa_iva(db: Session, empresa_id: int, de: date, ate: date) -> dict:
 
     # Bases e imposto liquidado (vendas), pelas linhas marcadas com a taxa
     bases_liquidado: dict[str, float] = defaultdict(float)
+    bases_autoliquidadas: dict[str, float] = defaultdict(float)
     nao_dedutivel = 0.0
     linhas = db.execute(
         select(LinhaLancamento.tipo_iva, LinhaLancamento.taxa_iva, LinhaLancamento.debito, LinhaLancamento.credito,
@@ -222,6 +229,10 @@ def mapa_iva(db: Session, empresa_id: int, de: date, ate: date) -> dict:
             nao_dedutivel += debito - credito
         elif tipo == "base" and codigo.startswith("7") and taxa:
             bases_liquidado[escalao(taxa)] += credito - debito
+        elif tipo in ("base_ib", "base_is", "base_al"):
+            bases_autoliquidadas[tipo] += debito - credito
+            if tipo == "base_al" and taxa:  # inversão do sujeito passivo interna: também nos campos 1 a 6
+                bases_liquidado[escalao(taxa)] += debito - credito
 
     liquidado = []
     for conta, (campo_base, campo_imposto, descricao) in sorted(CAMPOS_LIQUIDADO.items(), key=lambda i: int(i[1][0])):
@@ -232,12 +243,22 @@ def mapa_iva(db: Session, empresa_id: int, de: date, ate: date) -> dict:
             "base": _r(bases_liquidado.get(nome_escalao, 0.0)), "imposto": _r(c - d),
         })
 
+    autoliquidado = []
+    for conta, (campo_base, campo_imposto, descricao) in CAMPOS_AUTOLIQUIDADO.items():
+        d, c = movimentos.get(conta, (0.0, 0.0))
+        tipo = "base_ib" if conta == "24334" else "base_is"
+        autoliquidado.append({"campo_base": campo_base, "campo_imposto": campo_imposto, "descricao": descricao,
+                              "conta": conta, "base": _r(bases_autoliquidadas.get(tipo, 0.0)), "imposto": _r(c - d)})
+
     regularizacoes_d, regularizacoes_c = movimentos.get("2434", (0.0, 0.0))
     total_dedutivel = _r(sum(ln["valor"] for ln in dedutivel) + regularizacoes_d)
-    total_liquidado = _r(sum(ln["imposto"] for ln in liquidado) + regularizacoes_c)
+    total_liquidado = _r(sum(ln["imposto"] for ln in liquidado) + sum(ln["imposto"] for ln in autoliquidado)
+                         + regularizacoes_c)
     return {
         "de": de, "ate": ate,
-        "dedutivel": dedutivel, "liquidado": liquidado,
+        "dedutivel": dedutivel, "liquidado": liquidado, "autoliquidado": autoliquidado,
+        "quadro_06a": {"campo": CAMPO_AUTOLIQUIDACAO_INTERNA[0], "descricao": CAMPO_AUTOLIQUIDACAO_INTERNA[1],
+                       "base": _r(bases_autoliquidadas.get("base_al", 0.0))},
         "total_dedutivel": total_dedutivel, "total_liquidado": total_liquidado,
         "iva_nao_dedutivel": _r(nao_dedutivel),
         "saldo": _r(total_liquidado - total_dedutivel),  # positivo: a pagar; negativo: a recuperar
@@ -389,4 +410,112 @@ def contas_correntes_clientes(db: Session, empresa_id: int, ate: date, hoje: dat
     return {
         "ate": ate, "linhas": linhas, "total": _r(sum(ln["saldo"] for ln in linhas)),
         "antiguidade": {nome: _r(sum(ln["antiguidade"][nome] for ln in linhas)) for nome, _ in ESCALOES_ANTIGUIDADE},
+    }
+
+
+# ---------- Balanço (demonstração da posição financeira) ----------
+
+# (secção, rubrica, prefixos, lado): lado "devedor"/"credor" separa as contas de terceiros pelo
+# saldo de cada subconta (ex.: um fornecedor com saldo devedor é um adiantamento, não uma dívida).
+RUBRICAS_BALANCO = [
+    ("ativo_nao_corrente", "Ativos fixos tangíveis", ("43",), None),
+    ("ativo_nao_corrente", "Propriedades de investimento", ("42",), None),
+    ("ativo_nao_corrente", "Ativos intangíveis", ("44",), None),
+    ("ativo_nao_corrente", "Investimentos financeiros", ("41",), None),
+    ("ativo_nao_corrente", "Outros créditos a receber", ("2682", "2782"), "devedor"),
+    ("ativo_corrente", "Inventários", ("32", "33", "34", "35", "36", "37", "38", "39"), None),
+    ("ativo_corrente", "Clientes", ("21",), "devedor"),
+    ("ativo_corrente", "Adiantamentos a fornecedores", ("22",), "devedor"),
+    ("ativo_corrente", "Estado e outros entes públicos", ("24",), "devedor"),
+    ("ativo_corrente", "Outros créditos a receber", ("23", "26", "27"), "devedor"),
+    ("ativo_corrente", "Diferimentos", ("281",), None),
+    ("ativo_corrente", "Caixa e depósitos bancários", ("11", "12", "13"), "devedor"),
+    ("capital_proprio", "Capital subscrito", ("51",), None),
+    ("capital_proprio", "Ações (quotas) próprias", ("52",), None),
+    ("capital_proprio", "Outros instrumentos de capital próprio", ("53",), None),
+    ("capital_proprio", "Prémios de emissão", ("54",), None),
+    ("capital_proprio", "Reservas legais", ("551",), None),
+    ("capital_proprio", "Outras reservas", ("552",), None),
+    ("capital_proprio", "Excedentes de revalorização", ("58",), None),
+    ("capital_proprio", "Outras variações no capital próprio", ("57", "59"), None),
+    ("passivo_nao_corrente", "Provisões", ("29",), None),
+    ("passivo_nao_corrente", "Financiamentos obtidos", ("25112",), "credor"),
+    ("passivo_nao_corrente", "Outras dívidas a pagar", ("2682", "2782"), "credor"),
+    ("passivo_corrente", "Fornecedores", ("22",), "credor"),
+    ("passivo_corrente", "Adiantamentos de clientes", ("21",), "credor"),
+    ("passivo_corrente", "Estado e outros entes públicos", ("24",), "credor"),
+    ("passivo_corrente", "Financiamentos obtidos", ("25", "11", "12", "13"), "credor"),
+    ("passivo_corrente", "Outras dívidas a pagar", ("23", "26", "27"), "credor"),
+    ("passivo_corrente", "Diferimentos", ("282",), None),
+]
+SECOES_BALANCO = {
+    "ativo_nao_corrente": "Ativo não corrente", "ativo_corrente": "Ativo corrente",
+    "capital_proprio": "Capital próprio", "passivo_nao_corrente": "Passivo não corrente",
+    "passivo_corrente": "Passivo corrente",
+}
+CONTAS_DE_RESULTADOS = ("6", "7", "31", "8")
+
+
+def balanco(db: Session, empresa_id: int, ate: date) -> dict:
+    """
+    Balanço a uma data, a partir dos saldos acumulados. O resultado líquido do período é o do
+    exercício em curso (antes de impostos enquanto o exercício não for fechado); os resultados
+    de exercícios anteriores ainda não transferidos para a 56 juntam-se aos resultados transitados.
+    """
+    saldos = saldos_por_conta(db, empresa_id, ate=ate)
+    do_ano = movimentos_por_conta(db, empresa_id, date(ate.year, 1, 1), ate, excluir_origem="aplicacao")
+    resultado_periodo = _r(-sum(d - c for codigo, (d, c) in do_ano.items() if codigo.startswith(CONTAS_DE_RESULTADOS)))
+    resultados_acumulados = _r(-sum(v for c, v in saldos.items() if c.startswith(CONTAS_DE_RESULTADOS)))
+    transitados = _r(-sum(v for c, v in saldos.items() if c.startswith("56")) + resultados_acumulados
+                     - resultado_periodo)
+
+    valores: dict[tuple[str, str], float] = defaultdict(float)
+    for codigo, saldo in saldos.items():
+        if not saldo or codigo.startswith(CONTAS_DE_RESULTADOS) or codigo.startswith("56"):
+            continue
+        lado = "devedor" if saldo > 0 else "credor"
+        for secao, rubrica, prefixos, filtro in RUBRICAS_BALANCO:
+            if not codigo.startswith(prefixos) or (filtro and filtro != lado):
+                continue
+            ativo = secao.startswith("ativo")
+            valores[(secao, rubrica)] += saldo if ativo else -saldo
+            break
+        else:
+            # Conta sem rubrica própria: vai para outros créditos ou outras dívidas, conforme o saldo
+            chave = ("ativo_corrente", "Outros créditos a receber") if saldo > 0 else \
+                ("passivo_corrente", "Outras dívidas a pagar")
+            valores[chave] += saldo if saldo > 0 else -saldo
+    valores[("capital_proprio", "Resultados transitados")] += transitados
+    valores[("capital_proprio", "Resultado líquido do período")] += resultado_periodo
+
+    ordem = [(s, r) for s, r, _, _ in RUBRICAS_BALANCO]
+    ordem.insert(ordem.index(("capital_proprio", "Outras variações no capital próprio")) + 1,
+                 ("capital_proprio", "Resultados transitados"))
+    ordem.insert(ordem.index(("capital_proprio", "Resultados transitados")) + 1,
+                 ("capital_proprio", "Resultado líquido do período"))
+    secoes = []
+    for chave, nome in SECOES_BALANCO.items():
+        vistas = set()
+        rubricas = []
+        for s, r in ordem:
+            if s != chave or r in vistas:
+                continue
+            vistas.add(r)
+            v = _r(valores.get((s, r), 0.0))
+            if v:
+                rubricas.append({"rubrica": r, "valor": v})
+        secoes.append({"chave": chave, "nome": nome, "rubricas": rubricas,
+                       "total": _r(sum(x["valor"] for x in rubricas))})
+    por_chave = {s["chave"]: s["total"] for s in secoes}
+    total_ativo = _r(por_chave["ativo_nao_corrente"] + por_chave["ativo_corrente"])
+    total_passivo = _r(por_chave["passivo_nao_corrente"] + por_chave["passivo_corrente"])
+    capital = por_chave["capital_proprio"]
+    return {
+        "data": ate, "secoes": secoes, "total_ativo": total_ativo, "total_capital_proprio": capital,
+        "total_passivo": total_passivo, "total_capital_proprio_passivo": _r(capital + total_passivo),
+        "diferenca": _r(total_ativo - capital - total_passivo), "resultado_periodo": resultado_periodo,
+        "exercicio_fechado": bool(db.scalar(select(func.count(Lancamento.id)).where(
+            Lancamento.empresa_id == empresa_id, Lancamento.origem == "fecho", Lancamento.estado == "ativo",
+            Lancamento.estorno_de_id.is_(None), Lancamento.data == date(ate.year, 12, 31)))) and ate.month == 12
+            and ate.day == 31,
     }

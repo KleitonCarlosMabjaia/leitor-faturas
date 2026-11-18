@@ -30,7 +30,7 @@ from app.modelos.tabelas import (
     Lancamento,
     MovimentoBancario,
 )
-from app.servicos.contabilidade import ativos, lancamentos, relatorios, vendas, verificacoes
+from app.servicos.contabilidade import ativos, lancamentos, periodizacao, relatorios, salarios, vendas, verificacoes
 from app.servicos.contabilidade.lancamentos import ErroContabilistico, LinhaNova
 
 # Parâmetros por omissão (confirmar no Orçamento do Estado de cada ano)
@@ -118,6 +118,23 @@ def verificacoes_fecho(db: Session, empresa: Empresa, ano: int) -> list[dict]:
              "Inventário final contado e CMVMC apurado." if apurado and not compras
              else "Falta a contagem de 31/12 ou o apuramento do CMVMC (as compras ainda estão na conta 31).",
              "inventarios")
+
+    sem_salarios = [m for m in range(1, 13) if salarios.ativos_no_mes(db, empresa.id, ano, m)
+                    and not salarios.processado(db, salarios.obter(db, empresa.id, ano, m))]
+    if sem_salarios or salarios.ativos_no_mes(db, empresa.id, ano, 12):
+        item("Salários processados", not sem_salarios,
+             "Os 12 meses estão processados." if not sem_salarios
+             else "Falta processar: " + ", ".join(salarios.NOMES_MESES[m - 1] for m in sem_salarios) + ".", "salarios")
+        ferias = db.scalar(select(Lancamento.id).where(
+            Lancamento.empresa_id == empresa.id, Lancamento.origem == "acrescimo", Lancamento.data == fim,
+            Lancamento.estado == LANCAMENTO_ATIVO, Lancamento.descricao.like("Acréscimo de férias%")))
+        item("Acréscimo de férias e subsídio de férias", bool(ferias),
+             "Lançado." if ferias else "As férias e o subsídio de férias a pagar no ano seguinte são gasto deste "
+             "ano: lance o acréscimo a 31/12.", "salarios")
+
+    dif = periodizacao.em_atraso(db, empresa.id, fim)
+    item("Diferimentos reconhecidos até 31/12", not dif,
+         "Em dia." if not dif else f"{len(dif)} diferimento(s) com meses de {ano} por reconhecer.", "periodizacao")
 
     iva_por_apurar = round(sum(v for c, v in saldos.items() if c.startswith(("2432", "2433", "2434"))), 2)
     item("IVA apurado", abs(iva_por_apurar) < 0.01,

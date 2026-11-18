@@ -153,7 +153,8 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
-    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios", "ativos", "fecho")]
+    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios", "ativos", "fecho", "salarios",
+    "periodizacao", "balanco")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
@@ -166,7 +167,8 @@ def test_paginas_sem_erros_de_javascript(page: Page, api, erros_js, caminho):
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", "/contabilidade#resumo",
-                                     "/contabilidade#balancete", "/contabilidade#por-contabilizar"])
+                                     "/contabilidade#balancete", "/contabilidade#por-contabilizar",
+                                     "/contabilidade#salarios", "/contabilidade#balanco"])
 def test_telemovel_sem_deslocamento_horizontal(page: Page, api, caminho):
     if caminho == "REVISAO":
         caminho = f"/faturas/{_uma_por_rever(api)['id']}"
@@ -287,9 +289,39 @@ def test_registar_ativo_e_lancar_depreciacoes(page: Page):
 def test_fecho_do_exercicio_mostra_verificacoes_e_estimativa(page: Page):
     page.goto("/contabilidade#fecho")
     expect(page.get_by_role("heading", name="Fecho do exercício")).to_be_visible()
-    expect(page.locator(".lista-alertas li")).to_have_count(6)
+    expect(page.locator(".lista-alertas li")).to_have_count(9)
     irc = page.locator("table.dr tr", has_text="IRC").first
     antes = irc.inner_text()
     page.locator("#fecho-pme").uncheck()
     expect(irc).not_to_have_text(antes)
     expect(page.get_by_role("button", name=re.compile("Fechar o exercício"))).to_be_disabled()  # demonstração
+
+
+def test_processar_salarios_do_mes(page: Page):
+    page.goto("/contabilidade#salarios")
+    expect(page.get_by_role("heading", name="Pessoal")).to_be_visible()
+    expect(page.locator("#sec-salarios")).not_to_contain_text("null")
+    page.locator("tr", has_text="Maria Fernandes").get_by_role("button", name="Variáveis").click()
+    page.locator("#var-outros").fill("100")
+    page.get_by_role("button", name="Aplicar").click()
+    expect(page.locator("tr", has_text="Maria Fernandes (cozinheira) base")).to_contain_text("outros 100,00 €")
+    page.get_by_role("button", name=re.compile("^Processar ")).click()
+    expect(page.get_by_text(re.compile("processados e lançados"))).to_be_visible()
+    page.get_by_role("button", name=re.compile("Pagar salários")).click()
+    page.get_by_role("button", name="Registar pagamento").click()
+    expect(page.get_by_text(re.compile("Pagamento lançado"))).to_be_visible()
+
+
+def test_acrescimo_e_balanco(page: Page):
+    page.goto("/contabilidade#periodizacao")
+    expect(page.get_by_role("heading", name="Diferimentos")).to_be_visible()
+    page.get_by_role("button", name="Novo acréscimo").click()
+    page.locator("#acr-descricao").fill("Eletricidade por faturar")
+    page.locator("#acr-valor").fill("210")
+    page.get_by_role("button", name="Lançar", exact=True).click()
+    expect(page.get_by_text(re.compile("Acréscimo lançado"))).to_be_visible()
+    expect(page.locator("tr", has_text="Eletricidade por faturar")).to_be_visible()
+    page.goto("/contabilidade#balanco")
+    expect(page.get_by_role("heading", name=re.compile("Balanço em"))).to_be_visible()
+    totais = page.locator("#sec-balanco tr.total td.num").all_inner_texts()
+    assert len(totais) == 2 and totais[0] == totais[1]

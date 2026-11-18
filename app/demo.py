@@ -32,16 +32,19 @@ from app.modelos.tabelas import (
     AtivoFixo,
     Conta,
     DepreciacaoAtivo,
+    Diferimento,
     Empresa,
     ExtratoBancario,
     Fatura,
     FaturaVenda,
     Fornecedor,
+    Funcionario,
     Inventario,
     Lancamento,
     LinhaInventario,
     LinhaLancamento,
     MovimentoBancario,
+    ProcessamentoSalarial,
     RegraBancaria,
     RegraFornecedor,
     Sessao,
@@ -56,8 +59,10 @@ from app.servicos.contabilidade import (
     inventarios,
     lancamentos,
     obrigacoes,
+    periodizacao,
     plano_snc,
     relatorios,
+    salarios,
     vendas,
 )
 from app.servicos.contabilidade.lancamentos import LinhaNova
@@ -376,6 +381,15 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                                         "Posto de Combustíveis da Estrada, Lda.")
     lancar("OD", abertura, "Entrada de capital e saldo bancário inicial",
            [LinhaNova("121", debito=25000), LinhaNova("511", credito=25000)])
+    for nome, tipo, base, alimentacao, irs in PESSOAL_DEMO:
+        salarios.registar(db, empresa, nome=nome, tipo=tipo, data_admissao=abertura, salario_base=base,
+                          subsidio_alimentacao=alimentacao, alimentacao_cartao=tipo == "pessoal", taxa_irs=irs)
+    # Seguro multirriscos anual pago na abertura e repartido pelos 12 meses
+    lancar("BAN", abertura + timedelta(days=9), "Seguro multirriscos anual",
+           [LinhaNova("6263", debito=1440), LinhaNova("121", credito=1440)], documento="Apólice 2026")
+    if abertura + timedelta(days=9) <= hoje:
+        periodizacao.registar(db, empresa, tipo="gasto", descricao="Seguro multirriscos do restaurante", conta="6263",
+                              valor=1440, inicio=abertura, meses=12, data=abertura + timedelta(days=9))
 
     ano, mes = abertura.year, abertura.month
     while date(ano, mes, 1) <= hoje:
@@ -426,17 +440,14 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                 LinhaNova("121", credito=round(refeicao + iva_refeicao, 2)),
             ], documento=f"FS {ano}/{mes:02d}22")
 
-        # Salários: processamento, pagamento ao pessoal e entrega ao Estado no mês seguinte
+        # Salários: processamento, pagamento ao pessoal e entrega ao Estado até dia 20 do mês seguinte
         if fim_mes <= hoje:
-            lancar("OD", fim_mes, f"Processamento de salários - {periodo}", [
-                LinhaNova("632", debito=6000), LinhaNova("635", debito=1425),
-                LinhaNova("2312", credito=4740), LinhaNova("2421", credito=600), LinhaNova("245", credito=2085),
-            ])
-            lancar("BAN", fim_mes, f"Pagamento de salários - {periodo}",
-                   [LinhaNova("2312", debito=4740), LinhaNova("121", credito=4740)])
-            lancar("BAN", fim_mes + timedelta(days=20), f"Retenções de IRS e Segurança Social - {periodo}", [
-                LinhaNova("2421", debito=600), LinhaNova("245", debito=2085), LinhaNova("121", credito=2685),
-            ])
+            processamento = salarios.processar(db, empresa, ano, mes, salarios.opcoes_do_mes(mes))
+            salarios.pagar(db, empresa, processamento, "salarios", fim_mes)
+            prazo = salarios.prazo_pagamento(ano, mes, "irs")
+            if prazo <= hoje:
+                salarios.pagar(db, empresa, processamento, "seguranca_social", prazo)
+                salarios.pagar(db, empresa, processamento, "irs", prazo)
         ano, mes = (ano + 1, 1) if mes == 12 else (ano, mes + 1)
 
     # Faturas confirmadas (as mais recentes ficam por contabilizar)
@@ -449,6 +460,9 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     # Inventários: contagem inicial na abertura e contagem do fim do mês passado, com o CMVMC apurado
     criar_inventarios_demo(db, empresa, abertura, hoje)
     criar_ativos_demo(db, empresa, abertura, hoje)
+    fim_mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+    if periodizacao.em_atraso(db, empresa_id, fim_mes_passado):
+        periodizacao.reconhecer(db, empresa, fim_mes_passado)
 
     # Apuramento do IVA de cada trimestre terminado e pagamento até dia 25 do 2.º mês seguinte
     ano, trimestre = abertura.year, (abertura.month - 1) // 3
@@ -468,6 +482,13 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     criar_vendas_demo(db, empresa, hoje)
     criar_extrato_demo(db, empresa, hoje)
 
+
+PESSOAL_DEMO = [
+    # (nome, tipo, vencimento base, subsídio de alimentação por dia, taxa de retenção de IRS)
+    ("Maria Fernandes (cozinheira)", "pessoal", 1150.0, 8.0, 9.5),
+    ("João Pereira (empregado de mesa)", "pessoal", 920.0, 8.0, 4.0),
+    ("Carla Sousa (gerente)", "orgaos_sociais", 1800.0, 6.0, 13.5),
+]
 
 ARTIGOS_DEMO = [
     # (código, descrição, categoria, unidade, quantidade inicial, quantidade no fim do mês passado, custo)
@@ -561,12 +582,15 @@ def criar_vendas_demo(db: Session, empresa: Empresa, hoje: date) -> None:
 def _descricao_banco(descricao: str) -> str:
     """Como o banco descreveria o movimento: em maiúsculas, abreviado e sem acentos."""
     texto = descricao.split(" - ")[0]
-    for antes, depois in (("Pagamento ", "TRF SEPA "), ("Vendas de", "DEPOSITO VENDAS POS"),
+    for antes, depois in (("Pagamento de salários", "TRF ORDENADOS"),
+                          ("Pagamento à Segurança Social", "PAG SEG SOCIAL DRI"),
+                          ("Pagamento do IRS retido", "PAG ESTADO DUC RETENCOES IRS"),
+                          ("Pagamento ", "TRF SEPA "), ("Vendas de", "DEPOSITO VENDAS POS"),
                           ("Renda do estabelecimento", "DD RENDA ESTABELECIMENTO"),
-                          ("Retenções de IRS e Segurança Social", "PAG ESTADO DUC SEG SOCIAL"),
-                          ("Pagamento de salários", "TRF ORDENADOS"), ("Almoço de negócios", "COMPRA TPA RESTAURANTE")):
+                          ("Almoço de negócios", "COMPRA TPA RESTAURANTE"), ("Seguro", "DD SEGURO")):
         if texto.startswith(antes):
             texto = depois + texto[len(antes):]
+            break
     return extratos.normalizar(texto).upper()[:60]
 
 
@@ -637,6 +661,9 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(DepreciacaoAtivo).where(DepreciacaoAtivo.ativo_id.in_(ids_ativos)))
     db.execute(delete(AtivoFixo).where(AtivoFixo.empresa_id == empresa.id))
     ids_lancamentos = select(Lancamento.id).where(Lancamento.empresa_id == empresa.id)
+    db.execute(delete(ProcessamentoSalarial).where(ProcessamentoSalarial.empresa_id == empresa.id))
+    db.execute(delete(Funcionario).where(Funcionario.empresa_id == empresa.id))
+    db.execute(delete(Diferimento).where(Diferimento.empresa_id == empresa.id))
     db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))
     db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))

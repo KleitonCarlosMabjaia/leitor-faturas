@@ -27,6 +27,11 @@ function h(tag, props = {}, ...filhos) {
   return el;
 }
 
+// replaceChildren nativo escreveria "null" no ecrã: os filhos vazios (condições falsas) ficam de fora
+function preencher(el, ...filhos) {
+  el.replaceChildren(...filhos.flat().filter((f) => f !== null && f !== undefined && f !== false));
+}
+
 function td(texto, classe = "", rotulo = null) {
   return h("td", { class: classe || null, "data-rotulo": rotulo }, texto ?? "");
 }
@@ -53,13 +58,13 @@ async function enviar(url, corpo, metodo = "POST") {
 }
 
 function carregando(secao) {
-  secao.replaceChildren(h("div", { class: "cartao" },
+  preencher(secao, h("div", { class: "cartao" },
     h("div", { class: "esqueleto", style: "height:1.25rem;width:40%;margin-bottom:1rem" }),
     h("div", { class: "esqueleto", style: "height:8rem" })));
 }
 
 function erroNaSecao(secao, erro) {
-  secao.replaceChildren(h("div", { class: "cartao" },
+  preencher(secao, h("div", { class: "cartao" },
     h("div", { class: "vazio" },
       h("span", { class: "vazio-icone" }, icone("erro")),
       h("strong", { texto: "Não foi possível carregar" }),
@@ -87,7 +92,7 @@ const ORIGENS_CLASSIFICACAO = {
 
 const NOMES_ORIGEM_LANCAMENTO = {
   manual: "Manual", fatura: "Fatura", pagamento: "Pagamento", estorno: "Estorno",
-  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário", depreciacao: "Depreciações", ativo: "Ativo fixo", fecho: "Fecho do exercício", aplicacao: "Aplicação de resultados",
+  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário", depreciacao: "Depreciações", ativo: "Ativo fixo", fecho: "Fecho do exercício", aplicacao: "Aplicação de resultados", salarios: "Salários", salarios_pagamento: "Pagamento de salários", acrescimo: "Acréscimo", acrescimo_reversao: "Reversão de acréscimo", diferimento: "Diferimento", diferimento_reconhecimento: "Diferimentos", abertura: "Abertura",
 };
 
 // ---------- Estado ----------
@@ -191,6 +196,9 @@ const SECOES = {
   vendas: carregarVendas,
   inventarios: carregarInventarios,
   ativos: carregarAtivos,
+  salarios: carregarSalarios,
+  periodizacao: carregarPeriodizacao,
+  balanco: carregarBalanco,
   fecho: carregarFecho,
   lancamentos: carregarLancamentos,
   balancete: carregarBalancete,
@@ -223,7 +231,7 @@ async function mostrar(nome, forcar = false) {
     botaoSep.tabIndex = sim ? 0 : -1;
   }
   for (const secao of document.querySelectorAll("[role=tabpanel]")) secao.hidden = secao.id !== `sec-${nome}`;
-  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos", "fecho"].includes(nome);
+  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos", "fecho", "salarios", "periodizacao", "balanco"].includes(nome);
 
   if (carregadas.has(nome) && !forcar) return;
   const secao = document.getElementById(`sec-${nome}`);
@@ -320,7 +328,7 @@ async function carregarResumo(secao) {
     }))
     : vazio("check", "Tudo em ordem", "Não há nada a pedir a sua atenção.");
 
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "indicadores", "aria-label": "Indicadores" },
       indicador("Por contabilizar", String(pc.quantidade),
         pc.quantidade ? `faturas confirmadas · ${euros(pc.total)}` : "todas as faturas confirmadas estão lançadas", "recibo", true),
@@ -388,6 +396,13 @@ function seletorPerfil(id, valor) {
   }));
 }
 
+const REGIMES_IVA = {
+  nacional: "Nacional (IVA do fornecedor)",
+  intracomunitario_servicos: "Serviços de outro Estado-membro (autoliquidação)",
+  intracomunitario_bens: "Aquisição intracomunitária de bens",
+  autoliquidacao: "Inversão do sujeito passivo (ex.: construção civil)",
+};
+
 function cartaoProposta(p, aoContabilizar) {
   const f = p.fatura;
   const c = p.classificacao;
@@ -395,6 +410,15 @@ function cartaoProposta(p, aoContabilizar) {
   const idPerfil = `perfil-${f.id}`;
   const selConta = seletorConta(idConta, c.conta);
   const selPerfil = seletorPerfil(idPerfil, c.perfil_iva);
+  const idRegime = `regime-${f.id}`;
+  const selRegime = h("select", { id: idRegime }, Object.entries(REGIMES_IVA).map(([v, t]) => {
+    const o = h("option", { value: v }, t);
+    if (v === c.regime_iva) o.selected = true;
+    return o;
+  }));
+  // Só faz sentido escolher outro regime quando o fornecedor não liquidou IVA
+  const campoRegime = h("div", { class: "campo", hidden: Boolean(f.total_iva) && c.regime_iva === "nacional" },
+    h("label", { for: idRegime, texto: "Regime do IVA" }), selRegime);
   const explicacao = h("p", { class: "explicacao" }, icone("faisca"), h("span", { texto: c.explicacao }));
   const avisos = c.alertas.length ? h("ul", { class: "avisos" }, c.alertas.map((a) => h("li", { texto: a }))) : null;
   const origem = h("span", {}, etiquetaOrigem(c.origem, c.confianca));
@@ -407,12 +431,14 @@ function cartaoProposta(p, aoContabilizar) {
   };
   selConta.addEventListener("change", marcarAlterado);
   selPerfil.addEventListener("change", marcarAlterado);
+  selRegime.addEventListener("change", marcarAlterado);
 
   const botaoLancar = h("button", { type: "button", class: "botao" }, icone("check"), "Contabilizar");
   botaoLancar.addEventListener("click", async () => {
     ocupado(botaoLancar, true);
     try {
       const corpo = alterado || c.origem !== "regra" ? { conta_codigo: selConta.value, perfil_iva: selPerfil.value } : {};
+      corpo.regime_iva = selRegime.value;
       const la = await enviar(`/api/contabilidade/faturas/${f.id}/contabilizar`, corpo);
       notificar(`Lançado: ${la.referencia} (${f.fornecedor || "fornecedor"}).`, "ok");
       aoContabilizar(cartao);
@@ -455,6 +481,7 @@ function cartaoProposta(p, aoContabilizar) {
     h("div", { class: "proposta-escolha" },
       h("div", { class: "campo" }, h("label", { for: idConta, texto: "Conta de gasto / compra" }), selConta),
       h("div", { class: "campo" }, h("label", { for: idPerfil, texto: "IVA (art. 21.º CIVA)" }), selPerfil),
+      campoRegime,
       h("div", { class: "cabecalho-acoes" }, botaoIA, botaoLancar)),
     explicacao, avisos, detalhe);
   return cartao;
@@ -467,7 +494,7 @@ async function carregarPorContabilizar(secao) {
   iaDisponivel = saude.ia_configurada;
   atualizarContador(propostas.length);
   if (!propostas.length) {
-    secao.replaceChildren(h("div", { class: "cartao" },
+    preencher(secao, h("div", { class: "cartao" },
       vazio("check", "Nada por contabilizar", "Todas as faturas confirmadas já estão lançadas. As faturas por rever aparecem aqui depois de confirmadas.")));
     return;
   }
@@ -514,7 +541,7 @@ async function carregarPorContabilizar(secao) {
     }
   });
 
-  secao.replaceChildren(h("section", { class: "cartao" },
+  preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" }, titulo, h("div", { class: "barra-lote" },
       h("span", { class: "ajuda", texto: `${memorizadas} com classificação memorizada` }), botaoLote)),
     h("p", { class: "ajuda", texto: "A conta e o IVA são sugeridos pelo que a aplicação aprendeu com cada fornecedor, pelo nome do fornecedor ou pela IA. O que escolher fica memorizado para as próximas faturas do mesmo NIF." }),
@@ -609,7 +636,7 @@ async function carregarLancamentos(secao) {
     temporizador = setTimeout(recarregar, 300);
   });
 
-  secao.replaceChildren(h("section", { class: "cartao" },
+  preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" }, h("h2", { texto: "Diário" }),
       botao("Novo lançamento", () => abrirEditor({}, recarregar), "botao", "mais")),
     h("div", { class: "filtros-linha" },
@@ -750,7 +777,7 @@ async function carregarBalancete(secao) {
   const estado = d.equilibrado
     ? criarEtiqueta("Débito = Crédito", "ok", "check")
     : criarEtiqueta("Desequilibrado", "erro", "erro");
-  secao.replaceChildren(h("section", { class: "cartao" },
+  preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" },
       h("div", {}, h("h2", { texto: "Balancete analítico" }), h("p", { class: "subtitulo", texto: textoPeriodo() })),
       h("div", { class: "cabecalho-acoes" }, estado,
@@ -816,7 +843,7 @@ async function carregarExtrato(secao) {
     h("button", { type: "submit", class: "botao" }, icone("pesquisa"), "Ver extrato"));
   campo.addEventListener("change", consultar);
 
-  secao.replaceChildren(h("section", { class: "cartao" },
+  preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Extrato de conta (razão)" }), h("p", { class: "subtitulo", texto: textoPeriodo() }))),
     listaTodas, form, resultado));
   await consultar();
@@ -833,6 +860,15 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
     h("div", { class: "campo-dp" }, h("span", { class: "numero", texto: c.campo_base }), h("span", { class: "descricao", texto: `Base - ${c.descricao}` }), h("b", { texto: euros(c.base) })),
     h("div", { class: "campo-dp" }, h("span", { class: "numero", texto: c.campo_imposto }), h("span", { class: "descricao", texto: `Imposto - ${c.descricao}` }), h("b", { texto: euros(c.imposto) })),
   ]));
+
+  const autoliquidado = (d.autoliquidado || []).filter((c) => c.base || c.imposto);
+  const blocoAutoliquidado = autoliquidado.length || d.quadro_06a?.base ? h("div", {},
+    h("h3", { class: "secao-titulo-pequeno", texto: "IVA autoliquidado pela empresa (operações intracomunitárias e inversão do sujeito passivo)" }),
+    h("div", { class: "campos-dp" }, autoliquidado.flatMap((c) => [
+      h("div", { class: "campo-dp" }, h("span", { class: "numero", texto: c.campo_base }), h("span", { class: "descricao", texto: `Base - ${c.descricao}` }), h("b", { texto: euros(c.base) })),
+      h("div", { class: "campo-dp" }, h("span", { class: "numero", texto: c.campo_imposto }), h("span", { class: "descricao", texto: `Imposto - ${c.descricao}` }), h("b", { texto: euros(c.imposto) })),
+    ]), d.quadro_06a?.base ? h("div", { class: "campo-dp" }, h("span", { class: "numero", texto: d.quadro_06a.campo }),
+      h("span", { class: "descricao", texto: d.quadro_06a.descricao }), h("b", { texto: euros(d.quadro_06a.base) })) : null)) : null;
 
   const aPagar = d.saldo >= 0;
   const botaoApurar = h("button", { type: "button", class: "botao" }, icone("balanca"), "Gerar lançamento de apuramento");
@@ -859,13 +895,14 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
     botao(`Período escolhido (${textoPeriodo()})`, () => carregarIVA(secao, `/api/contabilidade/iva?${qsPeriodo()}`).catch((e) => erroNaSecao(secao, e))),
     botao("Último período de IVA terminado", () => carregarIVA(secao).catch((e) => erroNaSecao(secao, e))));
 
-  secao.replaceChildren(h("section", { class: "cartao" },
+  preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" },
       h("div", {}, h("h2", { texto: `Apuramento do IVA - ${d.descricao}` }),
         h("p", { class: "subtitulo", texto: `De ${formatarData(d.de)} a ${formatarData(d.ate)} · valores para a declaração periódica (quadro 06)` }))),
     seletor,
     h("h3", { class: "secao-titulo-pequeno", texto: "IVA dedutível (a favor da empresa)" }), campos,
     h("h3", { class: "secao-titulo-pequeno", texto: "IVA liquidado (a favor do Estado)" }), liquidado,
+    blocoAutoliquidado,
     d.iva_nao_dedutivel ? h("p", { class: "ajuda", style: "margin-top:1rem" },
       `IVA não dedutível levado a gasto no período: ${euros(d.iva_nao_dedutivel)} (art. 21.º do CIVA). Não entra na declaração.`) : null,
     h("div", { class: "resultado-iva" },
@@ -874,7 +911,7 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
       d.apuramentos.length
         ? h("div", {}, criarEtiqueta(`Apurado: ${d.apuramentos.map((a) => a.referencia).join(", ")}`, "ok", "check"))
         : botaoApurar),
-    h("p", { class: "nota-rodape", texto: "Mapa de apoio: confirme os valores antes de submeter a declaração no Portal das Finanças. Regularizações (campos 40/41) e operações intracomunitárias não são calculadas automaticamente." })));
+    h("p", { class: "nota-rodape", texto: "Mapa de apoio: confirme os valores antes de submeter a declaração no Portal das Finanças. As regularizações (campos 40/41) não são calculadas automaticamente. Numeração do modelo em vigor até 30/06/2027." })));
 }
 
 // ---------- Resultados ----------
@@ -882,7 +919,7 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
 async function carregarResultados(secao) {
   const d = await obter(`/api/contabilidade/resultados?${qsPeriodo()}`);
   const maior = Math.max(1, ...d.detalhe_fse.map((x) => x.valor));
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Demonstração de resultados por naturezas" }), h("p", { class: "subtitulo", texto: textoPeriodo() }))),
       h("div", { class: "tabela-caixa" }, h("table", { class: "tabela dr" },
@@ -934,7 +971,7 @@ async function carregarFornecedores(secao) {
     return tr;
   });
 
-  secao.replaceChildren(h("section", { class: "cartao" },
+  preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" },
       h("div", {}, h("h2", { texto: "Contas correntes de fornecedores" }),
         h("p", { class: "subtitulo", texto: `Saldo em dívida: ${euros(d.total)} · antiguidade pelas faturas confirmadas por pagar` }))),
@@ -994,7 +1031,7 @@ async function carregarObrigacoes(secao) {
   });
 
   const porCategoria = { iva: "IVA", saft: "Faturação", salarios: "Salários e retenções", irc: "IRC", outros: "Outras" };
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" }, h("div", {},
         h("h2", { texto: "Calendário fiscal - próximos 4 meses" }),
@@ -1063,7 +1100,7 @@ function cartaoSAFT() {
 // ---------- Plano de contas ----------
 
 async function carregarPlano(secao) {
-  await obterContas(true);
+  const [, abertura] = await Promise.all([obterContas(true), cartaoAbertura()]);
   const filtro = h("input", { type: "search", id: "plano-filtro", placeholder: "Código ou nome", autocomplete: "off" });
   const corpo = h("tbody", {});
   function desenhar() {
@@ -1102,7 +1139,8 @@ async function carregarPlano(secao) {
     }
   });
 
-  secao.replaceChildren(
+  preencher(secao, 
+    abertura,
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" }, h("div", {},
         h("h2", { texto: "Plano de contas (SNC)" }),
@@ -1357,7 +1395,7 @@ async function carregarVendas(secao) {
       h("td", { class: "celula-barra", style: "width:30%" }, barra));
   });
 
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "indicadores", "aria-label": "Resumo das vendas" },
       indicador("Vendas no período", euros(t.vendas_sem_iva), `${t.documentos} documento${t.documentos === 1 ? "" : "s"} · sem IVA`, "euro", true),
       indicador("IVA liquidado", euros(t.iva_liquidado), "das vendas do período", "percentagem"),
@@ -1466,6 +1504,9 @@ async function detalheInventario(id) {
   } else {
     acoes.push(criarEtiqueta(`${d.inicial ? "Inventário inicial" : "Apurado"}: ${d.lancamento.referencia}`, "ok", "check"));
   }
+  // Ficheiro da comunicação do inventário à AT (Portaria n.º 2/2015), até 31 de janeiro
+  acoes.push(h("a", { class: "botao fantasma", href: `/api/contabilidade/inventarios/${id}/at`, download: "",
+    title: "CSV para submeter no Portal das Finanças (comunicação de inventários)" }, icone("descarregar"), "Ficheiro para a AT"));
 
   let formula = null;
   if (d.apuramento && !d.inicial) {
@@ -1548,7 +1589,7 @@ async function carregarInventarios(secao) {
     return tr;
   });
 
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "indicadores", "aria-label": "Inventários" },
       indicador("Mercadorias (321)", euros(d.saldo_mercadorias), "valor na contabilidade", "venda", true),
       indicador("Matérias-primas (331)", euros(d.saldo_materias), "valor na contabilidade", "venda"),
@@ -1670,7 +1711,7 @@ async function carregarAtivos(secao) {
       h("td", { class: "acoes" }, a.estado === "em_uso" ? botao("Saída", () => abrirSaidaAtivo(a), "botao secundario pequeno") : null));
   });
 
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "indicadores", "aria-label": "Ativos fixos" },
       indicador("Valor de aquisição", euros(t.valor_aquisicao), "ativos em uso", "caixa", true),
       indicador("Depreciações acumuladas", euros(t.acumulada), "até à última depreciação lançada", "balanca"),
@@ -1691,6 +1732,488 @@ async function carregarAtivos(secao) {
         h("tbody", {}, linhas)))
         : vazio("caixa", "Sem ativos registados", "Registe os equipamentos, viaturas e programas comprados para as depreciações serem calculadas e lançadas.")),
   );
+}
+
+// ---------- Salários ----------
+
+const NOMES_MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+let anoSalarios = new Date().getFullYear();
+let mesSalarios = null;  // mês aberto no processamento
+
+function invalidarContabilidade() {
+  invalidar("resumo", "lancamentos", "balancete", "resultados", "extrato", "balanco", "fecho");
+}
+
+async function carregarSalarios(secao) {
+  const d = await obter(`/api/contabilidade/salarios?ano=${anoSalarios}`);
+  const hoje = new Date();
+  if (mesSalarios === null) {
+    const pendente = d.por_processar.find((p) => p.ano === anoSalarios);
+    mesSalarios = pendente ? pendente.mes : (anoSalarios === hoje.getFullYear() ? hoje.getMonth() + 1 : 12);
+  }
+  const t = d.mapa.totais;
+
+  const pessoas = d.funcionarios.map((f) => h("tr", { class: f.ativo ? null : "estornado" },
+    h("td", { class: "nome" }, h("span", { class: "titulo", texto: `${f.numero} · ${f.nome}` }),
+      h("span", { class: "ajuda", texto: ` ${f.tipo === "orgaos_sociais" ? "Órgãos sociais" : "Pessoal"} · desde ${formatarData(f.data_admissao)}${f.data_saida ? ` · saída ${formatarData(f.data_saida)}` : ""}` })),
+    td(euros(f.salario_base), "num", "Vencimento base"),
+    td(f.subsidio_alimentacao ? `${euros(f.subsidio_alimentacao)}/dia ${f.alimentacao_cartao ? "(cartão)" : "(numerário)"}` : "—", "", "Alimentação"),
+    td(`${f.taxa_irs.toLocaleString("pt-PT")}%`, "num", "Retenção IRS"),
+    td(`${f.taxa_ss_trabalhador.toLocaleString("pt-PT")}% / ${f.taxa_ss_entidade.toLocaleString("pt-PT")}%`, "num", "Seg. Social"),
+    h("td", { class: "acoes" }, botao("Editar", () => abrirFichaFuncionario(d, f), "botao fantasma pequeno"))));
+
+  const ano = h("select", { id: "salarios-ano" }, [0, 1, 2].map((i) => {
+    const a = hoje.getFullYear() - i;
+    const o = h("option", { value: a }, String(a));
+    if (a === anoSalarios) o.selected = true;
+    return o;
+  }));
+  ano.addEventListener("change", () => { anoSalarios = Number(ano.value); mesSalarios = null; mostrar("salarios", true); });
+
+  const mapa = d.mapa.meses.map((m) => {
+    const pag = m.pagamentos;
+    const estado = (p) => criarEtiqueta(p.pago ? "Pago" : "Por pagar", p.pago ? "ok" : "aviso", p.pago ? "check" : null);
+    return h("tr", {},
+      h("td", { class: "nome" }, h("button", { type: "button", class: "ligacao", onclick: () => { mesSalarios = m.mes; mostrar("salarios", true); } }, NOMES_MESES[m.mes - 1])),
+      td(String(m.pessoas), "num", "Pessoas"), td(euros(m.iliquido), "num", "Ilíquido"), td(euros(m.irs), "num", "IRS"),
+      td(euros(m.seguranca_social), "num", "Seg. Social"), td(euros(m.liquido), "num", "Líquido"),
+      h("td", { "data-rotulo": "Salários" }, estado(pag.salarios)), h("td", { "data-rotulo": "Seg. Social" }, estado(pag.seguranca_social)),
+      h("td", { "data-rotulo": "IRS" }, estado(pag.irs)));
+  });
+
+  const processamento = h("div", {});
+  preencher(secao, 
+    h("section", { class: "indicadores", "aria-label": "Salários" },
+      indicador(`Gastos com o pessoal ${anoSalarios}`, euros(t.custo_total), "remunerações e encargos da entidade", "equipa", true),
+      indicador("Remunerações ilíquidas", euros(t.iliquido), `${d.mapa.meses.length} mês(es) processado(s)`, "euro"),
+      indicador("Segurança Social", euros(t.seguranca_social), "trabalhadores e entidade", "carteira"),
+      indicador("IRS retido", euros(t.irs), "entregue até dia 20 do mês seguinte", "percentagem")),
+    d.por_processar.length || d.pagamentos_em_atraso.length ? h("ul", { class: "lista-alertas", style: "margin-bottom:1.25rem" },
+      d.por_processar.length ? h("li", { class: "alerta aviso" }, icone("alerta"), h("div", {},
+        h("strong", { texto: `Por processar: ${d.por_processar.map((p) => p.nome_mes).join(", ")}` }),
+        h("p", { texto: "Há pessoas ao serviço nesses meses sem salários processados." }))) : null,
+      ...d.pagamentos_em_atraso.map((a) => h("li", { class: `alerta ${a.tipo === "salarios" ? "aviso" : "erro"}` }, icone("relogio"),
+        h("div", {}, h("strong", { texto: `${a.nome} de ${NOMES_MESES[a.mes - 1]} de ${a.ano} por pagar` }),
+          h("p", { texto: `${euros(a.valor)}. O prazo já passou.` }))))) : null,
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: "Pessoal" }),
+          h("p", { class: "subtitulo", texto: d.aviso })),
+        h("div", { class: "cabecalho-acoes" }, botao("Adicionar pessoa", () => abrirFichaFuncionario(d, null), "botao secundario", "mais"))),
+      pessoas.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Pessoa" }), h("th", { scope: "col", class: "num", texto: "Vencimento base" }),
+          h("th", { scope: "col", texto: "Subsídio de alimentação" }), h("th", { scope: "col", class: "num", texto: "Retenção IRS" }),
+          h("th", { scope: "col", class: "num", texto: "SS trab. / entidade" }), h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Ações" })))),
+        h("tbody", {}, pessoas)))
+        : vazio("equipa", "Sem pessoas registadas", "Registe os trabalhadores e os gerentes remunerados para processar os salários todos os meses.")),
+    processamento,
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: `Mapa anual de remunerações de ${anoSalarios}` }),
+          h("p", { class: "subtitulo", texto: "Valores para a declaração mensal de remunerações (AT) e para a declaração de remunerações da Segurança Social." })),
+        h("div", { class: "campo", style: "margin:0" }, h("label", { for: "salarios-ano", class: "visualmente-oculto", texto: "Ano" }), ano)),
+      mapa.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Mês" }),
+          ...["Pessoas", "Ilíquido", "IRS", "Seg. Social", "Líquido"].map((x) => h("th", { scope: "col", class: "num", texto: x })),
+          ...["Salários", "Seg. Social", "IRS"].map((x) => h("th", { scope: "col", texto: x })))),
+        h("tbody", {}, mapa),
+        h("tfoot", {}, h("tr", {}, td("Total"), td(""), td(euros(t.iliquido), "num"), td(euros(t.irs), "num"),
+          td(euros(t.seguranca_social), "num"), td(euros(t.liquido), "num"), td(""), td(""), td("")))))
+        : vazio("calendario", "Nada processado neste ano", null)),
+  );
+  if (d.funcionarios.length) await mostrarProcessamento(processamento, d);
+}
+
+async function mostrarProcessamento(caixa, dadosSalarios) {
+  const ano = anoSalarios;
+  const p = await obter(`/api/contabilidade/salarios/${ano}/${mesSalarios}`);
+  const mes = h("select", { id: "salarios-mes" }, NOMES_MESES.map((nome, i) => {
+    const o = h("option", { value: i + 1 }, nome);
+    if (i + 1 === mesSalarios) o.selected = true;
+    return o;
+  }));
+  mes.addEventListener("change", () => { mesSalarios = Number(mes.value); mostrar("salarios", true); });
+
+  const variaveis = new Map();  // funcionario_id -> {dias, outros, faltas}
+  const ferias = h("input", { type: "checkbox", id: "salarios-ferias", checked: Boolean(p.subsidio_ferias) });
+  const natal = h("input", { type: "checkbox", id: "salarios-natal", checked: Boolean(p.subsidio_natal) });
+  const corpoTabela = h("tbody", {});
+  const rodape = h("tfoot", {});
+
+  const linhaTotais = (tt) => h("tr", {}, td("Total"), td(euros(tt.iliquido), "num"), td(euros(tt.ss_trabalhador), "num"), td(euros(tt.irs), "num"),
+    td(euros(tt.liquido), "num"), td(euros(tt.ss_entidade), "num"), td(euros(tt.custo_total), "num"));
+
+  const desenhar = (recibos, totais, editavel) => {
+    corpoTabela.replaceChildren(...recibos.map((r) => {
+      const detalhe = [`base ${euros(r.base)}`];
+      if (r.subsidio_ferias) detalhe.push(`sub. férias ${euros(r.subsidio_ferias)}`);
+      if (r.subsidio_natal) detalhe.push(`sub. Natal ${euros(r.subsidio_natal)}`);
+      if (r.alimentacao) detalhe.push(`alimentação ${euros(r.alimentacao)} (${r.dias} dias)`);
+      if (r.outros) detalhe.push(`outros ${euros(r.outros)}`);
+      if (r.faltas) detalhe.push(`faltas -${euros(r.faltas)}`);
+      const pessoa = h("td", { class: "nome" }, h("span", { class: "titulo", texto: r.nome }), h("span", { class: "ajuda", texto: ` ${detalhe.join(" · ")}` }));
+      if (editavel) pessoa.append(" ", botao("Variáveis", () => abrirVariaveis(r), "botao fantasma pequeno"));
+      return h("tr", {}, pessoa, td(euros(r.iliquido), "num", "Ilíquido"), td(euros(r.ss_trabalhador), "num", "SS trabalhador"),
+        td(euros(r.irs), "num", "IRS"), td(euros(r.liquido), "num", "Líquido"), td(euros(r.ss_entidade), "num", "SS entidade"),
+        td(euros(r.custo_total), "num", "Custo total"));
+    }));
+    rodape.replaceChildren(linhaTotais(totais));
+  };
+
+  const corpoPedido = () => ({
+    ano, mes: mesSalarios, subsidio_ferias: ferias.checked, subsidio_natal: natal.checked,
+    variaveis: [...variaveis.entries()].map(([id, v]) => ({ funcionario_id: id, ...v })),
+  });
+  const simular = async () => {
+    const r = await enviar("/api/contabilidade/salarios/simular", corpoPedido());
+    desenhar(r.recibos, r.totais, true);
+  };
+  function abrirVariaveis(r) {
+    const atual = variaveis.get(r.funcionario_id) || { dias: r.dias, outros: r.outros, faltas: r.faltas };
+    const dias = h("input", { type: "number", id: "var-dias", min: "0", max: "31", step: "1", value: atual.dias });
+    const outros = h("input", { type: "number", id: "var-outros", min: "0", step: "0.01", value: atual.outros });
+    const faltas = h("input", { type: "number", id: "var-faltas", min: "0", step: "0.01", value: atual.faltas });
+    janelaTemporaria(`Variáveis de ${NOMES_MESES[mesSalarios - 1]}: ${r.nome}`, h("div", {},
+      h("p", { class: "ajuda", texto: "Outros abonos (prémios, horas extraordinárias, comissões) estão sujeitos a IRS e a Segurança Social. As faltas não remuneradas descontam na remuneração." }),
+      h("div", { class: "grelha-3" }, campoJanela("var-dias", "Dias com subsídio de alimentação", dias),
+        campoJanela("var-outros", "Outros abonos (€)", outros), campoJanela("var-faltas", "Desconto por faltas (€)", faltas))), async () => {
+      variaveis.set(r.funcionario_id, { dias: Number(dias.value) || 0, outros: Number(outros.value) || 0, faltas: Number(faltas.value) || 0 });
+      await simular();
+    }, "Aplicar");
+  }
+
+  const cabecalhoTabela = h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Pessoa" }),
+    ...["Ilíquido", "SS trabalhador", "IRS", "Líquido", "SS entidade", "Custo total"].map((x) => h("th", { scope: "col", class: "num", texto: x }))));
+  const tabela = h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" }, cabecalhoTabela, corpoTabela, rodape));
+  desenhar(p.recibos, p.totais, !p.processado);
+
+  const acoes = [];
+  if (!p.processado) {
+    for (const el of [ferias, natal]) el.addEventListener("change", () => simular().catch((e) => notificar(e.message, "erro")));
+    const processar = h("button", { type: "button", class: "botao", disabled: !p.recibos.length }, icone("check"), `Processar ${NOMES_MESES[mesSalarios - 1]}`);
+    processar.addEventListener("click", async () => {
+      ocupado(processar, true);
+      try {
+        const r = await enviar("/api/contabilidade/salarios/processar", corpoPedido());
+        notificar(`Salários de ${r.nome_mes} processados e lançados.`, "ok");
+        invalidarContabilidade();
+        await mostrar("salarios", true);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+        ocupado(processar, false);
+      }
+    });
+    acoes.push(h("label", { class: "ajuda caixa-opcao" }, ferias, "Subsídio de férias"),
+      h("label", { class: "ajuda caixa-opcao" }, natal, "Subsídio de Natal"), processar);
+  } else {
+    acoes.push(criarEtiqueta("Processado e lançado", "ok", "check"));
+    for (const [tipo, pg] of Object.entries(p.pagamentos)) {
+      if (pg.pago) {
+        acoes.push(criarEtiqueta(`${pg.nome}: pago a ${formatarData(pg.data)}`, "ok", "check"));
+        continue;
+      }
+      acoes.push(botao(`Pagar ${pg.nome.toLowerCase()} (${euros(pg.valor)})`, () => abrirPagamentoSalarios(p, tipo, pg), "botao secundario pequeno", "carteira"));
+    }
+  }
+
+  caixa.replaceChildren(h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: `Processamento de ${p.nome_mes}` }),
+        h("p", { class: "subtitulo", texto: p.processado
+          ? "Os gastos já estão lançados (632/631 e 635 contra 231x, 2421 e 245). Registe os pagamentos à medida que os faz."
+          : `Pré-visualização com os valores das fichas. Limites isentos do subsídio de alimentação: ${euros(dadosSalarios.limites_alimentacao.numerario)} em numerário e ${euros(dadosSalarios.limites_alimentacao.cartao)} em cartão, por dia.` })),
+      h("div", { class: "campo", style: "margin:0" }, h("label", { for: "salarios-mes", class: "visualmente-oculto", texto: "Mês" }), mes)),
+    p.recibos.length ? tabela : vazio("equipa", "Ninguém ao serviço neste mês", null),
+    h("div", { class: "barra-lote", style: "margin-top:1rem;justify-content:flex-end;flex-wrap:wrap" }, ...acoes),
+    mesSalarios === 12 && p.processado ? h("p", { class: "ajuda", style: "margin-top:1rem" },
+      "No fecho do ano, lance também o acréscimo das férias e do subsídio de férias que se pagam no ano seguinte: ",
+      botao("Lançar acréscimo de férias", () => lancarAcrescimoFerias(ano), "botao fantasma pequeno", "relogio")) : null));
+}
+
+async function lancarAcrescimoFerias(ano) {
+  const est = await obter(`/api/contabilidade/salarios/ferias?ano=${ano}`);
+  const ok = await confirmar({
+    titulo: `Acréscimo de férias de ${ano}`,
+    texto: `Férias e subsídio de férias vencidos a 1/1/${ano + 1}: ${euros(est.remuneracoes)} mais ${euros(est.encargos)} de encargos, a 31/12/${ano} (D 63x / C 2722). A reversão fica a 1/1/${ano + 1}.`,
+    botao: "Lançar acréscimo",
+  });
+  if (!ok) return;
+  try {
+    const la = await enviar("/api/contabilidade/salarios/ferias", { ano });
+    notificar(`Acréscimo lançado: ${la.referencia}.`, "ok");
+    invalidarContabilidade();
+    invalidar("periodizacao");
+  } catch (erro) {
+    notificar(erro.message, "erro");
+  }
+}
+
+function abrirPagamentoSalarios(p, tipo, pg) {
+  const prazo = p.prazos[tipo];
+  const data = h("input", { type: "date", id: "pag-sal-data", value: prazo < iso(new Date()) ? prazo : iso(new Date()) });
+  const conta = h("select", { id: "pag-sal-conta" }, h("option", { value: "121" }, "121 · Banco"), h("option", { value: "111" }, "111 · Caixa"));
+  janelaTemporaria(`Pagamento: ${pg.nome} de ${p.nome_mes}`, h("div", {},
+    h("p", { class: "ajuda", texto: `${euros(pg.valor)} · prazo: ${formatarData(prazo)}.` }),
+    h("div", { class: "grelha-3" }, campoJanela("pag-sal-data", "Data do pagamento", data), campoJanela("pag-sal-conta", "Sai de", conta))), async () => {
+    const la = await enviar(`/api/contabilidade/salarios/${p.ano}/${p.mes}/pagar`, { tipo, data: data.value, conta: conta.value });
+    notificar(`Pagamento lançado: ${la.referencia}.`, "ok");
+    invalidarContabilidade();
+    await mostrar("salarios", true);
+  }, "Registar pagamento");
+}
+
+function abrirFichaFuncionario(dados, f) {
+  const v = f || { tipo: "pessoal", alimentacao_cartao: true, duodecimos: false, taxa_irs: 0, subsidio_alimentacao: 0 };
+  const nome = h("input", { type: "text", id: "func-nome", maxlength: "200", value: v.nome || "" });
+  const tipo = h("select", { id: "func-tipo" }, h("option", { value: "pessoal" }, "Trabalhador (pessoal)"), h("option", { value: "orgaos_sociais" }, "Gerente / administrador (órgãos sociais)"));
+  tipo.value = v.tipo;
+  const nif = h("input", { type: "text", id: "func-nif", inputmode: "numeric", maxlength: "9", value: v.nif || "" });
+  const niss = h("input", { type: "text", id: "func-niss", inputmode: "numeric", maxlength: "11", value: v.niss || "" });
+  const admissao = h("input", { type: "date", id: "func-admissao", value: v.data_admissao || iso(new Date()) });
+  const saida = h("input", { type: "date", id: "func-saida", value: v.data_saida || "" });
+  const base = h("input", { type: "number", id: "func-base", min: "0", step: "0.01", value: v.salario_base ?? "" });
+  const alimentacao = h("input", { type: "number", id: "func-alimentacao", min: "0", step: "0.01", value: v.subsidio_alimentacao });
+  const cartao = h("select", { id: "func-cartao" }, h("option", { value: "1" }, "Cartão refeição"), h("option", { value: "0" }, "Numerário (no recibo)"));
+  cartao.value = v.alimentacao_cartao ? "1" : "0";
+  const irs = h("input", { type: "number", id: "func-irs", min: "0", max: "100", step: "0.1", value: v.taxa_irs });
+  const ssT = h("input", { type: "number", id: "func-ss-t", min: "0", max: "100", step: "0.01", value: v.taxa_ss_trabalhador ?? "", placeholder: "11" });
+  const ssE = h("input", { type: "number", id: "func-ss-e", min: "0", max: "100", step: "0.01", value: v.taxa_ss_entidade ?? "", placeholder: "Por omissão" });
+  const duodecimos = h("input", { type: "checkbox", id: "func-duodecimos", checked: v.duodecimos });
+  janelaTemporaria(f ? `Ficha de ${f.nome}` : "Adicionar pessoa", h("div", {},
+    h("div", { class: "grelha-3" }, campoJanela("func-nome", "Nome", nome), campoJanela("func-tipo", "Tipo", tipo), campoJanela("func-admissao", "Admissão", admissao)),
+    h("div", { class: "grelha-3" }, campoJanela("func-nif", "NIF", nif), campoJanela("func-niss", "N.º Segurança Social", niss), campoJanela("func-saida", "Saída (se saiu)", saida)),
+    h("div", { class: "grelha-3" }, campoJanela("func-base", "Vencimento base mensal (€)", base), campoJanela("func-alimentacao", "Subsídio de alimentação por dia (€)", alimentacao),
+      campoJanela("func-cartao", "Pago em", cartao)),
+    h("div", { class: "grelha-3" }, campoJanela("func-irs", "Taxa de retenção de IRS (%)", irs), campoJanela("func-ss-t", "SS do trabalhador (%)", ssT),
+      campoJanela("func-ss-e", "SS da entidade (%)", ssE)),
+    h("label", { class: "ajuda caixa-opcao" }, duodecimos, "Subsídios de férias e de Natal pagos em duodécimos"),
+    h("p", { class: "ajuda", texto: `Taxas da Segurança Social por omissão: ${dados.taxas_ss.pessoal.trabalhador}% e ${dados.taxas_ss.pessoal.entidade}% (pessoal), ${dados.taxas_ss.orgaos_sociais.trabalhador}% e ${dados.taxas_ss.orgaos_sociais.entidade}% (órgãos sociais). A taxa de retenção de IRS sai das tabelas da AT para o vencimento, a situação familiar e os dependentes.` })), async () => {
+    if (!nome.value.trim() || base.value === "") throw new Error("Indique o nome e o vencimento base.");
+    const corpo = {
+      nome: nome.value.trim(), tipo: tipo.value, nif: nif.value.trim() || null, niss: niss.value.trim() || null,
+      data_admissao: admissao.value, data_saida: saida.value || null, salario_base: Number(base.value),
+      subsidio_alimentacao: Number(alimentacao.value) || 0, alimentacao_cartao: cartao.value === "1", duodecimos: duodecimos.checked,
+      taxa_irs: Number(irs.value) || 0, taxa_ss_trabalhador: ssT.value === "" ? null : Number(ssT.value),
+      taxa_ss_entidade: ssE.value === "" ? null : Number(ssE.value),
+    };
+    if (f) await enviar(`/api/contabilidade/salarios/funcionarios/${f.id}`, corpo, "PUT");
+    else await enviar("/api/contabilidade/salarios/funcionarios", corpo);
+    notificar(f ? "Ficha atualizada." : `${corpo.nome} registado.`, "ok");
+    await mostrar("salarios", true);
+  }, f ? "Guardar" : "Adicionar");
+  nome.focus();
+}
+
+// ---------- Acréscimos e diferimentos ----------
+
+async function carregarPeriodizacao(secao) {
+  const [d] = await Promise.all([obter("/api/contabilidade/periodizacao"), obterContas()]);
+  const pr = d.por_reconhecer;
+  const reconhecer = h("button", { type: "button", class: "botao", disabled: !pr.quantidade }, icone("balanca"),
+    pr.quantidade ? `Reconhecer até ${formatarData(pr.ate).slice(3)} (${euros(pr.valor)})` : "Diferimentos em dia");
+  reconhecer.addEventListener("click", async () => {
+    ocupado(reconhecer, true);
+    try {
+      const la = await enviar("/api/contabilidade/periodizacao/reconhecer", { ate: pr.ate });
+      notificar(`Lançado: ${la.referencia}.`, "ok");
+      invalidarContabilidade();
+      await mostrar("periodizacao", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(reconhecer, false);
+    }
+  });
+
+  const diferimentos = d.diferimentos.map((x) => h("tr", { class: x.anulado ? "estornado" : null },
+    h("td", { class: "nome" }, h("span", { class: "titulo", texto: x.descricao }),
+      h("span", { class: "ajuda", texto: ` ${x.tipo === "gasto" ? "Gasto" : "Rendimento"} · conta ${x.conta} ${nomeConta(x.conta)} · ${formatarData(x.inicio).slice(3)} a ${formatarData(x.fim).slice(3)}` })),
+    td(euros(x.valor), "num", "Valor"), td(euros(x.mensal), "num", "Por mês"), td(`${x.meses_reconhecidos}/${x.meses}`, "num", "Meses"),
+    td(euros(x.por_reconhecer), "num", "Por reconhecer"),
+    h("td", {}, x.anulado ? criarEtiqueta("Estornado", "erro") : x.atrasado ? criarEtiqueta(`${x.atrasado.meses} mês(es) em atraso`, "aviso")
+      : x.por_reconhecer ? criarEtiqueta("Em dia", "ok", "check") : criarEtiqueta("Concluído", "neutro"))));
+  const acrescimos = d.acrescimos.map((x) => h("tr", { class: x.estado === "estornado" ? "estornado" : null },
+    h("td", { class: "nome" }, h("span", { class: "titulo", texto: x.descricao }),
+      h("span", { class: "ajuda", texto: ` ${x.referencia} · ${x.tipo === "gasto" ? "gasto" : "rendimento"} · contas ${x.contas.join(", ")}` })),
+    td(formatarData(x.data), "", "Data"), td(euros(x.valor), "num", "Valor"),
+    td(x.reversao ? formatarData(x.reversao) : "—", "", "Reversão")));
+
+  preencher(secao, 
+    h("section", { class: "indicadores", "aria-label": "Periodização" },
+      indicador("Gastos a reconhecer (281)", euros(d.saldos["281"]), "pagos, de meses futuros", "relogio", true),
+      indicador("Rendimentos a reconhecer (282)", euros(-d.saldos["282"] || 0), "faturados, de meses futuros", "relogio"),
+      indicador("Acréscimos de gastos (2722)", euros(-d.saldos["2722"] || 0), "gastos por faturar", "recibo"),
+      indicador("Acréscimos de rendimentos (2721)", euros(d.saldos["2721"]), "rendimentos por faturar", "euro")),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: "Diferimentos" }),
+          h("p", { class: "subtitulo", texto: "Gastos pagos ou rendimentos faturados que respeitam a vários meses (seguros, rendas adiantadas, contratos anuais). A fatura lança-se como sempre; aqui reparte-se o valor pelos meses." })),
+        h("div", { class: "cabecalho-acoes" }, botao("Novo diferimento", abrirDiferimento, "botao secundario", "mais"), reconhecer)),
+      diferimentos.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Diferimento" }),
+          ...["Valor", "Por mês", "Meses", "Por reconhecer"].map((x) => h("th", { scope: "col", class: "num", texto: x })), h("th", { scope: "col", texto: "Estado" }))),
+        h("tbody", {}, diferimentos)))
+        : vazio("relogio", "Sem diferimentos", "Ex.: um seguro anual de 1 200 € pago em outubro fica 300 € em gasto deste ano e 900 € em gastos a reconhecer.")),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: "Acréscimos" }),
+          h("p", { class: "subtitulo", texto: "Gastos ou rendimentos deste período cujo documento só chega depois (ex.: eletricidade de dezembro faturada em janeiro). A reversão é lançada automaticamente no dia seguinte, para a fatura não duplicar o gasto." })),
+        h("div", { class: "cabecalho-acoes" }, botao("Novo acréscimo", abrirAcrescimo, "botao secundario", "mais"))),
+      acrescimos.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Acréscimo" }), h("th", { scope: "col", texto: "Data" }),
+          h("th", { scope: "col", class: "num", texto: "Valor" }), h("th", { scope: "col", texto: "Reversão" }))),
+        h("tbody", {}, acrescimos)))
+        : vazio("recibo", "Sem acréscimos", "O acréscimo das férias e do subsídio de férias lança-se na secção Salários.")),
+  );
+}
+
+function seletorContaClasse(id, classe, valor) {
+  const lista = (contas || []).filter((c) => c.movimento && c.codigo.startsWith(classe));
+  const sel = h("select", { id }, lista.map((c) => h("option", { value: c.codigo }, `${c.codigo} · ${c.nome}`)));
+  if (valor) sel.value = valor;
+  return sel;
+}
+
+function abrirDiferimento() {
+  const tipo = h("select", { id: "dif-tipo" }, h("option", { value: "gasto" }, "Gasto pago adiantado (281)"), h("option", { value: "rendimento" }, "Rendimento faturado adiantado (282)"));
+  const caixaConta = h("div", {});
+  const desenharConta = () => caixaConta.replaceChildren(campoJanela("dif-conta", "Conta onde está lançado",
+    seletorContaClasse("dif-conta", tipo.value === "gasto" ? "6" : "7", tipo.value === "gasto" ? "6263" : "721")));
+  tipo.addEventListener("change", desenharConta);
+  desenharConta();
+  const descricao = h("input", { type: "text", id: "dif-descricao", maxlength: "200", placeholder: "Ex.: Seguro multirriscos 2026/2027" });
+  const valor = h("input", { type: "number", id: "dif-valor", min: "0.01", step: "0.01" });
+  const hoje = new Date();
+  const inicio = h("input", { type: "month", id: "dif-inicio", value: iso(hoje).slice(0, 7) });
+  const meses = h("input", { type: "number", id: "dif-meses", min: "2", max: "120", step: "1", value: "12" });
+  janelaTemporaria("Novo diferimento", h("div", {},
+    h("p", { class: "ajuda", texto: "O valor sai da conta de gasto (ou rendimento) para a 281 (ou 282) e volta todos os meses com o botão Reconhecer." }),
+    h("div", { class: "grelha-3" }, campoJanela("dif-tipo", "Tipo", tipo), caixaConta, campoJanela("dif-descricao", "Descrição", descricao)),
+    h("div", { class: "grelha-3" }, campoJanela("dif-valor", "Valor (€)", valor), campoJanela("dif-inicio", "Primeiro mês", inicio), campoJanela("dif-meses", "N.º de meses", meses))), async () => {
+    if (!descricao.value.trim() || !Number(valor.value)) throw new Error("Indique a descrição e o valor.");
+    await enviar("/api/contabilidade/periodizacao/diferimentos", {
+      tipo: tipo.value, conta: document.getElementById("dif-conta").value, descricao: descricao.value.trim(),
+      valor: Number(valor.value), inicio: `${inicio.value}-01`, meses: Number(meses.value),
+    });
+    notificar("Diferimento registado.", "ok");
+    invalidarContabilidade();
+    await mostrar("periodizacao", true);
+  }, "Registar");
+  descricao.focus();
+}
+
+function abrirAcrescimo() {
+  const tipo = h("select", { id: "acr-tipo" }, h("option", { value: "gasto" }, "Gasto por faturar (2722)"), h("option", { value: "rendimento" }, "Rendimento por faturar (2721)"));
+  const caixaConta = h("div", {});
+  const desenharConta = () => caixaConta.replaceChildren(campoJanela("acr-conta", "Conta",
+    seletorContaClasse("acr-conta", tipo.value === "gasto" ? "6" : "7", tipo.value === "gasto" ? "6241" : "721")));
+  tipo.addEventListener("change", desenharConta);
+  desenharConta();
+  const descricao = h("input", { type: "text", id: "acr-descricao", maxlength: "300", placeholder: "Ex.: Eletricidade de dezembro" });
+  const valor = h("input", { type: "number", id: "acr-valor", min: "0.01", step: "0.01", placeholder: "Sem IVA" });
+  const hoje = new Date();
+  const data = h("input", { type: "date", id: "acr-data", value: iso(new Date(hoje.getFullYear(), hoje.getMonth(), 0)) });
+  janelaTemporaria("Novo acréscimo", h("div", {},
+    h("p", { class: "ajuda", texto: "Lança-se no último dia do período, pelo valor estimado sem IVA. A reversão fica no dia seguinte." }),
+    h("div", { class: "grelha-3" }, campoJanela("acr-tipo", "Tipo", tipo), caixaConta, campoJanela("acr-data", "Data", data)),
+    h("div", { class: "grelha-3" }, campoJanela("acr-descricao", "Descrição", descricao), campoJanela("acr-valor", "Valor (€)", valor))), async () => {
+    if (!descricao.value.trim() || !Number(valor.value)) throw new Error("Indique a descrição e o valor.");
+    const la = await enviar("/api/contabilidade/periodizacao/acrescimos", {
+      tipo: tipo.value, data: data.value, descricao: descricao.value.trim(),
+      linhas: [{ conta: document.getElementById("acr-conta").value, valor: Number(valor.value) }],
+    });
+    notificar(`Acréscimo lançado: ${la.referencia}.`, "ok");
+    invalidarContabilidade();
+    await mostrar("periodizacao", true);
+  }, "Lançar");
+  descricao.focus();
+}
+
+// ---------- Balanço ----------
+
+let dataBalanco = null;
+
+async function carregarBalanco(secao) {
+  const hoje = new Date();
+  dataBalanco = dataBalanco || iso(hoje);
+  const d = await obter(`/api/contabilidade/balanco?ate=${dataBalanco}`);
+  const data = h("input", { type: "date", id: "balanco-data", value: dataBalanco });
+  data.addEventListener("change", () => { if (data.value) { dataBalanco = data.value; mostrar("balanco", true); } });
+  const atalhos = h("div", { class: "filtros-linha" },
+    botao("Hoje", () => { dataBalanco = iso(hoje); mostrar("balanco", true); }),
+    botao(`31/12/${hoje.getFullYear() - 1}`, () => { dataBalanco = `${hoje.getFullYear() - 1}-12-31`; mostrar("balanco", true); }));
+
+  const secoes = Object.fromEntries(d.secoes.map((s) => [s.chave, s]));
+  const blocoSecao = (s) => !s.rubricas.length && s.chave === "passivo_nao_corrente" ? [] : [
+    h("tr", { class: "agregadora" }, td(s.nome), td("", "num")),
+    ...s.rubricas.map((r) => h("tr", {}, td(r.rubrica, "recuo"), td(euros(r.valor), "num"))),
+    h("tr", { class: "subtotal" }, td(`Total do ${s.nome.toLowerCase()}`), td(euros(s.total), "num")),
+  ];
+  const tabela = (titulo, linhas, total, rotuloTotal) => h("div", { class: "tabela-caixa" }, h("table", { class: "tabela dr balanco" },
+    h("caption", { class: "visualmente-oculto", texto: titulo }),
+    h("tbody", {}, linhas, h("tr", { class: "total" }, td(rotuloTotal), td(euros(total), "num")))));
+
+  preencher(secao, h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: `Balanço em ${formatarData(d.data)}` }),
+        h("p", { class: "subtitulo", texto: "Demonstração da posição financeira (modelo do SNC, simplificado), a partir dos saldos das contas." })),
+      h("div", { class: "campo", style: "margin:0" }, h("label", { for: "balanco-data", class: "visualmente-oculto", texto: "Data" }), data)),
+    atalhos,
+    d.diferenca ? h("p", { class: "alerta erro" }, icone("erro"), `O balanço não fecha por ${euros(d.diferenca)}: verifique contas sem rubrica.`) : null,
+    h("div", { class: "grelha-balanco" },
+      h("div", {}, h("h3", { class: "secao-titulo-pequeno", texto: "Ativo" }),
+        tabela("Ativo", [...blocoSecao(secoes.ativo_nao_corrente), ...blocoSecao(secoes.ativo_corrente)], d.total_ativo, "Total do ativo")),
+      h("div", {}, h("h3", { class: "secao-titulo-pequeno", texto: "Capital próprio e passivo" }),
+        tabela("Capital próprio e passivo", [...blocoSecao(secoes.capital_proprio), ...blocoSecao(secoes.passivo_nao_corrente),
+          ...blocoSecao(secoes.passivo_corrente)], d.total_capital_proprio_passivo, "Total do capital próprio e do passivo"))),
+    h("p", { class: "nota-rodape", texto: d.exercicio_fechado
+      ? "Exercício fechado: o resultado líquido já inclui o imposto estimado."
+      : "O resultado do período é o do exercício em curso, antes do imposto sobre o rendimento (o IRC entra com o fecho do exercício). As contas de terceiros são separadas pelo saldo de cada subconta." })));
+}
+
+// ---------- Saldos de abertura ----------
+
+async function cartaoAbertura() {
+  const d = await obter("/api/contabilidade/abertura");
+  if (d.lancamento) {
+    return h("section", { class: "cartao" }, h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: "Saldos de abertura" }),
+        h("p", { class: "subtitulo", texto: `Lançados em ${d.lancamento.referencia} (${formatarData(d.lancamento.data)}), ${euros(d.lancamento.total)} a débito e a crédito. Para os corrigir, estorne esse lançamento e importe de novo.` })),
+      criarEtiqueta("Lançados", "ok", "check")));
+  }
+  const ficheiro = h("input", { type: "file", id: "abertura-ficheiro", class: "visualmente-oculto", accept: ".csv,.txt,.xlsx" });
+  const nomeFicheiro = h("span", { class: "ajuda nome-ficheiro", texto: "Nenhum ficheiro escolhido" });
+  ficheiro.addEventListener("change", () => { nomeFicheiro.textContent = ficheiro.files[0]?.name || "Nenhum ficheiro escolhido"; });
+  const data = h("input", { type: "date", id: "abertura-data", value: `${new Date().getFullYear()}-01-01` });
+  const importar = h("button", { type: "submit", class: "botao" }, icone("upload"), "Importar saldos");
+  const form = h("form", { class: "filtros-linha" },
+    h("div", { class: "campo" }, h("label", { for: "abertura-data", texto: "Data da abertura" }), data),
+    h("div", { class: "campo" }, h("span", { class: "rotulo", texto: "Balancete do programa anterior" }),
+      h("div", { class: "escolher-ficheiro" }, h("label", { for: "abertura-ficheiro", class: "botao secundario" }, icone("ficheiro"), "Escolher ficheiro"), ficheiro, nomeFicheiro)),
+    importar);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!ficheiro.files.length) return ficheiro.click();
+    const dados = new FormData();
+    dados.append("ficheiro", ficheiro.files[0]);
+    dados.append("data", data.value);
+    ocupado(importar, true);
+    try {
+      const resposta = await api("/api/contabilidade/abertura/importar", { method: "POST", body: dados });
+      if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível importar os saldos."));
+      const la = await resposta.json();
+      notificar(`Saldos de abertura lançados: ${la.referencia}.`, "ok");
+      contas = null;
+      invalidarContabilidade();
+      await mostrar("plano", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(importar, false);
+    }
+  });
+  return h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Saldos de abertura" }),
+      h("p", { class: "subtitulo", texto: "A empresa já tinha contabilidade noutro programa? Importe o balancete de fecho (CSV ou Excel com conta, nome, débito e crédito). Entram só as contas de balanço (classes 1 a 5); as contas de terceiros que faltarem são criadas." }))),
+    form);
 }
 
 // ---------- Fecho do exercício ----------
@@ -1803,7 +2326,7 @@ async function carregarFecho(secao) {
     }));
   }
 
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" },
         h("div", {}, h("h2", { texto: "Fecho do exercício" }),
@@ -2021,7 +2544,7 @@ async function carregarBancos(secao) {
       : criarEtiqueta(`Diferença por explicar: ${euros(diferenca)}`, "aviso", "alerta");
   const foraDoBanco = mapa.lancamentos_fora_do_banco;
 
-  secao.replaceChildren(
+  preencher(secao, 
     h("section", { class: "indicadores", "aria-label": "Resumo da conta" },
       indicador("Saldo na contabilidade", euros(conta.saldo), `conta ${contaBanco} até hoje`, "livro", true),
       indicador("Saldo do banco", mapa.saldo_banco === null ? "—" : euros(mapa.saldo_banco),

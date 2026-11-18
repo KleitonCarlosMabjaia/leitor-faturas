@@ -112,3 +112,48 @@ def dividir_iva(valor: float, perfil: str) -> tuple[float, float]:
     fracao = PERFIS.get(perfil, PERFIS["total"]).dedutivel
     dedutivel = round(valor * fracao, 2)
     return dedutivel, round(valor - dedutivel, 2)
+
+
+# ---------- Autoliquidação (o adquirente liquida o IVA) ----------
+# Aquisições intracomunitárias de bens (art. 1.º e 23.º do RITI): campos 12 e 13 da declaração.
+# Serviços adquiridos a sujeitos passivos de outros Estados-membros (art. 6.º, n.º 6, al. a) do CIVA):
+# campos 16 e 17. Inversão do sujeito passivo em operações internas (art. 2.º, n.º 1, al. j) e
+# seguintes do CIVA, ex.: construção civil, sucatas): base e imposto nos campos 1 a 6, conforme
+# a taxa, e a base também no quadro 06-A (campo 102 para a construção civil).
+# O IVA liquidado é dedutível nos termos gerais (campos 20 a 24), conforme o perfil de dedução.
+# Numeração do modelo em vigor até 30/06/2027 (Portaria n.º 298/2026/1 muda o modelo a partir daí).
+
+REGIMES = {
+    "nacional": "IVA nacional (o fornecedor liquidou)",
+    "intracomunitario_bens": "Aquisição intracomunitária de bens",
+    "intracomunitario_servicos": "Serviços de fornecedor de outro Estado-membro",
+    "autoliquidacao": "Autoliquidação (inversão do sujeito passivo, ex.: construção civil)",
+}
+TIPO_BASE_REGIME = {"intracomunitario_bens": "base_ib", "intracomunitario_servicos": "base_is",
+                    "autoliquidacao": "base_al"}
+CONTA_IVA_INTRACOMUNITARIO = {"intracomunitario_bens": "24334", "intracomunitario_servicos": "24335"}
+CAMPOS_AUTOLIQUIDADO = {  # conta -> (campo da base, campo do imposto, descrição)
+    "24334": ("12", "13", "Aquisições intracomunitárias de bens"),
+    "24335": ("16", "17", "Serviços adquiridos a sujeitos passivos de outros Estados-membros"),
+}
+CAMPO_AUTOLIQUIDACAO_INTERNA = ("102", "Operações em que liquidou o IVA por inversão do sujeito passivo (quadro 06-A)")
+
+# Prefixos dos números de IVA dos outros Estados-membros (a Grécia usa EL)
+PREFIXOS_UE = {"AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "HR", "HU", "IE", "IT",
+               "LT", "LU", "LV", "MT", "NL", "PL", "RO", "SE", "SI", "SK", "XI"}
+
+
+def conta_iva_autoliquidado(regime: str, taxa: float) -> str:
+    return CONTA_IVA_INTRACOMUNITARIO.get(regime) or CONTA_IVA_LIQUIDADO.get(escalao(taxa), "24333")
+
+
+def fornecedor_da_ue(nif: str | None) -> bool:
+    nif = (nif or "").replace(" ", "").upper()
+    return len(nif) > 4 and nif[:2] in PREFIXOS_UE
+
+
+def regime_sugerido(nif: str | None, total_iva: float | None) -> str:
+    """Fatura sem IVA de um fornecedor com número de IVA de outro Estado-membro: serviços intracomunitários."""
+    if fornecedor_da_ue(nif) and not total_iva:
+        return "intracomunitario_servicos"
+    return "nacional"

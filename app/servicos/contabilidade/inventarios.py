@@ -316,3 +316,28 @@ def resumo(db: Session, inventario: Inventario) -> dict:
         "total": round(sum(t.values()), 2),
         "lancamento": {"id": la.id, "referencia": f"{la.diario} {la.ano}/{la.numero}"} if la else None,
     }
+
+
+# ---------- Comunicação do inventário à AT ----------
+# Portaria n.º 2/2015: ficheiro CSV separado por ponto e vírgula, vírgula decimal, com o inventário
+# a 31/12 (ou no fim do período de tributação), a comunicar até 31 de janeiro do ano seguinte.
+COLUNAS_AT = ("ProductCategory", "ProductCode", "ProductDescription", "ProductNumberCode",
+              "ClosingStockQuantity", "UnitOfMeasure")
+
+
+def _campo_csv(texto: str, tamanho: int) -> str:
+    return re.sub(r"[;\s]+", " ", texto or "").strip()[:tamanho]
+
+
+def ficheiro_at(inventario: Inventario) -> bytes:
+    """CSV da comunicação do inventário (categoria, código, descrição, código do produto, quantidade, unidade)."""
+    linhas = [";".join(COLUNAS_AT)]
+    for ln in inventario.linhas:
+        quantidade = f"{ln.quantidade:.4f}".rstrip("0").rstrip(".").replace(".", ",") or "0"
+        linhas.append(";".join((ln.categoria, _campo_csv(ln.codigo, 60), _campo_csv(ln.descricao, 200),
+                                _campo_csv(ln.codigo, 60), quantidade, _campo_csv(ln.unidade or "UN", 20))))
+    return ("\r\n".join(linhas) + "\r\n").encode("utf-8")
+
+
+def nome_ficheiro_at(empresa: Empresa, inventario: Inventario) -> str:
+    return f"inventario_{empresa.nif or empresa.id}_{inventario.data:%Y%m%d}.csv"

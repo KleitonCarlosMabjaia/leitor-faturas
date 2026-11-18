@@ -182,6 +182,14 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
         utilizador_id=utilizador_id, estorno_de_id=lancamento.id,
     )
     lancamento.estado = LANCAMENTO_ESTORNADO
+    # Estornar um acréscimo estorna também a sua reversão automática
+    if lancamento.origem == "acrescimo":
+        reversao = db.scalar(select(Lancamento).where(
+            Lancamento.empresa_id == lancamento.empresa_id, Lancamento.origem == "acrescimo_reversao",
+            Lancamento.documento == lancamento.documento, Lancamento.estado == LANCAMENTO_ATIVO,
+            Lancamento.estorno_de_id.is_(None)))
+        if reversao:
+            estornar(db, empresa, reversao, utilizador_id)
     # Movimentos do banco reconciliados com este lançamento voltam a estar por reconciliar
     ids_linhas = [ln.id for ln in lancamento.linhas]
     for mov in db.scalars(select(MovimentoBancario).where(MovimentoBancario.linha_id.in_(ids_linhas))):
@@ -220,8 +228,43 @@ def _raiz_fornecedor(conta_gasto: str) -> str:
     return "2711" if conta_gasto.startswith(("43", "44")) else "2211"
 
 
-def linhas_fatura(db: Session, empresa_id: int, fatura: Fatura, conta_gasto: str, perfil_iva: str) -> list[LinhaNova]:
+def _linhas_autoliquidacao(fatura: Fatura, conta_gasto: str, perfil_iva: str, regime: str,
+                           taxa: float) -> list[LinhaNova]:
+    """Fatura sem IVA em que é a empresa a liquidar o imposto: liquida-o e deduz na mesma declaração."""
+    base = round(fatura.valor_sem_iva or fatura.total or 0.0, 2)
+    imposto = round(base * taxa / 100, 2)
+    dedutivel, nao_dedutivel = iva.dividir_iva(imposto, perfil_iva)
+    linhas = [LinhaNova(conta_gasto, debito=base, descricao=f"Base {taxa:g}% ({iva.REGIMES[regime].lower()})",
+                        tipo_iva=iva.TIPO_BASE_REGIME[regime], taxa_iva=taxa)]
+    if dedutivel:
+        linhas.append(LinhaNova(iva.conta_iva_dedutivel(conta_gasto, taxa), debito=dedutivel,
+                                descricao=f"IVA dedutível {taxa:g}% (autoliquidado)", tipo_iva="iva", taxa_iva=taxa))
+    if nao_dedutivel:
+        linhas.append(LinhaNova(conta_gasto, debito=nao_dedutivel, descricao=f"IVA não dedutível {taxa:g}%",
+                                tipo_iva="iva_nd", taxa_iva=taxa))
+    linhas.append(LinhaNova(iva.conta_iva_autoliquidado(regime, taxa), credito=imposto,
+                            descricao=f"IVA autoliquidado {taxa:g}%", tipo_iva="autoliq", taxa_iva=taxa))
+    return linhas
+
+
+def linhas_fatura(db: Session, empresa_id: int, fatura: Fatura, conta_gasto: str, perfil_iva: str,
+                  regime: str = "nacional", taxa_autoliquidacao: float = 23.0) -> list[LinhaNova]:
     """Linhas do lançamento de compra: gasto/ativo e IVA a débito, fornecedor a crédito."""
+    if regime != "nacional":
+        if regime not in iva.REGIMES:
+            raise ErroContabilistico("Regime de IVA desconhecido.")
+        if fatura.total_iva:
+            raise ErroContabilistico("A fatura tem IVA liquidado pelo fornecedor: não há lugar a autoliquidação.")
+        linhas = _linhas_autoliquidacao(fatura, conta_gasto, perfil_iva, regime, taxa_autoliquidacao)
+        base = linhas[0].debito
+        fornecedor = plano_snc.subconta_terceiro(
+            db, empresa_id, _raiz_fornecedor(conta_gasto), fatura.nif_fornecedor, fatura.nome_fornecedor or "")
+        linhas.append(LinhaNova(fornecedor.codigo, credito=base, descricao=fatura.nome_fornecedor))
+        if (fatura.tipo_documento or "").upper() in TIPOS_NOTA_CREDITO:
+            for ln in linhas:
+                ln.debito, ln.credito = ln.credito, ln.debito
+        return linhas
+
     linhas: list[LinhaNova] = []
     for li in fatura.linhas_iva or []:
         base, valor, taxa = float(li["base"]), float(li["valor"]), float(li["taxa"])
@@ -269,6 +312,8 @@ def contabilizar_fatura(
     *,
     conta_codigo: str | None = None,
     perfil_iva: str | None = None,
+    regime_iva: str | None = None,
+    taxa_autoliquidacao: float = 23.0,
     usar_ia: bool = False,
     utilizador_id: int | None = None,
     hoje: date | None = None,
@@ -291,7 +336,11 @@ def contabilizar_fatura(
             "3 (compras), 4 (investimentos) ou 6 (gastos)."
         )
 
+    regime_iva = regime_iva or iva.regime_sugerido(fatura.nif_fornecedor, fatura.total_iva)
     notas = [] if escolhida_pelo_utilizador else [sugestao.explicacao]
+    if regime_iva != "nacional":
+        notas.append(f"{iva.REGIMES[regime_iva]}: IVA de {taxa_autoliquidacao:g}% liquidado pela empresa e "
+                     "deduzido na mesma declaração, conforme o perfil de dedução.")
     perfil = iva.PERFIS[perfil_iva]
     if perfil.dedutivel < 1 and fatura.total_iva:
         notas.append(perfil.explicacao)
@@ -301,7 +350,7 @@ def contabilizar_fatura(
     lancamento = criar(
         db, empresa, "COM", fatura.data_emissao,
         f"{fatura.nome_fornecedor or 'Fornecedor'} - {documento_fatura(fatura)}",
-        linhas_fatura(db, empresa.id, fatura, conta_codigo, perfil_iva),
+        linhas_fatura(db, empresa.id, fatura, conta_codigo, perfil_iva, regime_iva, taxa_autoliquidacao),
         documento=documento_fatura(fatura), origem="fatura", fatura_id=fatura.id,
         notas=list(dict.fromkeys(notas)), utilizador_id=utilizador_id,
     )
