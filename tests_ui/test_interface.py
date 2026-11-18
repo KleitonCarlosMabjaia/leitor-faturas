@@ -153,7 +153,7 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
-    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios", "ativos")]
+    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios", "ativos", "fecho")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
@@ -282,3 +282,14 @@ def test_registar_ativo_e_lancar_depreciacoes(page: Page):
     page.get_by_role("button", name=re.compile("Lançar depreciações até")).click()
     expect(page.get_by_text(re.compile("Depreciações lançadas"))).to_be_visible()
     expect(page.locator("tr", has_text="Portátil de teste")).not_to_contain_text("0,00 €  0,00 €")
+
+
+def test_fecho_do_exercicio_mostra_verificacoes_e_estimativa(page: Page):
+    page.goto("/contabilidade#fecho")
+    expect(page.get_by_role("heading", name="Fecho do exercício")).to_be_visible()
+    expect(page.locator(".lista-alertas li")).to_have_count(6)
+    irc = page.locator("table.dr tr", has_text="IRC").first
+    antes = irc.inner_text()
+    page.locator("#fecho-pme").uncheck()
+    expect(irc).not_to_have_text(antes)
+    expect(page.get_by_role("button", name=re.compile("Fechar o exercício"))).to_be_disabled()  # demonstração

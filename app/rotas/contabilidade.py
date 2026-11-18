@@ -40,6 +40,7 @@ from app.servicos.contabilidade import (
     banco,
     classificacao,
     extratos,
+    fecho,
     ia,
     inventarios,
     iva,
@@ -1032,6 +1033,86 @@ def apagar_ativo(ativo_id: int, db: Session = Depends(get_db), utilizador: Utili
                             detail="O ativo já tem depreciações ou saiu: estorne os lançamentos primeiro.")
     db.delete(ativo)
     db.commit()
+
+
+# ---------- Fecho do exercício ----------
+
+def _so_admin(utilizador: Utilizador, acao: str) -> None:
+    if config.MODO_DEMO:
+        raise HTTPException(status_code=403, detail=f"Na demonstração não é possível {acao}.")
+    if utilizador.papel != PAPEL_ADMIN:
+        raise HTTPException(status_code=403, detail=f"Só os administradores podem {acao}.")
+
+
+@router.get("/fecho")
+def estado_fecho(
+    ano: int = Query(..., ge=2000, le=9999),
+    ajustes: float = 0.0,
+    pme: bool = True,
+    taxa: float = Query(fecho.TAXA_IRC, ge=0, le=100),
+    taxa_pme: float = Query(fecho.TAXA_IRC_PME, ge=0, le=100),
+    derrama: float = Query(fecho.TAXA_DERRAMA, ge=0, le=10),
+    tributacao_autonoma: float | None = Query(None, ge=0),
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Verificações antes de fechar, estimativa do IRC e lançamentos do fecho, se já foi feito."""
+    empresa = _empresa(db, utilizador)
+    parametros = fecho.ParametrosIRC(ajustes, pme, taxa, taxa_pme, derrama, tributacao_autonoma)
+    return fecho.estado(db, empresa, ano, parametros)
+
+
+class Fecho(BaseModel):
+    ano: int = Field(ge=2000, le=9999)
+    imposto: float = Field(ge=0)
+    fechar_periodo: bool = True
+
+
+@router.post("/fecho", status_code=201)
+def fechar_exercicio(dados: Fecho, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    _so_admin(utilizador, "fechar o exercício")
+    empresa = _empresa(db, utilizador)
+    try:
+        feitos = fecho.fechar(db, empresa, dados.ano, dados.imposto, dados.fechar_periodo, utilizador.id)
+    except (fecho.ErroFecho, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return [lancamento_dict(la) for la in feitos]
+
+
+class AnoFecho(BaseModel):
+    ano: int = Field(ge=2000, le=9999)
+    data: date | None = None
+
+
+@router.post("/fecho/transferir", status_code=201)
+def transferir_resultado(dados: AnoFecho, db: Session = Depends(get_db),
+                         utilizador: Utilizador = Depends(utilizador_atual)):
+    """Resultado líquido do exercício para resultados transitados (no exercício seguinte)."""
+    _so_admin(utilizador, "transferir o resultado")
+    empresa = _empresa(db, utilizador)
+    try:
+        lancamento = fecho.transferir_resultado(db, empresa, dados.ano, dados.data, utilizador.id)
+    except (fecho.ErroFecho, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+@router.post("/fecho/reabrir")
+def reabrir_exercicio(dados: AnoFecho, db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    _so_admin(utilizador, "reabrir o exercício")
+    empresa = _empresa(db, utilizador)
+    try:
+        estornados = fecho.reabrir(db, empresa, dados.ano, utilizador.id)
+    except (fecho.ErroFecho, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return {"estornados": estornados}
 
 
 # ---------- Assistente com IA ----------

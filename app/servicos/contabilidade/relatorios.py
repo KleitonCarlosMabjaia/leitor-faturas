@@ -28,7 +28,9 @@ from app.modelos.tabelas import (
 from app.servicos.contabilidade import plano_snc
 from app.servicos.contabilidade.iva import CAMPOS_DEDUTIVEL, CAMPOS_LIQUIDADO, escalao
 
-CLASSES_RESULTADOS = ("6", "7", "8")
+# Gastos e rendimentos recomeçam em cada exercício. A classe 8 não: o resultado líquido (818) só passa
+# para resultados transitados (56) no exercício seguinte, por isso transita como as contas de balanço.
+CLASSES_RESULTADOS = ("6", "7")
 
 
 def _r(valor: float) -> float:
@@ -68,7 +70,7 @@ def _antepassados(codigo: str, codigos: set[str]) -> list[str]:
 def balancete(db: Session, empresa_id: int, de: date, ate: date) -> dict:
     """
     Balancete analítico: movimentos do período e acumulados, saldos devedores e credores.
-    Acumulado: nas classes 1 a 5 (balanço) desde o início; nas classes 6 a 8 (resultados)
+    Acumulado: nas classes 1 a 5 e 8 desde o início; nas classes 6 e 7 (gastos e rendimentos)
     desde 1 de janeiro do ano de "ate", porque os resultados recomeçam em cada exercício.
     """
     plano_snc.garantir_plano(db, empresa_id)
@@ -265,7 +267,8 @@ def demonstracao_resultados(db: Session, empresa_id: int, de: date, ate: date) -
     """
     plano_snc.garantir_plano(db, empresa_id)
     contas = plano_snc.contas_por_codigo(db, empresa_id)
-    movimentos = movimentos_por_conta(db, empresa_id, de, ate)
+    # O apuramento de resultados do fecho do exercício salda as classes 6 e 7: não entra aqui
+    movimentos = movimentos_por_conta(db, empresa_id, de, ate, excluir_origem="fecho")
 
     rubricas = []
     resultado = 0.0

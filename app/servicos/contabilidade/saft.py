@@ -97,7 +97,7 @@ def _pai(codigo: str, codigos: set[str]) -> str | None:
 
 def _saldos(db: Session, empresa_id: int, de: date, ate: date) -> tuple[dict[str, float], dict[str, float]]:
     """Saldos (débito - crédito) das contas de movimento na abertura e no fecho do período.
-    Classes 1 a 5: desde o início; classes 6 a 8: desde 1 de janeiro (os resultados recomeçam)."""
+    Classes 1 a 5 e 8: desde o início; classes 6 e 7: desde 1 de janeiro (recomeçam em cada exercício)."""
     inicio_exercicio = date(ate.year, 1, 1)
     dia_anterior = de - timedelta(days=1)
 
@@ -281,7 +281,8 @@ def _transacao(diario: ET.Element, la: Lancamento, clientes: set[str], fornecedo
     _sub(t, "SourceID", f"U{la.criado_por_id}" if la.criado_por_id else "Sistema")
     _sub(t, "Description", _texto(la.descricao, 200))
     _sub(t, "DocArchivalNumber", arquivo)
-    _sub(t, "TransactionType", "N")
+    # A: apuramento de resultados (fecho do exercício); N: movimentos normais
+    _sub(t, "TransactionType", "A" if la.origem == "fecho" else "N")
     _sub(t, "GLPostingDate", registo.date().isoformat())
     cliente = next((ln.conta.codigo for ln in la.linhas if ln.conta.codigo in clientes), None)
     fornecedor = next((ln.conta.codigo for ln in la.linhas if ln.conta.codigo in fornecedores), None)

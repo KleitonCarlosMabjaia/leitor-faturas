@@ -87,7 +87,7 @@ const ORIGENS_CLASSIFICACAO = {
 
 const NOMES_ORIGEM_LANCAMENTO = {
   manual: "Manual", fatura: "Fatura", pagamento: "Pagamento", estorno: "Estorno",
-  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário", depreciacao: "Depreciações", ativo: "Ativo fixo",
+  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário", depreciacao: "Depreciações", ativo: "Ativo fixo", fecho: "Fecho do exercício", aplicacao: "Aplicação de resultados",
 };
 
 // ---------- Estado ----------
@@ -191,6 +191,7 @@ const SECOES = {
   vendas: carregarVendas,
   inventarios: carregarInventarios,
   ativos: carregarAtivos,
+  fecho: carregarFecho,
   lancamentos: carregarLancamentos,
   balancete: carregarBalancete,
   extrato: carregarExtrato,
@@ -222,7 +223,7 @@ async function mostrar(nome, forcar = false) {
     botaoSep.tabIndex = sim ? 0 : -1;
   }
   for (const secao of document.querySelectorAll("[role=tabpanel]")) secao.hidden = secao.id !== `sec-${nome}`;
-  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos"].includes(nome);
+  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos", "fecho"].includes(nome);
 
   if (carregadas.has(nome) && !forcar) return;
   const secao = document.getElementById(`sec-${nome}`);
@@ -768,7 +769,7 @@ async function carregarBalancete(secao) {
         td(euros(t.debito_acumulado), "num"), td(euros(t.credito_acumulado), "num"),
         td(euros(t.saldo_devedor), "num"), td(euros(t.saldo_credor), "num")))))
       : vazio("balanca", "Sem movimentos", "Ainda não há lançamentos até à data final escolhida."),
-    h("p", { class: "nota-rodape", texto: "Acumulado: nas classes 1 a 5 desde o início; nas classes 6 a 8 desde 1 de janeiro do ano da data final." })));
+    h("p", { class: "nota-rodape", texto: "Acumulado: nas classes 1 a 5 e 8 desde o início; nas classes 6 e 7 desde 1 de janeiro do ano da data final." })));
 }
 
 // ---------- Extratos ----------
@@ -1689,6 +1690,139 @@ async function carregarAtivos(secao) {
           h("th", { scope: "col", texto: "Estado" }), h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Ações" })))),
         h("tbody", {}, linhas)))
         : vazio("caixa", "Sem ativos registados", "Registe os equipamentos, viaturas e programas comprados para as depreciações serem calculadas e lançadas.")),
+  );
+}
+
+// ---------- Fecho do exercício ----------
+
+// Até abril (época dos fechos) propõe-se o ano anterior; depois, o ano em curso (estimativa e verificações)
+let anoFecho = new Date().getFullYear() - (new Date().getMonth() < 4 ? 1 : 0);
+const parametrosFecho = { pme: true, taxa: null, taxa_pme: null, derrama: null, ajustes: 0, tributacao_autonoma: null };
+
+async function carregarFecho(secao) {
+  const params = new URLSearchParams({ ano: anoFecho, pme: parametrosFecho.pme, ajustes: parametrosFecho.ajustes || 0 });
+  for (const chave of ["taxa", "taxa_pme", "derrama", "tributacao_autonoma"]) {
+    if (parametrosFecho[chave] !== null && parametrosFecho[chave] !== "") params.set(chave, parametrosFecho[chave]);
+  }
+  const [d, eu] = await Promise.all([obter(`/api/contabilidade/fecho?${params}`), obter("/api/auth/eu")]);
+  const e = d.estimativa;
+  const podeAdministrar = eu.papel === "admin" && !eu.modo_demo;
+
+  const esteAno = new Date().getFullYear();
+  const ano = h("select", { id: "fecho-ano" }, [0, 1, 2, 3].map((i) => {
+    const o = h("option", { value: esteAno - i }, String(esteAno - i));
+    if (esteAno - i === anoFecho) o.selected = true;
+    return o;
+  }));
+  ano.addEventListener("change", () => { anoFecho = Number(ano.value); mostrar("fecho", true); });
+
+  // Verificações
+  const lista = h("ul", { class: "lista-alertas" }, d.verificacoes.map((v) => h("li", { class: `alerta ${v.estado === "ok" ? "info" : "aviso"}` },
+    icone(v.estado === "ok" ? "check" : "alerta"),
+    h("div", {}, h("strong", { texto: v.nome }), h("p", { texto: v.detalhe })),
+    v.estado !== "ok" && v.destino ? botao("Resolver", () => irPara(v.destino)) : null)));
+
+  // Parâmetros da estimativa
+  const numero = (id, valor, props = {}) => h("input", { type: "number", id, value: valor, step: "0.01", ...props });
+  const pme = h("input", { type: "checkbox", id: "fecho-pme", checked: e.parametros.pme });
+  const taxa = numero("fecho-taxa", e.parametros.taxa, { min: "0", max: "100" });
+  const taxaPme = numero("fecho-taxa-pme", e.parametros.taxa_pme, { min: "0", max: "100" });
+  const derrama = numero("fecho-derrama", e.parametros.derrama, { min: "0", max: "10" });
+  const ajustes = numero("fecho-ajustes", e.ajustes);
+  const ta = numero("fecho-ta", e.tributacao_autonoma, { min: "0" });
+  let temporizador;
+  const recalcular = () => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(() => {
+      Object.assign(parametrosFecho, { pme: pme.checked, taxa: taxa.value, taxa_pme: taxaPme.value, derrama: derrama.value,
+        ajustes: Number(ajustes.value) || 0, tributacao_autonoma: ta.value });
+      mostrar("fecho", true);
+    }, 500);
+  };
+  for (const el of [pme, taxa, taxaPme, derrama, ajustes, ta]) el.addEventListener("change", recalcular);
+
+  const linhaValor = (rotulo, valor, classe = null) => h("tr", { class: classe }, td(rotulo), td(euros(valor), "num"));
+  const estimativa = h("div", { class: "tabela-caixa" }, h("table", { class: "tabela dr" }, h("tbody", {},
+    linhaValor("Resultado antes de impostos", e.resultado_antes_de_impostos),
+    linhaValor("Ajustes fiscais (quadro 07 do Modelo 22)", e.ajustes),
+    linhaValor("Matéria coletável", e.materia_coletavel, "agregadora"),
+    linhaValor("IRC", e.irc), linhaValor("Derrama municipal", e.derrama), linhaValor("Tributação autónoma", e.tributacao_autonoma),
+    linhaValor("Imposto estimado", e.imposto_total, "agregadora"),
+    linhaValor("Resultado líquido", e.resultado_liquido, "total"))));
+
+  // Ações
+  const acoes = [];
+  const acao = (texto, url, corpo, mensagem, classe = "botao", confirmacao = null) => {
+    const b = h("button", { type: "button", class: classe, disabled: !podeAdministrar }, texto);
+    b.addEventListener("click", async () => {
+      if (confirmacao && !(await confirmar(confirmacao))) return;
+      ocupado(b, true);
+      try {
+        await enviar(url, corpo);
+        notificar(mensagem, "ok");
+        invalidar("resumo", "lancamentos", "balancete", "resultados", "extrato", "obrigacoes");
+        await mostrar("fecho", true);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+        ocupado(b, false);
+      }
+    });
+    return b;
+  };
+  if (!d.fechado) {
+    const fecharPeriodo = h("input", { type: "checkbox", id: "fecho-periodo", checked: true });
+    acoes.push(h("label", { class: "ajuda", style: "display:flex;gap:0.375rem;align-items:center" }, fecharPeriodo, `Fechar também o período até 31/12/${d.ano}`));
+    const fechar = h("button", { type: "button", class: "botao", disabled: !podeAdministrar || !d.pode_fechar }, icone("cadeado"), `Fechar o exercício de ${d.ano}`);
+    fechar.addEventListener("click", async () => {
+      const ok = await confirmar({
+        titulo: `Fechar o exercício de ${d.ano}?`,
+        texto: `As classes 6 e 7 passam para resultados (811), o imposto estimado de ${euros(e.imposto_total)} fica a pagar (241) e o resultado líquido de ${euros(e.resultado_liquido)} fica na 818. Pode reabrir depois.`,
+        botao: "Fechar exercício",
+      });
+      if (!ok) return;
+      ocupado(fechar, true);
+      try {
+        await enviar("/api/contabilidade/fecho", { ano: d.ano, imposto: e.imposto_total, fechar_periodo: fecharPeriodo.checked });
+        notificar(`Exercício de ${d.ano} fechado.`, "ok");
+        invalidar("resumo", "lancamentos", "balancete", "resultados", "extrato", "obrigacoes");
+        await mostrar("fecho", true);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+        ocupado(fechar, false);
+      }
+    });
+    acoes.push(fechar);
+  } else {
+    acoes.push(criarEtiqueta(`Fechado: ${d.lancamentos.map((l) => l.referencia).join(", ")}`, "ok", "check"));
+    if (d.resultado_liquido_por_transferir) {
+      acoes.push(acao(`Transferir ${euros(d.resultado_liquido_por_transferir)} para resultados transitados`, "/api/contabilidade/fecho/transferir",
+        { ano: d.ano }, "Resultado transferido para a conta 561."));
+    }
+    acoes.push(acao("Reabrir", "/api/contabilidade/fecho/reabrir", { ano: d.ano }, `Exercício de ${d.ano} reaberto.`, "botao fantasma", {
+      titulo: `Reabrir o exercício de ${d.ano}?`, texto: "Os lançamentos do fecho são estornados. O período tem de estar aberto.", botao: "Reabrir", perigo: true,
+    }));
+  }
+
+  secao.replaceChildren(
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" },
+        h("div", {}, h("h2", { texto: "Fecho do exercício" }),
+          h("p", { class: "subtitulo", texto: "Antes de fechar, trate o que estiver por lançar até 31 de dezembro. O fecho salda as contas de gastos e rendimentos e apura o resultado líquido." })),
+        h("div", { class: "campo", style: "margin:0" }, h("label", { for: "fecho-ano", class: "visualmente-oculto", texto: "Exercício" }), ano)),
+      lista),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: `Estimativa do imposto sobre o rendimento de ${d.ano}` }),
+        h("p", { class: "subtitulo", texto: d.aviso }))),
+      h("div", { class: "filtros-linha" },
+        h("label", { class: "campo", style: "flex-direction:row;align-items:center;gap:0.5rem" }, pme, "Regime das PME (taxa reduzida nos primeiros 50 000 €)")),
+      h("div", { class: "filtros-linha" },
+        campoJanela("fecho-taxa", "Taxa de IRC (%)", taxa), campoJanela("fecho-taxa-pme", "Taxa das PME (%)", taxaPme),
+        campoJanela("fecho-derrama", "Derrama municipal (%)", derrama), campoJanela("fecho-ajustes", "Ajustes fiscais (€)", ajustes),
+        campoJanela("fecho-ta", "Tributação autónoma (€)", ta)),
+      estimativa,
+      h("div", { class: "barra-lote", style: "margin-top:1rem;justify-content:flex-end" }, ...acoes),
+      !podeAdministrar ? h("p", { class: "ajuda", texto: eu.modo_demo ? "Na demonstração não é possível fechar o exercício." : "Só os administradores podem fechar ou reabrir o exercício." })
+        : !d.pode_fechar && !d.fechado ? h("p", { class: "ajuda", texto: `O exercício de ${d.ano} só pode ser fechado depois de 31/12/${d.ano}.` }) : null),
   );
 }
 
