@@ -87,7 +87,7 @@ const ORIGENS_CLASSIFICACAO = {
 
 const NOMES_ORIGEM_LANCAMENTO = {
   manual: "Manual", fatura: "Fatura", pagamento: "Pagamento", estorno: "Estorno",
-  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento",
+  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento", inventario: "Inventário",
 };
 
 // ---------- Estado ----------
@@ -189,6 +189,7 @@ const SECOES = {
   resumo: carregarResumo,
   "por-contabilizar": carregarPorContabilizar,
   vendas: carregarVendas,
+  inventarios: carregarInventarios,
   lancamentos: carregarLancamentos,
   balancete: carregarBalancete,
   extrato: carregarExtrato,
@@ -220,7 +221,7 @@ async function mostrar(nome, forcar = false) {
     botaoSep.tabIndex = sim ? 0 : -1;
   }
   for (const secao of document.querySelectorAll("[role=tabpanel]")) secao.hidden = secao.id !== `sec-${nome}`;
-  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos"].includes(nome);
+  document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios"].includes(nome);
 
   if (carregadas.has(nome) && !forcar) return;
   const secao = document.getElementById(`sec-${nome}`);
@@ -1384,6 +1385,183 @@ async function carregarVendas(secao) {
             h("th", { scope: "col", class: "celula-barra", texto: "Antiguidade" }))),
           h("tbody", {}, linhasClientes)))
         : vazio("check", "Sem dívidas de clientes")),
+  );
+}
+
+// ---------- Inventários ----------
+
+let inventarioAberto = null;
+
+const NOMES_CATEGORIA = { M: "Mercadorias", P: "Matérias-primas" };
+
+function abrirContagemManual() {
+  const data = h("input", { type: "date", id: "inv-data", value: iso(new Date()) });
+  const descricao = h("input", { type: "text", id: "inv-descricao", maxlength: "200", value: "Contagem física" });
+  const corpo = h("tbody", {});
+  const total = h("span", {});
+  function linha() {
+    const codigo = h("input", { type: "text", maxlength: "60", "aria-label": "Código", placeholder: "Código" });
+    const desc = h("input", { type: "text", maxlength: "200", "aria-label": "Descrição", placeholder: "Artigo" });
+    const categoria = h("select", { "aria-label": "Categoria" }, Object.entries(NOMES_CATEGORIA).map(([v, t]) => h("option", { value: v }, t)));
+    const qtd = h("input", { type: "number", min: "0", step: "0.001", "aria-label": "Quantidade", placeholder: "Qtd." });
+    const custo = h("input", { type: "number", min: "0", step: "0.0001", "aria-label": "Custo unitário", placeholder: "Custo" });
+    for (const el of [qtd, custo]) el.addEventListener("input", recalcular);
+    const tr = h("tr", {}, h("td", {}, codigo), h("td", {}, desc), h("td", {}, categoria), h("td", {}, qtd), h("td", {}, custo),
+      h("td", {}, botaoIcone("lixo", "Remover a linha", () => { tr.remove(); recalcular(); }, "pequeno perigo")));
+    return tr;
+  }
+  function ler() {
+    return [...corpo.querySelectorAll("tr")].map((tr) => {
+      const [codigo, desc, qtd, custo] = tr.querySelectorAll("input");
+      return { codigo: codigo.value.trim(), descricao: desc.value.trim(), categoria: tr.querySelector("select").value,
+        quantidade: Number(qtd.value) || 0, custo_unitario: Number(custo.value) || 0 };
+    }).filter((l) => l.descricao && l.quantidade);
+  }
+  function recalcular() { total.textContent = `Valor do inventário: ${euros(ler().reduce((s, l) => s + l.quantidade * l.custo_unitario, 0))}`; }
+  corpo.append(linha(), linha());
+  recalcular();
+  janelaTemporaria("Nova contagem de inventário", h("div", {},
+    h("div", { class: "grelha-3" }, campoJanela("inv-data", "Data da contagem", data), campoJanela("inv-descricao", "Descrição", descricao, "campo")),
+    h("table", { class: "editor-linhas" }, h("thead", {}, h("tr", {}, ...["Código", "Artigo", "Categoria", "Quantidade", "Custo unitário"].map((t) => h("th", { texto: t })),
+      h("th", {}, h("span", { class: "visualmente-oculto", texto: "Remover" })))), corpo),
+    h("div", { class: "editor-totais" }, botao("Artigo", () => corpo.append(linha()), "botao secundario pequeno", "mais"), total)), async () => {
+    const linhas = ler();
+    if (!linhas.length) throw new Error("Indique pelo menos um artigo com quantidade.");
+    const inv = await enviar("/api/contabilidade/inventarios", { data: data.value, descricao: descricao.value.trim() || "Inventário", linhas });
+    notificar(`Contagem de ${formatarData(inv.data)} guardada (${euros(inv.total)}).`, "ok");
+    inventarioAberto = inv.id;
+    await mostrar("inventarios", true);
+  }, "Guardar contagem");
+}
+
+async function detalheInventario(id) {
+  const d = await obter(`/api/contabilidade/inventarios/${id}`);
+  const acoes = [];
+  const lancar = (url, mensagem) => async (e) => {
+    const alvo = e.currentTarget;
+    ocupado(alvo, true);
+    try {
+      const la = await enviar(url);
+      notificar(`${mensagem}: ${la.referencia}.`, "ok");
+      invalidar("resumo", "lancamentos", "balancete", "resultados", "extrato");
+      await mostrar("inventarios", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(alvo, false);
+    }
+  };
+  if (!d.lancamento) {
+    if (d.apuramento) acoes.push(botao("Lançar apuramento do CMVMC", lancar(`/api/contabilidade/inventarios/${id}/apurar`, "Apuramento lançado"), "botao", "balanca"));
+    acoes.push(botao("Usar como inventário inicial", lancar(`/api/contabilidade/inventarios/${id}/inicial`, "Inventário inicial lançado"), "botao secundario"));
+    acoes.push(botao("Apagar", async () => {
+      const ok = await confirmar({ titulo: "Apagar esta contagem?", texto: `A contagem de ${formatarData(d.data)} e os seus ${d.artigos} artigos serão apagados.`, botao: "Apagar", perigo: true });
+      if (!ok) return;
+      const r = await api(`/api/contabilidade/inventarios/${id}`, { method: "DELETE" });
+      if (!r.ok) return notificar(await lerErro(r, "Não foi possível apagar."), "erro");
+      inventarioAberto = null;
+      mostrar("inventarios", true);
+    }, "botao fantasma"));
+  } else {
+    acoes.push(criarEtiqueta(`${d.inicial ? "Inventário inicial" : "Apurado"}: ${d.lancamento.referencia}`, "ok", "check"));
+  }
+
+  let formula = null;
+  if (d.apuramento && !d.inicial) {
+    const a = d.apuramento;
+    formula = h("div", {},
+      h("h3", { class: "secao-titulo-pequeno", texto: `CMVMC ${a.de ? `de ${formatarData(a.de)} ` : ""}até ${formatarData(a.ate)}` }),
+      a.categorias.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela dr" },
+        h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "" }), ...a.categorias.map((c) => h("th", { scope: "col", class: "num", texto: c.nome })))),
+        h("tbody", {},
+          ...[["Inventário inicial", "inicial", ""], ["Compras", "compras", "+ "], ["Devoluções e descontos", "devolucoes_descontos", "− "],
+            ["Inventário final (esta contagem)", "final", "− "]].map(([rotulo, chave, sinal]) => h("tr", {}, td(rotulo),
+            ...a.categorias.map((c) => td(`${sinal}${euros(c[chave])}`, "num")))),
+          h("tr", { class: "total" }, td("Custo das vendas e consumos (CMVMC)"), ...a.categorias.map((c) => td(euros(c.cmvmc), `num${c.cmvmc < 0 ? " valor-negativo" : ""}`))))))
+        : h("p", { class: "ajuda", texto: "Sem compras nem existências neste período." }),
+      a.avisos.length ? h("ul", { class: "lista-alertas", style: "margin-top:0.75rem" }, a.avisos.map((x) => h("li", { class: "alerta aviso" }, icone("alerta"), h("p", { texto: x })))) : null);
+  }
+
+  return h("section", { class: "cartao", id: "detalhe-inventario" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: `${d.descricao} · ${formatarData(d.data)}` }),
+        h("p", { class: "subtitulo", texto: `${d.artigos} artigos · mercadorias ${euros(d.mercadorias)} · matérias ${euros(d.materias)} · total ${euros(d.total)}` })),
+      h("div", { class: "cabecalho-acoes" }, ...acoes)),
+    formula,
+    h("details", {}, h("summary", { texto: `Artigos contados (${d.linhas.length})` }),
+      h("div", { class: "tabela-caixa" }, h("table", { class: "tabela razao" },
+        h("thead", {}, h("tr", {}, ...["Código", "Artigo", "Categoria"].map((t) => h("th", { scope: "col", texto: t })),
+          ...["Quantidade", "Custo unit.", "Valor"].map((t) => h("th", { scope: "col", class: "num", texto: t })))),
+        h("tbody", {}, d.linhas.slice(0, 500).map((l) => h("tr", {}, h("td", { class: "conta-codigo", texto: l.codigo }), td(l.descricao),
+          td(NOMES_CATEGORIA[l.categoria]), td(`${l.quantidade.toLocaleString("pt-PT")} ${l.unidade}`, "num"),
+          td(l.custo_unitario.toLocaleString("pt-PT", { minimumFractionDigits: 2, maximumFractionDigits: 4 }), "num"), td(euros(l.valor), "num"))))))));
+}
+
+async function carregarInventarios(secao) {
+  const d = await obter("/api/contabilidade/inventarios");
+  if (inventarioAberto && !d.inventarios.some((i) => i.id === inventarioAberto)) inventarioAberto = null;
+  inventarioAberto = inventarioAberto || d.inventarios.find((i) => !i.lancamento)?.id || d.inventarios[0]?.id || null;
+
+  const ficheiro = h("input", { type: "file", id: "inv-ficheiro", class: "visualmente-oculto", accept: ".csv,.txt,.xlsx" });
+  const nomeFicheiro = h("span", { class: "ajuda nome-ficheiro", texto: "Nenhum ficheiro escolhido" });
+  ficheiro.addEventListener("change", () => { nomeFicheiro.textContent = ficheiro.files[0]?.name || "Nenhum ficheiro escolhido"; });
+  const data = h("input", { type: "date", id: "inv-import-data", value: iso(new Date()) });
+  const categoria = h("select", { id: "inv-import-categoria", title: "Usada quando o ficheiro não tem a coluna da categoria" },
+    Object.entries(NOMES_CATEGORIA).map(([v, t]) => h("option", { value: v }, t)));
+  const importar = h("button", { type: "submit", class: "botao" }, icone("upload"), "Importar contagem");
+  const form = h("form", { class: "filtros-linha" },
+    h("div", { class: "campo largo" }, h("span", { class: "rotulo", texto: "Contagem (CSV ou Excel)" }),
+      h("div", { class: "escolher-ficheiro" }, h("label", { for: "inv-ficheiro", class: "botao secundario" }, icone("ficheiro"), "Escolher ficheiro"), ficheiro, nomeFicheiro)),
+    h("div", { class: "campo" }, h("label", { for: "inv-import-data", texto: "Data da contagem" }), data),
+    h("div", { class: "campo" }, h("label", { for: "inv-import-categoria", texto: "Categoria por omissão" }), categoria),
+    importar, botao("Escrever à mão", abrirContagemManual, "botao secundario", "mais"));
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!ficheiro.files.length) return ficheiro.click();
+    const dados = new FormData();
+    dados.append("ficheiro", ficheiro.files[0]);
+    dados.append("data", data.value);
+    dados.append("categoria", categoria.value);
+    ocupado(importar, true);
+    try {
+      const r = await api("/api/contabilidade/inventarios/importar", { method: "POST", body: dados });
+      if (!r.ok) throw new Error(await lerErro(r, "Não foi possível importar a contagem."));
+      const inv = await r.json();
+      notificar(`${inv.artigos} artigo${inv.artigos === 1 ? "" : "s"} importado${inv.artigos === 1 ? "" : "s"} (${euros(inv.total)}).`, "ok");
+      inventarioAberto = inv.id;
+      await mostrar("inventarios", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(importar, false);
+    }
+  });
+
+  const linhas = d.inventarios.map((i) => {
+    const tr = h("tr", { class: i.id === inventarioAberto ? "agregadora" : null, tabindex: "0", title: "Ver a contagem e o apuramento" },
+      td(formatarData(i.data), "", "Data"), h("td", { class: "nome" }, h("span", { class: "titulo", texto: i.descricao }), h("span", { class: "ajuda", texto: ` ${i.artigos} artigos` })),
+      td(euros(i.mercadorias), "num", "Mercadorias"), td(euros(i.materias), "num", "Matérias"), td(euros(i.total), "num", "Total"),
+      h("td", {}, i.lancamento ? criarEtiqueta(i.inicial ? "Inicial" : "Apurado", "ok", "check") : criarEtiqueta("Por lançar", "aviso", "relogio")));
+    const abrir = () => { inventarioAberto = i.id; mostrar("inventarios", true); };
+    tr.addEventListener("click", abrir);
+    tr.addEventListener("keydown", (e) => { if (e.key === "Enter") abrir(); });
+    return tr;
+  });
+
+  secao.replaceChildren(
+    h("section", { class: "indicadores", "aria-label": "Inventários" },
+      indicador("Mercadorias (321)", euros(d.saldo_mercadorias), "valor na contabilidade", "venda", true),
+      indicador("Matérias-primas (331)", euros(d.saldo_materias), "valor na contabilidade", "venda"),
+      indicador("Compras por apurar (31)", euros(d.compras_por_apurar), d.compras_por_apurar ? "passam para inventários no próximo apuramento" : "tudo apurado", "recibo"),
+      indicador("Contagens", String(d.inventarios.length), d.inventarios.length ? `última: ${formatarData(d.inventarios[0].data)}` : "nenhuma ainda", "lista")),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Contagens de inventário" }),
+        h("p", { class: "subtitulo", texto: "Sistema de inventário periódico: conte as existências no fim de cada período (pelo menos a 31 de dezembro). O custo das vendas é o inventário inicial mais as compras menos o inventário final." }))),
+      form,
+      linhas.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela clicavel responsiva" },
+        h("thead", {}, h("tr", {}, ...["Data", "Contagem"].map((t) => h("th", { scope: "col", texto: t })),
+          ...["Mercadorias", "Matérias", "Total"].map((t) => h("th", { scope: "col", class: "num", texto: t })), h("th", { scope: "col", texto: "Estado" }))),
+        h("tbody", {}, linhas)))
+        : vazio("lista", "Ainda não há contagens", "Importe a contagem de um CSV ou Excel, ou escreva-a à mão.")),
+    inventarioAberto ? await detalheInventario(inventarioAberto) : null,
   );
 }
 

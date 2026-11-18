@@ -361,3 +361,48 @@ class FaturaVenda(Base):
     origem: Mapped[str] = mapped_column(String(10), default="manual")  # saft | manual
     criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
     criada_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+
+
+# ---------- Inventários ----------
+
+CATEGORIA_MERCADORIAS = "M"   # conta 321, compras 311, CMVMC 611
+CATEGORIA_MATERIAS = "P"      # conta 331, compras 312, CMVMC 612
+
+
+class Inventario(Base):
+    """
+    Contagem física das existências numa data (sistema de inventário periódico).
+    Serve de inventário final de um período e de inicial do seguinte; o apuramento
+    gera o lançamento do CMVMC (compras -> inventários -> custo das vendas).
+    """
+
+    __tablename__ = "inventarios"
+    __table_args__ = (UniqueConstraint("empresa_id", "data", name="uq_inventario_empresa_data"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    data: Mapped[date] = mapped_column(Date)
+    descricao: Mapped[str] = mapped_column(String(200), default="Inventário")
+    inicial: Mapped[bool] = mapped_column(default=False)  # saldo de abertura (sem apuramento de CMVMC)
+    lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id", ondelete="SET NULL"))
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+
+    linhas: Mapped[list["LinhaInventario"]] = relationship(
+        back_populates="inventario", cascade="all, delete-orphan", order_by="LinhaInventario.id"
+    )
+
+
+class LinhaInventario(Base):
+    __tablename__ = "linhas_inventario"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    inventario_id: Mapped[int] = mapped_column(ForeignKey("inventarios.id", ondelete="CASCADE"), index=True)
+    inventario: Mapped[Inventario] = relationship(back_populates="linhas")
+    codigo: Mapped[str] = mapped_column(String(60))
+    descricao: Mapped[str] = mapped_column(String(200))
+    categoria: Mapped[str] = mapped_column(String(1), default=CATEGORIA_MERCADORIAS)
+    unidade: Mapped[str] = mapped_column(String(10), default="UN")
+    quantidade: Mapped[float] = mapped_column(Float)
+    custo_unitario: Mapped[float] = mapped_column(Float)
+    valor: Mapped[float] = mapped_column(Float)

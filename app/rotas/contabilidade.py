@@ -12,7 +12,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app import config
 from app.db import get_db
@@ -26,6 +26,7 @@ from app.modelos.tabelas import (
     ExtratoBancario,
     Fatura,
     FaturaVenda,
+    Inventario,
     Lancamento,
     LinhaLancamento,
     MovimentoBancario,
@@ -38,6 +39,7 @@ from app.servicos.contabilidade import (
     classificacao,
     extratos,
     ia,
+    inventarios,
     iva,
     lancamentos,
     obrigacoes,
@@ -758,6 +760,151 @@ def receber_venda(venda_id: int, dados: Recebimento, db: Session = Depends(get_d
         raise _erro(erro)
     db.commit()
     return lancamento_dict(lancamento)
+
+
+# ---------- Inventários ----------
+
+def _inventario(db: Session, utilizador: Utilizador, inventario_id: int) -> Inventario:
+    inv = inventarios.obter(db, utilizador.empresa_id, inventario_id)
+    if inv is None:
+        raise HTTPException(status_code=404, detail="Inventário não encontrado.")
+    return inv
+
+
+class LinhaInventarioEntrada(BaseModel):
+    codigo: str = Field("", max_length=60)
+    descricao: str = Field(min_length=1, max_length=200)
+    categoria: Literal["M", "P"] = "M"
+    unidade: str = Field("UN", max_length=10)
+    quantidade: float = Field(ge=0)
+    custo_unitario: float = Field(ge=0)
+
+
+class InventarioEntrada(BaseModel):
+    data: date
+    descricao: str = Field("Inventário", max_length=200)
+    linhas: list[LinhaInventarioEntrada] = Field(min_length=1, max_length=20000)
+
+
+def _linhas_inventario(linhas: list[LinhaInventarioEntrada]) -> list:
+    return [inventarios.LinhaNovaInventario(ln.codigo, ln.descricao, ln.quantidade, ln.custo_unitario, ln.categoria,
+                                            ln.unidade) for ln in linhas]
+
+
+@router.get("/inventarios")
+def listar_inventarios(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    lista = db.scalars(select(Inventario).options(selectinload(Inventario.linhas))
+                       .where(Inventario.empresa_id == utilizador.empresa_id).order_by(Inventario.data.desc())).all()
+    saldos = relatorios.saldos_por_conta(db, utilizador.empresa_id)
+    return {
+        "inventarios": [inventarios.resumo(db, i) for i in lista],
+        "compras_por_apurar": round(sum(v for c, v in saldos.items() if c.startswith("31")), 2),
+        "saldo_mercadorias": round(saldos.get("321", 0.0), 2),
+        "saldo_materias": round(saldos.get("331", 0.0), 2),
+    }
+
+
+@router.post("/inventarios", status_code=201)
+def criar_inventario(entrada: InventarioEntrada, db: Session = Depends(get_db),
+                     utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        inv = inventarios.criar(db, empresa, entrada.data, entrada.descricao, _linhas_inventario(entrada.linhas),
+                                utilizador.id)
+    except inventarios.ErroInventario as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return inventarios.resumo(db, inv)
+
+
+@router.post("/inventarios/importar", status_code=201)
+def importar_inventario(
+    ficheiro: UploadFile = File(...),
+    data: date = Form(...),
+    descricao: str = Form("Inventário", max_length=200),
+    categoria: Literal["M", "P"] = Form("M"),
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Cria a contagem a partir de um CSV ou Excel (código, descrição, quantidade, custo unitário ou valor)."""
+    conteudo = ficheiro.file.read()
+    if len(conteudo) > config.TAMANHO_MAXIMO:
+        raise HTTPException(status_code=413, detail="O ficheiro tem mais de 10 MB.")
+    empresa = _empresa(db, utilizador)
+    try:
+        linhas = inventarios.ler_ficheiro(conteudo, ficheiro.filename or "inventario.csv", categoria)
+        inv = inventarios.criar(db, empresa, data, descricao, linhas, utilizador.id)
+    except inventarios.ErroInventario as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return inventarios.resumo(db, inv)
+
+
+@router.get("/inventarios/{inventario_id}")
+def obter_inventario(inventario_id: int, db: Session = Depends(get_db),
+                     utilizador: Utilizador = Depends(utilizador_atual)):
+    inv = _inventario(db, utilizador, inventario_id)
+    return {
+        **inventarios.resumo(db, inv),
+        "linhas": [{"codigo": ln.codigo, "descricao": ln.descricao, "categoria": ln.categoria, "unidade": ln.unidade,
+                    "quantidade": ln.quantidade, "custo_unitario": ln.custo_unitario, "valor": ln.valor}
+                   for ln in inv.linhas],
+        "apuramento": None if inv.inicial else inventarios.apuramento(db, utilizador.empresa_id, inv),
+    }
+
+
+@router.put("/inventarios/{inventario_id}")
+def alterar_inventario(inventario_id: int, entrada: InventarioEntrada, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    inv = _inventario(db, utilizador, inventario_id)
+    try:
+        inventarios.substituir_linhas(db, inv, _linhas_inventario(entrada.linhas))
+    except inventarios.ErroInventario as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    inv.descricao = entrada.descricao.strip() or inv.descricao
+    db.commit()
+    return inventarios.resumo(db, inv)
+
+
+@router.delete("/inventarios/{inventario_id}", status_code=204)
+def apagar_inventario(inventario_id: int, db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    inv = _inventario(db, utilizador, inventario_id)
+    if inventarios.lancamento_ativo(db, inv):
+        raise HTTPException(status_code=409, detail="O inventário já foi lançado: estorne o lançamento primeiro.")
+    db.delete(inv)
+    db.commit()
+
+
+def _lancar_inventario(db: Session, utilizador: Utilizador, inventario_id: int, acao) -> dict:
+    empresa = _empresa(db, utilizador)
+    inv = _inventario(db, utilizador, inventario_id)
+    try:
+        lancamento = acao(empresa, inv)
+    except (inventarios.ErroInventario, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=409, detail=str(erro))
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+@router.post("/inventarios/{inventario_id}/apurar", status_code=201)
+def apurar_cmvmc(inventario_id: int, db: Session = Depends(get_db),
+                 utilizador: Utilizador = Depends(utilizador_atual)):
+    """Lança o apuramento do CMVMC na data da contagem."""
+    return _lancar_inventario(db, utilizador, inventario_id,
+                              lambda e, inv: inventarios.apurar(db, e, inv, utilizador.id))
+
+
+@router.post("/inventarios/{inventario_id}/inicial", status_code=201)
+def inventario_inicial(inventario_id: int, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    """Usa a contagem como inventário de abertura (contrapartida em resultados transitados)."""
+    return _lancar_inventario(db, utilizador, inventario_id,
+                              lambda e, inv: inventarios.registar_inicial(db, e, inv, utilizador.id))
 
 
 # ---------- Assistente com IA ----------

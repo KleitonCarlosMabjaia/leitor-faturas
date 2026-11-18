@@ -52,6 +52,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**.
 - **Verificações automáticas** do dia a dia: faturas por contabilizar, IVA do período por apurar, caixa com saldo credor, fornecedores com saldo devedor, NIF inválido, **tributação autónoma estimada** das despesas de representação (art. 88.º do CIRC), retenção na fonte a pessoas singulares e faturas sem ATCUD.
 - **Vendas (faturas de clientes)** importadas do **SAF-T de faturação** do programa certificado (faturas, faturas simplificadas, faturas-recibo, notas de crédito e de débito, documentos anulados e recibos) ou registadas à mão (por exemplo, faturas do Portal das Finanças). Ficam contabilizadas no diário de vendas: cliente a débito; vendas (711), serviços (721) e IVA liquidado por taxa a crédito. Recebimentos totais ou parciais, **contas correntes de clientes com antiguidade**, alerta de vendas vencidas e, na reconciliação bancária, a sugestão de **receber a fatura** quando o dinheiro entra no banco. A aplicação **não emite** faturas: isso exige um programa certificado pela AT (Portaria n.º 363/2010).
+- **Inventários** pelo sistema de inventário periódico: contagens físicas importadas de CSV ou Excel (código, descrição, categoria, quantidade e custo) ou escritas à mão, inventário de abertura e **apuramento do CMVMC** (inventário inicial + compras líquidas − inventário final) para mercadorias e matérias-primas. As compras (31) passam para inventários (321/331) e o consumo para o custo das vendas (611/612), com a conta mostrada antes de lançar. Os inventários lançam-se por ordem e ficam protegidos depois de lançados.
 - **Reconciliação bancária com importação de extratos** em CSV, Excel ou OFX, como os bancos os exportam: colunas, separadores, codificação, números ("1.234,56") e datas reconhecidos sozinhos, e a IA identifica as colunas de formatos desconhecidos. Reimportar o mesmo extrato não duplica movimentos. Para cada movimento há sugestões: **associar** a um lançamento com o mesmo valor e data próxima, **pagar a fatura** em aberto com esse total (o pagamento fica com a data do banco) ou **lançar** numa conta (comissões, Imposto do Selo, Segurança Social...), com a escolha **memorizada** para o mesmo tipo de movimento nos meses seguintes. A **reconciliação automática** só aplica o que não tem dúvidas, e o **mapa de reconciliação** explica a diferença entre o saldo do banco e o da contabilidade.
 - **SAF-T (PT) da contabilidade** (versão 1.04_01, Portaria n.º 302/2016): plano de contas com saldos de abertura e de fecho, categorias GR/GA/GM e **códigos da taxonomia S**, fornecedores e todos os lançamentos do exercício. Antes de gerar, a aplicação diz o que falta (NIF, morada, contas sem taxonomia). O ficheiro é validado nos testes contra o **XSD oficial da AT**.
 - **Calendário fiscal** (IVA mensal ou trimestral, SAF-T, DMR, retenções, Segurança Social, Modelo 22, IES, pagamentos por conta) com os prazos **ajustados a fins de semana e feriados**, incluindo a Páscoa e o Corpo de Deus.
@@ -74,7 +75,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 177 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
+- 181 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -177,13 +178,13 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 177 testes, sem navegador
-pytest tests_ui                    # interface: 37 testes num Chromium a sério (Playwright)
+pytest                             # servidor: 181 testes, sem navegador
+pytest tests_ui                    # interface: 39 testes num Chromium a sério (Playwright)
 ```
 
 Nos testes do servidor, cada teste usa uma base de dados temporária, a IA nunca é chamada (mesmo que o `.env` tenha uma chave) e é substituída por uma função falsa e o bucket S3 por um objeto falso.
 
-Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a exportação do SAF-T, a reconciliação bancária, o registo e o recebimento de vendas, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
+Os testes da interface arrancam a aplicação em modo de demonstração (base de dados e pasta temporárias) e verificam, num navegador: filtros, pesquisa, ordenação, a janela de confirmação ao apagar, o tema escuro, os atalhos e os erros na revisão, os gráficos, a contabilização de uma fatura, a recusa de um lançamento desequilibrado, a exportação do SAF-T, a reconciliação bancária, o registo e o recebimento de vendas, a importação de inventários, a ausência de erros de JavaScript e que nenhuma página tem deslocamento horizontal num telemóvel.
 
 O **GitHub Actions** corre tudo em cada push (`.github/workflows/testes.yml`), incluindo o teste de PostgreSQL com uma base de dados verdadeira.
 
@@ -301,6 +302,10 @@ Um teste confirma que as migrações e os modelos não divergem.
 | GET | `/api/contabilidade/vendas/{id}` | Uma venda e os seus lançamentos |
 | POST | `/api/contabilidade/vendas/{id}/contabilizar` · `/receber` | Contabiliza / regista um recebimento |
 | GET | `/api/contabilidade/vendas/clientes` | Contas correntes de clientes e antiguidade |
+| GET / POST | `/api/contabilidade/inventarios` | Contagens de inventário / nova contagem |
+| POST | `/api/contabilidade/inventarios/importar` | Contagem a partir de CSV ou Excel (`ficheiro`, `data`, `categoria`) |
+| GET / PUT / DELETE | `/api/contabilidade/inventarios/{id}` | Contagem com a pré-visualização do CMVMC / alterar / apagar |
+| POST | `/api/contabilidade/inventarios/{id}/apurar` · `/inicial` | Lança o apuramento do CMVMC / o inventário de abertura |
 | GET | `/api/contabilidade/banco/contas` | Contas de bancos e caixa, saldo e movimentos por reconciliar |
 | POST | `/api/contabilidade/banco/importar` | Importa um extrato (`ficheiro`, `conta`, `saldo_final` opcional) |
 | GET | `/api/contabilidade/banco/movimentos` | Movimentos do extrato, com as sugestões de reconciliação |
@@ -355,8 +360,8 @@ leitor-faturas/
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 177 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
-├── tests_ui/                # 37 testes da interface (Playwright)
+├── tests/                   # 181 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
+├── tests_ui/                # 39 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini
 ├── Dockerfile

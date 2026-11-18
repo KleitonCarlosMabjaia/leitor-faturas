@@ -35,7 +35,9 @@ from app.modelos.tabelas import (
     Fatura,
     FaturaVenda,
     Fornecedor,
+    Inventario,
     Lancamento,
+    LinhaInventario,
     LinhaLancamento,
     MovimentoBancario,
     RegraBancaria,
@@ -45,7 +47,16 @@ from app.modelos.tabelas import (
     Utilizador,
 )
 from app.servicos import armazenamento, autenticacao, repositorio
-from app.servicos.contabilidade import banco, extratos, lancamentos, obrigacoes, plano_snc, relatorios, vendas
+from app.servicos.contabilidade import (
+    banco,
+    extratos,
+    inventarios,
+    lancamentos,
+    obrigacoes,
+    plano_snc,
+    relatorios,
+    vendas,
+)
 from app.servicos.contabilidade.lancamentos import LinhaNova
 
 SEMENTE = 2026  # mesma semente -> mesmos dados em todas as execuções
@@ -432,6 +443,9 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     for fatura in confirmadas[: max(len(confirmadas) - por_contabilizar, 0)]:
         lancamentos.contabilizar_fatura(db, empresa, fatura, hoje=hoje)
 
+    # Inventários: contagem inicial na abertura e contagem do fim do mês passado, com o CMVMC apurado
+    criar_inventarios_demo(db, empresa, abertura, hoje)
+
     # Apuramento do IVA de cada trimestre terminado e pagamento até dia 25 do 2.º mês seguinte
     ano, trimestre = abertura.year, (abertura.month - 1) // 3
     while (fim := _fim_do_mes(ano, trimestre * 3 + 3)) < hoje:
@@ -449,6 +463,35 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     db.flush()
     criar_vendas_demo(db, empresa, hoje)
     criar_extrato_demo(db, empresa, hoje)
+
+
+ARTIGOS_DEMO = [
+    # (código, descrição, categoria, unidade, quantidade inicial, quantidade no fim do mês passado, custo)
+    ("B01", "Vinho Verde branco 75 cl", "M", "GR", 36, 30, 3.85),
+    ("B02", "Vinho tinto Douro 75 cl", "M", "GR", 24, 20, 6.10),
+    ("B03", "Cerveja 33 cl (grade 24)", "M", "GR", 6, 5, 15.40),
+    ("B04", "Água mineral 1,5 L (pack 6)", "M", "PK", 20, 14, 2.35),
+    ("C01", "Bacalhau demolhado", "P", "KG", 12, 9, 12.40),
+    ("C02", "Bife da vazia", "P", "KG", 8, 6, 15.20),
+    ("C03", "Batata", "P", "KG", 50, 35, 0.80),
+    ("C04", "Azeite virgem extra 5 L", "P", "UN", 4, 3, 32.50),
+]
+
+
+def criar_inventarios_demo(db: Session, empresa: Empresa, abertura: date, hoje: date) -> None:
+    fim_mes_passado = date(hoje.year, hoje.month, 1) - timedelta(days=1)
+
+    def contagem(data: date, indice: int, descricao: str):
+        linhas = [inventarios.LinhaNovaInventario(codigo, nome, artigo[indice], artigo[6], categoria, unidade)
+                  for artigo in ARTIGOS_DEMO for codigo, nome, categoria, unidade in [artigo[:4]]]
+        return inventarios.criar(db, empresa, data, descricao, linhas)
+
+    inicial = contagem(abertura, 4, "Inventário de abertura")
+    inventarios.registar_inicial(db, empresa, inicial)
+    if fim_mes_passado > abertura:
+        final = contagem(fim_mes_passado, 5, "Contagem do fim do mês")
+        inventarios.apurar(db, empresa, final)
+    db.flush()
 
 
 CLIENTES_DEMO = [
@@ -567,6 +610,9 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))
     db.execute(delete(Conta).where(Conta.empresa_id == empresa.id))
     db.execute(delete(FaturaVenda).where(FaturaVenda.empresa_id == empresa.id))
+    ids_inventarios = select(Inventario.id).where(Inventario.empresa_id == empresa.id)
+    db.execute(delete(LinhaInventario).where(LinhaInventario.inventario_id.in_(ids_inventarios)))
+    db.execute(delete(Inventario).where(Inventario.empresa_id == empresa.id))
     for fatura in db.scalars(select(Fatura).where(Fatura.empresa_id == empresa.id)):
         armazenamento.apagar_pdf(fatura.ficheiro)
         db.delete(fatura)

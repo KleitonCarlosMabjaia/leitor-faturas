@@ -153,7 +153,7 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
-    "obrigacoes", "plano", "assistente", "bancos", "vendas")]
+    "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
@@ -254,3 +254,15 @@ def test_vendas_registar_e_receber(page: Page):
     page.get_by_role("button", name="Registar recebimento").click()
     expect(page.get_by_text("Recebimento lançado")).to_be_visible()
     expect(page.locator("tr", has_text="FT Z/900")).to_contain_text("Recebida")
+
+
+def test_inventario_importado_e_apuramento(page: Page, tmp_path):
+    page.goto("/contabilidade#inventarios")
+    expect(page.get_by_role("heading", name="Contagens de inventário")).to_be_visible()
+    contagem = tmp_path / "contagem.csv"
+    contagem.write_text("Código;Descrição;Quantidade;Custo\nB01;Vinho Verde;10;3,85\n", encoding="cp1252")
+    page.set_input_files("#inv-ficheiro", str(contagem))
+    page.locator("#inv-import-data").fill("2030-12-31")
+    page.get_by_role("button", name="Importar contagem").click()
+    expect(page.get_by_text("1 artigo importado")).to_be_visible()
+    expect(page.locator("#detalhe-inventario")).to_contain_text("Custo das vendas e consumos")
