@@ -123,6 +123,10 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
     c = classificacao.classificar(db, empresa.id, fatura, usar_ia=usar_ia)
     regime = iva.regime_sugerido(fatura.nif_fornecedor, fatura.total_iva)
     linhas = lancamentos.linhas_fatura(db, empresa.id, fatura, c.conta_codigo, c.perfil_iva, regime)
+    # Seguros, rendas ou assinaturas que cobrem vários meses: proposta de diferimento
+    texto = classificacao.texto_fatura(fatura) if c.conta_codigo.startswith("6") else ""
+    diferimento = periodizacao.propor(fatura, c.conta_codigo, periodizacao.valor_na_conta(linhas, c.conta_codigo),
+                                      texto, c.periodo)
     contas = plano_snc.contas_por_codigo(db, empresa.id)
     return {
         "fatura": {
@@ -136,6 +140,7 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
             "confianca": c.confianca, "explicacao": c.explicacao, "alertas": c.alertas,
             "regime_iva": regime, "regime_nome": iva.REGIMES[regime],
         },
+        "diferimento": periodizacao.proposta_dict(diferimento),
         "linhas": [{
             "conta": ln.conta_codigo, "nome": contas[ln.conta_codigo].nome if ln.conta_codigo in contas else "",
             "debito": round(ln.debito, 2), "credito": round(ln.credito, 2), "descricao": ln.descricao,
@@ -202,8 +207,10 @@ def contabilidade_da_fatura(
         .order_by(Lancamento.data, Lancamento.id)
     ))
     compra = lancamentos.lancamento_ativo(db, empresa.id, fatura.id, "fatura")
+    ligado = periodizacao.de_fatura(db, empresa.id, fatura.id)
     resposta = {"contabilizada": compra is not None, "lancamentos": [lancamento_dict(la) for la in feitos],
-                "proposta": None, "erro": None}
+                "proposta": None, "erro": None,
+                "diferimento": periodizacao.diferimento_dict(db, ligado) if ligado else None}
     if compra is None:
         try:
             lancamentos.verificar_fatura_contabilizavel(fatura)
@@ -217,11 +224,28 @@ def contabilidade_da_fatura(
 RegimeIVA = Literal["nacional", "intracomunitario_bens", "intracomunitario_servicos", "autoliquidacao"]
 
 
+class Diferir(BaseModel):
+    inicio: date
+    meses: int = Field(ge=2, le=120)
+
+
 class Contabilizacao(BaseModel):
     conta_codigo: str | None = None
     perfil_iva: str | None = None
     regime_iva: RegimeIVA | None = None
     taxa_autoliquidacao: float = Field(23.0, gt=0, le=100)
+    diferimento: Diferir | None = None  # confirmado pelo utilizador: reparte o gasto pelos meses
+
+
+def _diferir_fatura(db: Session, empresa: Empresa, fatura: Fatura, compra: Lancamento, dados: Diferir,
+                    utilizador_id: int):
+    conta = next((ln.conta.codigo for ln in compra.linhas if ln.debito and ln.conta.codigo.startswith("6")), None)
+    if conta is None:
+        raise periodizacao.ErroPeriodizacao("Só se diferem faturas lançadas numa conta de gasto (classe 6).")
+    return periodizacao.registar(
+        db, empresa, tipo="gasto", descricao=f"{fatura.nome_fornecedor or 'Fornecedor'} - "
+        f"{lancamentos.documento_fatura(fatura)}", conta=conta, valor=periodizacao.valor_na_conta(compra.linhas, conta),
+        inicio=dados.inicio, meses=dados.meses, data=compra.data, utilizador_id=utilizador_id, fatura_id=fatura.id)
 
 
 @router.post("/faturas/{id_fatura}/contabilizar", status_code=201)
@@ -239,11 +263,31 @@ def contabilizar(
             regime_iva=escolha.regime_iva, taxa_autoliquidacao=escolha.taxa_autoliquidacao,
             utilizador_id=utilizador.id,
         )
-    except lancamentos.ErroContabilistico as erro:
+        if escolha.diferimento:
+            _diferir_fatura(db, empresa, fatura, lancamento, escolha.diferimento, utilizador.id)
+    except (lancamentos.ErroContabilistico, periodizacao.ErroPeriodizacao) as erro:
         db.rollback()
         raise _erro(erro)
     db.commit()
     return lancamento_dict(lancamento)
+
+
+@router.post("/faturas/{id_fatura}/diferir", status_code=201)
+def diferir_fatura(id_fatura: str, dados: Diferir, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    """Diferimento de uma fatura já contabilizada (ex.: um seguro contabilizado em lote)."""
+    empresa = _empresa(db, utilizador)
+    fatura = _fatura(db, utilizador, id_fatura)
+    compra = lancamentos.lancamento_ativo(db, empresa.id, fatura.id, "fatura")
+    if compra is None:
+        raise HTTPException(status_code=409, detail="Contabilize a fatura antes de a diferir.")
+    try:
+        d = _diferir_fatura(db, empresa, fatura, compra, dados, utilizador.id)
+    except (lancamentos.ErroContabilistico, periodizacao.ErroPeriodizacao) as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return periodizacao.diferimento_dict(db, d)
 
 
 class Lote(BaseModel):
@@ -1618,6 +1662,12 @@ def resumo_periodizacao(db: Session = Depends(get_db), utilizador: Utilizador = 
     return {
         "diferimentos": dif,
         "acrescimos": periodizacao.listar_acrescimos(db, empresa.id),
+        "faturas_por_diferir": [{
+            "fatura_id": f.id, "fornecedor": f.nome_fornecedor, "documento": lancamentos.documento_fatura(f),
+            "data": f.data_emissao, "conta": conta, "referencia": f"{la.diario} {la.ano}/{la.numero}",
+            "proposta": periodizacao.proposta_dict(periodizacao.propor(
+                f, conta, periodizacao.valor_na_conta(la.linhas, conta))),
+        } for f, la, conta in periodizacao.faturas_por_diferir(db, empresa.id, date(hoje.year - 1, 1, 1))],
         "por_reconhecer": {"ate": fim_mes_passado, "quantidade": len(atraso),
                            "valor": round(sum(v for _, _, v in atraso), 2)},
         "totais": {

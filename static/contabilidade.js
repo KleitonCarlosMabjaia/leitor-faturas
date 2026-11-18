@@ -420,6 +420,8 @@ function cartaoProposta(p, aoContabilizar) {
   const campoRegime = h("div", { class: "campo", hidden: Boolean(f.total_iva) && c.regime_iva === "nacional" },
     h("label", { for: idRegime, texto: "Regime do IVA" }), selRegime);
   const explicacao = h("p", { class: "explicacao" }, icone("faisca"), h("span", { texto: c.explicacao }));
+  const diferir = blocoDiferimento(f.id);
+  diferir.mostrar(p.diferimento);
   const avisos = c.alertas.length ? h("ul", { class: "avisos" }, c.alertas.map((a) => h("li", { texto: a }))) : null;
   const origem = h("span", {}, etiquetaOrigem(c.origem, c.confianca));
   const resumoLinhas = h("summary", { texto: "Ver o lançamento proposto" });
@@ -439,8 +441,11 @@ function cartaoProposta(p, aoContabilizar) {
     try {
       const corpo = alterado || c.origem !== "regra" ? { conta_codigo: selConta.value, perfil_iva: selPerfil.value } : {};
       corpo.regime_iva = selRegime.value;
+      const escolhaDiferimento = diferir.valor();
+      if (escolhaDiferimento) corpo.diferimento = escolhaDiferimento;
       const la = await enviar(`/api/contabilidade/faturas/${f.id}/contabilizar`, corpo);
-      notificar(`Lançado: ${la.referencia} (${f.fornecedor || "fornecedor"}).`, "ok");
+      notificar(`Lançado: ${la.referencia} (${f.fornecedor || "fornecedor"})${corpo.diferimento ? `, repartido por ${corpo.diferimento.meses} meses` : ""}.`, "ok");
+      if (corpo.diferimento) invalidar("periodizacao", "balanco");
       aoContabilizar(cartao);
     } catch (erro) {
       notificar(erro.message, "erro");
@@ -462,6 +467,7 @@ function cartaoProposta(p, aoContabilizar) {
         explicacao.lastChild.textContent = n.explicacao;
         origem.replaceChildren(etiquetaOrigem(n.origem, n.confianca));
         detalhe.replaceChildren(resumoLinhas, tabelaLinhas(r.proposta.linhas));
+        diferir.mostrar(r.proposta.diferimento);
         resumoLinhas.textContent = "Ver o lançamento proposto";
         alterado = true;
       } catch (erro) {
@@ -483,8 +489,59 @@ function cartaoProposta(p, aoContabilizar) {
       h("div", { class: "campo" }, h("label", { for: idPerfil, texto: "IVA (art. 21.º CIVA)" }), selPerfil),
       campoRegime,
       h("div", { class: "cabecalho-acoes" }, botaoIA, botaoLancar)),
-    explicacao, avisos, detalhe);
+    explicacao, avisos, diferir.elemento, detalhe);
   return cartao;
+}
+
+// Proposta de diferimento (seguros, rendas, assinaturas): o utilizador confirma o período antes de lançar
+function blocoDiferimento(idFatura) {
+  const elemento = h("div", { class: "bloco-diferimento", hidden: true });
+  let ativo = null;
+  let inicio = null;
+  let meses = null;
+  const mostrar = (d) => {
+    if (!d) {
+      elemento.hidden = true;
+      ativo = null;
+      return;
+    }
+    ativo = h("input", { type: "checkbox", id: `diferir-${idFatura}`, checked: true });
+    inicio = h("input", { type: "month", id: `diferir-inicio-${idFatura}`, value: d.inicio.slice(0, 7) });
+    meses = h("input", { type: "number", id: `diferir-meses-${idFatura}`, min: "2", max: "120", step: "1", value: d.meses });
+    const mensal = h("span", { class: "ajuda" });
+    const atualizar = () => {
+      const n = Number(meses.value) || 0;
+      mensal.textContent = n >= 2 ? `${euros(Math.round((d.valor / n) * 100) / 100)} por mês` : "";
+      for (const el of [inicio, meses]) el.disabled = !ativo.checked;
+    };
+    for (const el of [ativo, meses]) el.addEventListener("input", atualizar);
+    atualizar();
+    elemento.replaceChildren(
+      h("label", { class: "caixa-opcao", for: `diferir-${idFatura}` }, ativo,
+        h("strong", { texto: `Repartir ${euros(d.valor)} pelos meses que a fatura cobre (diferimento)` })),
+      h("p", { class: "ajuda", texto: d.explicacao }),
+      h("div", { class: "filtros-linha" },
+        campoJanela(`diferir-inicio-${idFatura}`, "Primeiro mês", inicio),
+        campoJanela(`diferir-meses-${idFatura}`, "N.º de meses", meses), mensal));
+    elemento.hidden = false;
+  };
+  const valor = () => (ativo?.checked && inicio.value && Number(meses.value) >= 2
+    ? { inicio: `${inicio.value}-01`, meses: Number(meses.value) } : null);
+  return { elemento, mostrar, valor };
+}
+
+function abrirDiferirFatura(x) {
+  const p = x.proposta;
+  const inicio = h("input", { type: "month", id: "difat-inicio", value: (p?.inicio || x.data).slice(0, 7) });
+  const meses = h("input", { type: "number", id: "difat-meses", min: "2", max: "120", step: "1", value: p?.meses || 12 });
+  janelaTemporaria(`Diferir ${x.documento}`, h("div", {},
+    h("p", { class: "ajuda", texto: `${x.fornecedor || "Fornecedor"} · conta ${x.conta} · ${p ? euros(p.valor) : ""}. O valor lançado em gasto passa para a 281 e volta mês a mês.` }),
+    h("div", { class: "grelha-3" }, campoJanela("difat-inicio", "Primeiro mês", inicio), campoJanela("difat-meses", "N.º de meses", meses))), async () => {
+    await enviar(`/api/contabilidade/faturas/${x.fatura_id}/diferir`, { inicio: `${inicio.value}-01`, meses: Number(meses.value) });
+    notificar(`${x.documento} repartida por ${meses.value} meses.`, "ok");
+    invalidarContabilidade();
+    await mostrar("periodizacao", true);
+  }, "Diferir");
 }
 
 async function carregarPorContabilizar(secao) {
@@ -2026,11 +2083,19 @@ async function carregarPeriodizacao(secao) {
 
   const diferimentos = d.diferimentos.map((x) => h("tr", { class: x.anulado ? "estornado" : null },
     h("td", { class: "nome" }, h("span", { class: "titulo", texto: x.descricao }),
-      h("span", { class: "ajuda", texto: ` ${x.tipo === "gasto" ? "Gasto" : "Rendimento"} · conta ${x.conta} ${nomeConta(x.conta)} · ${formatarData(x.inicio).slice(3)} a ${formatarData(x.fim).slice(3)}` })),
+      h("span", { class: "ajuda", texto: ` ${x.tipo === "gasto" ? "Gasto" : "Rendimento"} · conta ${x.conta} ${nomeConta(x.conta)} · ${formatarData(x.inicio).slice(3)} a ${formatarData(x.fim).slice(3)}` }),
+      x.fatura_id ? h("a", { class: "ajuda", href: `/faturas/${x.fatura_id}`, texto: " · ver fatura" }) : null),
     td(euros(x.valor), "num", "Valor"), td(euros(x.mensal), "num", "Por mês"), td(`${x.meses_reconhecidos}/${x.meses}`, "num", "Meses"),
     td(euros(x.por_reconhecer), "num", "Por reconhecer"),
     h("td", {}, x.anulado ? criarEtiqueta("Estornado", "erro") : x.atrasado ? criarEtiqueta(`${x.atrasado.meses} mês(es) em atraso`, "aviso")
       : x.por_reconhecer ? criarEtiqueta("Em dia", "ok", "check") : criarEtiqueta("Concluído", "neutro"))));
+  const porDiferir = d.faturas_por_diferir.length ? h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Faturas que podem ter de ser diferidas" }),
+      h("p", { class: "subtitulo", texto: "Seguros contabilizados sem diferimento (por exemplo, em lote). Se a apólice cobre meses do ano seguinte, reparta o valor." }))),
+    h("ul", { class: "lista-alertas" }, d.faturas_por_diferir.map((x) => h("li", { class: "alerta aviso" }, icone("relogio"),
+      h("div", {}, h("strong", { texto: `${x.fornecedor || "Fornecedor"} · ${x.documento}` }),
+        h("p", { texto: `${formatarData(x.data)} · ${x.referencia} · conta ${x.conta}${x.proposta ? ` · ${euros(x.proposta.valor)}` : ""}` })),
+      botao("Diferir", () => abrirDiferirFatura(x), "botao secundario pequeno"))))) : null;
   const acrescimos = d.acrescimos.map((x) => h("tr", { class: x.estado === "estornado" ? "estornado" : null },
     h("td", { class: "nome" }, h("span", { class: "titulo", texto: x.descricao }),
       h("span", { class: "ajuda", texto: ` ${x.referencia} · ${x.tipo === "gasto" ? "gasto" : "rendimento"} · contas ${x.contas.join(", ")}` })),
@@ -2043,6 +2108,7 @@ async function carregarPeriodizacao(secao) {
       indicador("Rendimentos a reconhecer (282)", euros(-d.saldos["282"] || 0), "faturados, de meses futuros", "relogio"),
       indicador("Acréscimos de gastos (2722)", euros(-d.saldos["2722"] || 0), "gastos por faturar", "recibo"),
       indicador("Acréscimos de rendimentos (2721)", euros(d.saldos["2721"]), "rendimentos por faturar", "euro")),
+    porDiferir,
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" },
         h("div", {}, h("h2", { texto: "Diferimentos" }),

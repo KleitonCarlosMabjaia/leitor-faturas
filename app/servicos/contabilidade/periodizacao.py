@@ -15,15 +15,23 @@ Diferimentos — gasto pago (ou rendimento faturado) que respeita a vários mese
     mensalmente: a parte de cada mês volta à conta de gasto/rendimento.
 A fatura é lançada como sempre (na conta de gasto); o diferimento só a reparte pelos meses.
 
+Ao contabilizar uma fatura de compra, a aplicação propõe o diferimento quando:
+- o texto da fatura tem um período de cobertura (ex.: "de 01/10/2026 a 30/09/2027"), lido por
+  uma expressão regular ou pela IA, com mais de um mês; ou
+- a conta é de um gasto que costuma ser pago adiantado ao ano (seguros: 12 meses a partir do mês
+  da fatura, por omissão, para o utilizador confirmar).
+
 As funções não fazem commit: quem as chama decide quando gravar.
 """
 
+import re
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.modelos.tabelas import LANCAMENTO_ATIVO, Diferimento, Empresa, Lancamento
+from app.modelos.tabelas import LANCAMENTO_ATIVO, Diferimento, Empresa, Fatura, Lancamento
 from app.servicos.contabilidade import lancamentos, plano_snc
 from app.servicos.contabilidade.lancamentos import LinhaNova
 
@@ -139,7 +147,8 @@ def obter(db: Session, empresa_id: int, diferimento_id: int) -> Diferimento | No
 
 
 def registar(db: Session, empresa: Empresa, *, tipo: str, descricao: str, conta: str, valor: float, inicio: date,
-             meses: int, data: date | None = None, utilizador_id: int | None = None) -> Diferimento:
+             meses: int, data: date | None = None, utilizador_id: int | None = None,
+             fatura_id: str | None = None) -> Diferimento:
     """Regista o diferimento e lança a passagem do valor para 281/282 (na data indicada ou no início)."""
     if tipo not in CONTA_DIFERIMENTO:
         raise ErroPeriodizacao("Tipo desconhecido: gasto ou rendimento.")
@@ -151,8 +160,10 @@ def registar(db: Session, empresa: Empresa, *, tipo: str, descricao: str, conta:
     inicio = date(inicio.year, inicio.month, 1)
     data = data or inicio
     valor = _r(valor)
+    if fatura_id and de_fatura(db, empresa.id, fatura_id):
+        raise ErroPeriodizacao("Esta fatura já tem um diferimento.")
     d = Diferimento(empresa_id=empresa.id, tipo=tipo, descricao=descricao.strip()[:200] or "Diferimento",
-                    conta=conta, valor=valor, inicio=inicio, meses=meses, reconhecimentos=[])
+                    conta=conta, valor=valor, inicio=inicio, meses=meses, reconhecimentos=[], fatura_id=fatura_id)
     db.add(d)
     db.flush()
     diferida = CONTA_DIFERIMENTO[tipo]
@@ -164,6 +175,7 @@ def registar(db: Session, empresa: Empresa, *, tipo: str, descricao: str, conta:
                   LinhaNova(diferida, credito=valor, descricao="Rendimento a reconhecer")]
     fim = fim_do_mes(_somar_meses(inicio, meses - 1))
     la = lancamentos.criar(db, empresa, "OD", data, f"Diferimento: {d.descricao}", linhas, documento=f"DIF {d.id}",
+                           fatura_id=fatura_id,
                            origem="diferimento", utilizador_id=utilizador_id,
                            notas=[f"{valor:.2f} € repartidos por {meses} meses, de {inicio:%m/%Y} a {fim:%m/%Y}."])
     d.lancamento_id = la.id
@@ -239,7 +251,7 @@ def diferimento_dict(db: Session, d: Diferimento, hoje: date | None = None) -> d
         "inicio": d.inicio, "fim": fim, "meses": d.meses, "mensal": _r(d.valor / d.meses),
         "meses_reconhecidos": meses_feitos, "reconhecido": valor_feito, "por_reconhecer": _r(d.valor - valor_feito),
         "atrasado": {"meses": pendente[0], "valor": pendente[1]} if pendente else None,
-        "anulado": not _ativo(db, d.lancamento_id), "lancamento_id": d.lancamento_id,
+        "anulado": not _ativo(db, d.lancamento_id), "lancamento_id": d.lancamento_id, "fatura_id": d.fatura_id,
     }
 
 
@@ -249,4 +261,122 @@ def em_atraso(db: Session, empresa_id: int, ate: date) -> list[tuple[Diferimento
         p = por_reconhecer(db, d, ate)
         if p:
             resultado.append((d, p[0], p[1]))
+    return resultado
+
+
+# ---------- Proposta de diferimento a partir de uma fatura de compra ----------
+
+# Gastos que normalmente se pagam adiantados por um ano: proposta de 12 meses mesmo sem período no texto
+CONTAS_ANUAIS = {"6263": "seguros"}
+MESES_OMISSAO = 12
+
+_DATA = r"(\d{1,2})[./-](\d{1,2})[./-](\d{4})|(\d{4})-(\d{2})-(\d{2})"
+_PERIODO = re.compile(rf"(?:{_DATA})\s*(?:a|até|ate|-|–|to)\s*(?:{_DATA})", re.IGNORECASE)
+
+
+@dataclass
+class PropostaDiferimento:
+    conta: str
+    valor: float
+    inicio: date        # 1.º dia do primeiro mês
+    meses: int
+    origem: str         # texto | ia | omissao
+    explicacao: str
+
+
+def _data(grupos: tuple) -> date | None:
+    try:
+        if grupos[0]:
+            return date(int(grupos[2]), int(grupos[1]), int(grupos[0]))
+        return date(int(grupos[3]), int(grupos[4]), int(grupos[5]))
+    except (TypeError, ValueError):
+        return None
+
+
+def meses_entre(inicio: date, fim: date) -> int:
+    """Meses cobertos: 01/10 a 30/09 do ano seguinte = 12; 15/10 a 14/10 do ano seguinte = 12."""
+    meses = (fim.year - inicio.year) * 12 + fim.month - inicio.month + 1
+    if fim.day < inicio.day and meses > 1:
+        meses -= 1
+    return meses
+
+
+def detetar_periodo(texto: str) -> tuple[date, date] | None:
+    """Primeiro intervalo de datas no texto com mais de um mês e até 10 anos (ex.: "01/10/2026 a 30/09/2027")."""
+    for m in _PERIODO.finditer(texto or ""):
+        grupos = m.groups()
+        inicio, fim = _data(grupos[:6]), _data(grupos[6:])
+        if inicio and fim and 45 <= (fim - inicio).days <= 3660:
+            return inicio, fim
+    return None
+
+
+def propor(fatura: Fatura, conta: str, valor: float, texto: str = "",
+           periodo_ia: tuple[date, date] | None = None) -> PropostaDiferimento | None:
+    """Proposta de diferimento para a fatura lançada em `conta` (gasto), ou None se não fizer sentido."""
+    if not conta.startswith("6") or valor <= 0 or fatura.data_emissao is None:
+        return None
+    if (fatura.tipo_documento or "").upper() == "NC":
+        return None
+    periodo, origem = detetar_periodo(texto), "texto"
+    if periodo is None and periodo_ia:
+        periodo, origem = periodo_ia, "ia"
+    if periodo:
+        inicio, fim = periodo
+        meses = meses_entre(inicio, fim)
+        if meses < 2:
+            return None
+        return PropostaDiferimento(conta, round(valor, 2), date(inicio.year, inicio.month, 1), min(meses, 120), origem,
+                                   f"A fatura cobre de {inicio:%d/%m/%Y} a {fim:%d/%m/%Y} ({meses} meses): o gasto "
+                                   "reparte-se por esses meses (regime do acréscimo).")
+    if conta in CONTAS_ANUAIS:
+        e = fatura.data_emissao
+        return PropostaDiferimento(conta, round(valor, 2), date(e.year, e.month, 1), MESES_OMISSAO, "omissao",
+                                   f"Os {CONTAS_ANUAIS[conta]} costumam cobrir um ano. Confirme o período da apólice: "
+                                   f"por omissão, {MESES_OMISSAO} meses a partir de {e:%m/%Y}.")
+    return None
+
+
+def proposta_dict(p: PropostaDiferimento | None) -> dict | None:
+    if p is None:
+        return None
+    return {"conta": p.conta, "valor": p.valor, "inicio": p.inicio, "meses": p.meses, "origem": p.origem,
+            "explicacao": p.explicacao, "mensal": round(p.valor / p.meses, 2)}
+
+
+def valor_na_conta(linhas, conta: str) -> float:
+    """Quanto as linhas da fatura põem na conta de gasto (base e IVA não dedutível)."""
+    total = 0.0
+    for ln in linhas:
+        codigo = getattr(ln, "conta_codigo", None) or ln.conta.codigo
+        if codigo == conta:
+            total += ln.debito - ln.credito
+    return round(total, 2)
+
+
+def de_fatura(db: Session, empresa_id: int, fatura_id: str) -> Diferimento | None:
+    """Diferimento ativo ligado à fatura."""
+    for d in db.scalars(select(Diferimento).where(Diferimento.empresa_id == empresa_id,
+                                                  Diferimento.fatura_id == fatura_id)):
+        if _ativo(db, d.lancamento_id):
+            return d
+    return None
+
+
+def faturas_por_diferir(db: Session, empresa_id: int, desde: date) -> list[tuple[Fatura, Lancamento, str]]:
+    """
+    Faturas já contabilizadas numa conta de gasto anual (seguros) sem diferimento, ex.: as que foram
+    contabilizadas em lote. Devolve (fatura, lançamento da compra, conta).
+    """
+    resultado = []
+    compras = db.scalars(select(Lancamento).where(
+        Lancamento.empresa_id == empresa_id, Lancamento.origem == "fatura", Lancamento.estado == LANCAMENTO_ATIVO,
+        Lancamento.estorno_de_id.is_(None), Lancamento.data >= desde).order_by(Lancamento.data.desc()))
+    for la in compras:
+        conta = next((ln.conta.codigo for ln in la.linhas if ln.debito and ln.conta.codigo in CONTAS_ANUAIS), None)
+        if conta is None or de_fatura(db, empresa_id, la.fatura_id):
+            continue
+        fatura = db.get(Fatura, la.fatura_id)
+        if fatura and (fatura.tipo_documento or "FT").upper() != "NC":
+            resultado.append((fatura, la, conta))
     return resultado

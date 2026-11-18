@@ -56,7 +56,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - **Ativos fixos e depreciações**: ficha de cada ativo (conta, data de entrada em funcionamento, valor, valor residual e taxa, com taxas de referência do Decreto Regulamentar n.º 25/2009), **depreciações por quotas constantes em duodécimos** lançadas de uma vez até ao mês escolhido (642x/438x), sem repetir meses nem passar do valor depreciável, **abate** e **venda** (com IVA e ganho ou perda), mapa de depreciações do exercício e alertas de depreciações em atraso ou de ficha diferente da contabilidade.
 - **Fecho do exercício**: lista de verificação antes de fechar (faturas e vendas por contabilizar, depreciações e inventário de 31/12, IVA apurado, bancos reconciliados), **estimativa de IRC** com parâmetros editáveis (taxa normal, taxa das PME nos primeiros 50 000 €, derrama, tributação autónoma e ajustes do quadro 07), **apuramento de resultados** a 31/12 (classes 6 e 7 para a 811, imposto na 8121/241 e resultado líquido na 818, com o tipo A no SAF-T), transferência do resultado para resultados transitados (561) no ano seguinte e reabertura do exercício.
 - **Salários**: ficha de cada pessoa (pessoal ou órgãos sociais, NIF, NISS, vencimento, subsídio de alimentação em cartão ou numerário, taxa de retenção de IRS, taxas da Segurança Social e subsídios em duodécimos), **processamento mensal** com pré-visualização dos recibos e variáveis do mês (dias, prémios, faltas), subsídios de férias e de Natal, excesso do subsídio de alimentação sobre o limite isento sujeito a IRS e Segurança Social, **lançamento automático** (631/632 e 635 contra 231x, 2421 e 245), pagamentos dos salários, da Segurança Social e do IRS retido (com os prazos do dia 20), mapa anual para a DMR e a declaração à Segurança Social, alertas de meses por processar e pagamentos em atraso, e **acréscimo de férias e subsídio de férias** a 31/12.
-- **Acréscimos e diferimentos**: diferimentos de gastos e rendimentos (281/282) repartidos pelos meses, com o reconhecimento de todos de uma vez e os cêntimos no último mês; acréscimos de gastos e rendimentos (2722/2721) com **reversão automática** no dia seguinte (estornar o acréscimo estorna a reversão).
+- **Acréscimos e diferimentos**: diferimentos de gastos e rendimentos (281/282) repartidos pelos meses, com o reconhecimento de todos de uma vez e os cêntimos no último mês; acréscimos de gastos e rendimentos (2722/2721) com **reversão automática** no dia seguinte (estornar o acréscimo estorna a reversão). Ao contabilizar uma fatura de seguros, rendas ou assinaturas, a aplicação **propõe o diferimento**: lê o período de cobertura no texto da fatura (ou com a IA) ou assume 12 meses nos seguros, e o diferimento fica ligado à fatura. Os seguros contabilizados em lote sem diferimento aparecem numa lista para diferir.
 - **Balanço** (demonstração da posição financeira, modelo do SNC simplificado) a qualquer data, com as contas de terceiros separadas pelo saldo de cada subconta e o resultado do período e os resultados transitados calculados.
 - **Saldos de abertura** para empresas que vêm de outro programa: importação do balancete de fecho em CSV ou Excel (as linhas das contas agregadoras são ignoradas e as subcontas de terceiros em falta são criadas).
 - **IVA autoliquidado**: serviços de fornecedores de outros Estados-membros (sugerido pelo número de IVA estrangeiro), aquisições intracomunitárias de bens e inversão do sujeito passivo (construção civil), com os campos 12/13, 16/17 e o quadro 06-A no mapa da declaração periódica.
@@ -83,7 +83,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 207 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
+- 211 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -186,7 +186,7 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 207 testes, sem navegador
+pytest                             # servidor: 211 testes, sem navegador
 pytest tests_ui                    # interface: 50 testes num Chromium a sério (Playwright)
 ```
 
@@ -292,7 +292,7 @@ Um teste confirma que as migrações e os modelos não divergem.
 | GET | `/api/contabilidade/resumo` | Indicadores, verificações automáticas e próximos prazos |
 | GET | `/api/contabilidade/por-contabilizar` | Faturas confirmadas por lançar, com a classificação e o lançamento propostos |
 | GET | `/api/contabilidade/faturas/{id}` | Lançamentos da fatura ou proposta (`ia=1` pede a sugestão à IA) |
-| POST | `/api/contabilidade/faturas/{id}/contabilizar` | Lança a fatura (`conta_codigo`, `perfil_iva`, `regime_iva` e `taxa_autoliquidacao` opcionais) |
+| POST | `/api/contabilidade/faturas/{id}/contabilizar` | Lança a fatura (`conta_codigo`, `perfil_iva`, `regime_iva`, `taxa_autoliquidacao` e `diferimento` opcionais) |
 | POST | `/api/contabilidade/contabilizar-lote` | Lança várias faturas com a sugestão (`ids`) |
 | POST | `/api/contabilidade/faturas/{id}/pagamento` | Regista o pagamento (`data`, `conta` 11/12/13) |
 | GET / POST | `/api/contabilidade/lancamentos` | Diário (filtros `de`, `ate`, `diario`, `pesquisa`) / lançamento manual |
@@ -325,6 +325,7 @@ Um teste confirma que as migrações e os modelos não divergem.
 | GET | `/api/contabilidade/salarios/{ano}/{mes}` | Processamento do mês ou pré-visualização dos recibos |
 | POST | `/api/contabilidade/salarios/simular` · `/processar` | Recibos com as variáveis do mês / processar e lançar |
 | POST | `/api/contabilidade/salarios/{ano}/{mes}/pagar` | Pagamento dos salários, da Segurança Social ou do IRS retido |
+| POST | `/api/contabilidade/faturas/{id}/diferir` | Diferimento de uma fatura já contabilizada (`inicio`, `meses`) |
 | GET / POST | `/api/contabilidade/salarios/ferias` | Estimativa / lançamento do acréscimo de férias a 31/12 (`ano`) |
 | GET | `/api/contabilidade/periodizacao` | Diferimentos, acréscimos e o que está por reconhecer |
 | POST | `/api/contabilidade/periodizacao/diferimentos` · `/reconhecer` · `/acrescimos` | Registar um diferimento / reconhecer até `ate` / lançar um acréscimo com reversão |
@@ -384,7 +385,7 @@ leitor-faturas/
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 207 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
+├── tests/                   # 211 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
 ├── tests_ui/                # 50 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini

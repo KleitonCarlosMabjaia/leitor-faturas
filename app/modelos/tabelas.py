@@ -527,6 +527,7 @@ class Diferimento(Base):
     inicio: Mapped[date] = mapped_column(Date)                     # 1.º dia do primeiro mês a reconhecer
     meses: Mapped[int] = mapped_column()
     lancamento_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id", ondelete="SET NULL"))
+    fatura_id: Mapped[str | None] = mapped_column(ForeignKey("faturas.id", ondelete="SET NULL"), index=True)
     # [{"ate": "AAAA-MM-DD", "meses": n, "valor": v, "lancamento_id": id}]
     reconhecimentos: Mapped[list] = mapped_column(JSON, default=list)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

@@ -24,6 +24,7 @@ from app.modelos.tabelas import (
     LANCAMENTO_ESTORNADO,
     MOVIMENTO_PENDENTE,
     AtivoFixo,
+    Diferimento,
     Empresa,
     Fatura,
     FaturaVenda,
@@ -164,6 +165,7 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
         raise ErroContabilistico("Este lançamento já foi estornado.")
     if lancamento.estorno_de_id:
         raise ErroContabilistico("Um estorno não se estorna: faça um novo lançamento.")
+    diferimentos = _diferimentos_da_fatura(db, lancamento)
     # Por omissão o estorno fica na data do original; se esse período estiver fechado, fica na data de hoje
     if data is None:
         data = lancamento.data
@@ -182,6 +184,8 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
         utilizador_id=utilizador_id, estorno_de_id=lancamento.id,
     )
     lancamento.estado = LANCAMENTO_ESTORNADO
+    for registo in diferimentos:
+        estornar(db, empresa, registo, utilizador_id)
     # Estornar um acréscimo estorna também a sua reversão automática
     if lancamento.origem == "acrescimo":
         reversao = db.scalar(select(Lancamento).where(
@@ -205,6 +209,29 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
             venda.valor_recebido = round(max(venda.valor_recebido - recebido, 0.0), 2)
             venda.recebida = venda.valor_recebido >= venda.total - TOLERANCIA
     return estorno
+
+
+def _diferimentos_da_fatura(db: Session, lancamento: Lancamento) -> list[Lancamento]:
+    """
+    Lançamentos de registo dos diferimentos ligados à fatura deste lançamento de compra, que
+    têm de ser estornados com ele. Se já houver meses reconhecidos, o estorno é recusado.
+    """
+    if lancamento.origem != "fatura" or not lancamento.fatura_id:
+        return []
+    registos = []
+    for d in db.scalars(select(Diferimento).where(Diferimento.empresa_id == lancamento.empresa_id,
+                                                  Diferimento.fatura_id == lancamento.fatura_id)):
+        registo = db.get(Lancamento, d.lancamento_id) if d.lancamento_id else None
+        if registo is None or registo.estado != LANCAMENTO_ATIVO:
+            continue
+        ids = [r["lancamento_id"] for r in d.reconhecimentos or []]
+        if ids and db.scalar(select(func.count(Lancamento.id)).where(Lancamento.id.in_(ids),
+                                                                     Lancamento.estado == LANCAMENTO_ATIVO)):
+            raise ErroContabilistico(
+                "Esta fatura tem um diferimento com meses já reconhecidos: estorne primeiro o lançamento do "
+                "reconhecimento dos diferimentos.")
+        registos.append(registo)
+    return registos
 
 
 # ---------- Faturas de fornecedores ----------
