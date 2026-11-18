@@ -1463,3 +1463,9 @@ details .tabela { margin-top: 0.5rem; }
 .escolher-ficheiro { display: flex; align-items: center; gap: 0.75rem; min-height: 2.5rem; }
 .escolher-ficheiro .nome-ficheiro { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .escolher-ficheiro input:focus-visible + .nome-ficheiro, .escolher-ficheiro:focus-within label { outline: 2px solid var(--foco); outline-offset: 2px; }
+
+/* Vendas */
+.tabela td.acoes { text-align: right; white-space: nowrap; }
+.janela .editor-linhas td:first-child { width: auto; }
+.janela .editor-linhas td:nth-child(2) { width: 6.5rem; }
+.janela .editor-linhas td:nth-child(3) { width: 9rem; }

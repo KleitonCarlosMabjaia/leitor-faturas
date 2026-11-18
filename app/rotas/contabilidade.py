@@ -20,10 +20,12 @@ from app.dependencias import utilizador_atual
 from app.modelos.tabelas import (
     MOVIMENTO_PENDENTE,
     PAPEL_ADMIN,
+    VENDA_NORMAL,
     Conta,
     Empresa,
     ExtratoBancario,
     Fatura,
+    FaturaVenda,
     Lancamento,
     LinhaLancamento,
     MovimentoBancario,
@@ -42,6 +44,7 @@ from app.servicos.contabilidade import (
     plano_snc,
     relatorios,
     saft,
+    vendas,
     verificacoes,
 )
 
@@ -580,6 +583,183 @@ def exportar_saft(
     )
 
 
+# ---------- Vendas (faturas de clientes) ----------
+
+def _venda(db: Session, utilizador: Utilizador, venda_id: int) -> FaturaVenda:
+    venda = db.scalar(select(FaturaVenda).where(
+        FaturaVenda.id == venda_id, FaturaVenda.empresa_id == utilizador.empresa_id
+    ))
+    if venda is None:
+        raise HTTPException(status_code=404, detail="Venda não encontrada.")
+    return venda
+
+
+@router.get("/vendas")
+def listar_vendas(
+    estado: Literal["por_receber", "recebidas", "anuladas", "por_contabilizar", "todas"] = "todas",
+    pesquisa: str | None = Query(None, max_length=100),
+    de: date | None = None,
+    ate: date | None = None,
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Vendas do período (mais recentes primeiro) e os totais para os indicadores."""
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo(de, ate)
+    hoje = date.today()
+    consulta = (select(FaturaVenda)
+                .where(FaturaVenda.empresa_id == empresa.id, FaturaVenda.data >= de, FaturaVenda.data <= ate)
+                .order_by(FaturaVenda.data.desc(), FaturaVenda.id.desc()))
+    if pesquisa:
+        termo = f"%{pesquisa.strip()}%"
+        consulta = consulta.where(FaturaVenda.numero.ilike(termo) | FaturaVenda.cliente_nome.ilike(termo)
+                                  | FaturaVenda.cliente_nif.ilike(termo))
+    todas = list(db.scalars(consulta))
+    sem_lancamento = {v.id for v in vendas.por_contabilizar(db, empresa.id)}
+    abertas = vendas.por_receber(db, empresa.id)
+    filtros = {
+        "por_receber": lambda v: v.id in {a.id for a in abertas},
+        "recebidas": lambda v: v.recebida,
+        "anuladas": lambda v: v.estado != VENDA_NORMAL,
+        "por_contabilizar": lambda v: v.id in sem_lancamento,
+        "todas": lambda v: True,
+    }
+    validas = [v for v in todas if v.estado == VENDA_NORMAL]
+    sinal = lambda v: -1 if v.tipo == "NC" else 1  # noqa: E731
+    vencidas = [v for v in abertas if v.data_vencimento and v.data_vencimento < hoje]
+    return {
+        "vendas": [{**vendas.resumo_venda(v, hoje), "contabilizada": v.id not in sem_lancamento}
+                   for v in todas if filtros[estado](v)][:1000],
+        "totais": {
+            "vendas_sem_iva": round(sum(sinal(v) * v.valor_sem_iva for v in validas), 2),
+            "iva_liquidado": round(sum(sinal(v) * v.total_iva for v in validas), 2),
+            "documentos": len(validas),
+            "por_receber": round(sum(v.total - v.valor_recebido for v in abertas), 2),
+            "por_receber_quantidade": len(abertas),
+            "vencidas": round(sum(v.total - v.valor_recebido for v in vencidas), 2),
+            "vencidas_quantidade": len(vencidas),
+            "por_contabilizar": len(sem_lancamento),
+        },
+    }
+
+
+@router.post("/vendas/importar-saft", status_code=201)
+def importar_saft_faturacao(
+    ficheiro: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Importa as faturas, notas de crédito e recibos do SAF-T de faturação do programa certificado."""
+    limites.verificar(limites.envios, f"utilizador-{utilizador.id}")
+    conteudo = ficheiro.file.read()
+    if len(conteudo) > config.TAMANHO_MAXIMO * 5:
+        raise HTTPException(status_code=413, detail="O ficheiro tem mais de 50 MB.")
+    empresa = _empresa(db, utilizador)
+    try:
+        r = vendas.importar_saft(db, empresa, conteudo, utilizador.id)
+    except (vendas.ErroVenda, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return {
+        "importadas": r.importadas, "duplicadas": r.duplicadas, "anuladas": r.anuladas, "ignoradas": r.ignoradas,
+        "recebimentos": r.recebimentos, "nao_contabilizadas": r.nao_contabilizadas, "avisos": r.avisos[:50],
+        "de": r.periodo[0], "ate": r.periodo[1],
+    }
+
+
+class LinhaVendaEntrada(BaseModel):
+    taxa: float = Field(ge=0, le=100)
+    base: float = Field(gt=0)
+    conta: Literal["711", "712", "721"] = "711"
+    isencao: str | None = Field(None, max_length=10)
+
+
+class VendaEntrada(BaseModel):
+    tipo: Literal["FT", "FS", "FR", "NC", "ND"] = "FT"
+    numero: str = Field(min_length=1, max_length=60)
+    data: date
+    data_vencimento: date | None = None
+    cliente_nif: str | None = Field(None, max_length=20)
+    cliente_nome: str | None = Field(None, max_length=200)
+    atcud: str | None = Field(None, max_length=100)
+    meio_pagamento: Literal["NU", "TB", "CC", "CD", "MB", "CH", "OU"] | None = None
+    linhas: list[LinhaVendaEntrada] = Field(min_length=1, max_length=50)
+
+
+@router.post("/vendas", status_code=201)
+def registar_venda(entrada: VendaEntrada, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    """Regista uma venda emitida noutro programa (ou no Portal das Finanças) e contabiliza-a."""
+    empresa = _empresa(db, utilizador)
+    try:
+        venda = vendas.registar(
+            db, empresa, numero=entrada.numero, tipo=entrada.tipo, data=entrada.data,
+            cliente_nif=entrada.cliente_nif, cliente_nome=entrada.cliente_nome, atcud=entrada.atcud,
+            data_vencimento=entrada.data_vencimento, meio_pagamento=entrada.meio_pagamento,
+            linhas=[vendas.LinhaVenda(ln.taxa, ln.base, ln.conta, ln.isencao) for ln in entrada.linhas],
+            utilizador_id=utilizador.id,
+        )
+    except vendas.ErroVenda as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    except lancamentos.ErroContabilistico as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return vendas.resumo_venda(venda)
+
+
+@router.get("/vendas/clientes")
+def contas_correntes_clientes(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    return relatorios.contas_correntes_clientes(db, utilizador.empresa_id, date.today())
+
+
+@router.get("/vendas/{venda_id}")
+def obter_venda(venda_id: int, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    venda = _venda(db, utilizador, venda_id)
+    feitos = db.scalars(select(Lancamento).where(
+        Lancamento.empresa_id == utilizador.empresa_id, Lancamento.venda_id == venda.id
+    ).order_by(Lancamento.data, Lancamento.id)).all()
+    return {**vendas.resumo_venda(venda), "lancamentos": [lancamento_dict(la) for la in feitos]}
+
+
+@router.post("/vendas/{venda_id}/contabilizar", status_code=201)
+def contabilizar_venda(venda_id: int, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    venda = _venda(db, utilizador, venda_id)
+    try:
+        lancamento = vendas.contabilizar(db, empresa, venda, utilizador.id)
+    except lancamentos.ErroContabilistico as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
+class Recebimento(BaseModel):
+    data: date | None = None
+    conta: str = Field("121", pattern=r"^1[123]\d+$")
+    valor: float | None = Field(None, gt=0)
+
+
+@router.post("/vendas/{venda_id}/receber", status_code=201)
+def receber_venda(venda_id: int, dados: Recebimento, db: Session = Depends(get_db),
+                  utilizador: Utilizador = Depends(utilizador_atual)):
+    """Regista o recebimento (total, ou parcial com `valor`)."""
+    empresa = _empresa(db, utilizador)
+    venda = _venda(db, utilizador, venda_id)
+    try:
+        lancamento = vendas.receber(db, empresa, venda, dados.data or date.today(), dados.conta, dados.valor,
+                                    utilizador.id)
+    except lancamentos.ErroContabilistico as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return lancamento_dict(lancamento)
+
+
 # ---------- Assistente com IA ----------
 
 class MensagemHistorico(BaseModel):
@@ -698,8 +878,9 @@ def listar_movimentos(
     # Os candidatos carregam-se uma só vez para todos os movimentos pendentes
     linhas = banco.linhas_por_reconciliar(db, empresa.id, conta)
     faturas = banco.faturas_por_pagar(db, empresa.id)
+    abertas = vendas.por_receber(db, empresa.id)
     resultado = [
-        _movimento_dict(m, banco.sugestoes(db, empresa.id, m, linhas, faturas)
+        _movimento_dict(m, banco.sugestoes(db, empresa.id, m, linhas, faturas, abertas)
                         if m.estado == MOVIMENTO_PENDENTE else None)
         for m in movimentos
     ]
@@ -713,6 +894,10 @@ class Associacao(BaseModel):
 
 class PagamentoFatura(BaseModel):
     fatura_id: str = Field(min_length=1, max_length=12)
+
+
+class RecebimentoVenda(BaseModel):
+    venda_id: int
 
 
 class LancamentoBanco(BaseModel):
@@ -745,6 +930,13 @@ def pagar_fatura_movimento(movimento_id: int, dados: PagamentoFatura, db: Sessio
                            utilizador: Utilizador = Depends(utilizador_atual)):
     return _acao_banco(db, utilizador, movimento_id,
                        lambda e, m: banco.pagar_fatura(db, e, m, dados.fatura_id, utilizador.id))
+
+
+@router.post("/banco/movimentos/{movimento_id}/receber-venda")
+def receber_venda_movimento(movimento_id: int, dados: RecebimentoVenda, db: Session = Depends(get_db),
+                            utilizador: Utilizador = Depends(utilizador_atual)):
+    return _acao_banco(db, utilizador, movimento_id,
+                       lambda e, m: banco.receber_venda(db, e, m, dados.venda_id, utilizador.id))
 
 
 @router.post("/banco/movimentos/{movimento_id}/lancar")

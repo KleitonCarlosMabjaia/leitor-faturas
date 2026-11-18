@@ -15,7 +15,16 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.modelos.tabelas import ESTADO_CONFIRMADA, Conta, Fatura, Lancamento, LinhaLancamento
+from app.modelos.tabelas import (
+    ESTADO_CONFIRMADA,
+    LANCAMENTO_ATIVO,
+    VENDA_NORMAL,
+    Conta,
+    Fatura,
+    FaturaVenda,
+    Lancamento,
+    LinhaLancamento,
+)
 from app.servicos.contabilidade import plano_snc
 from app.servicos.contabilidade.iva import CAMPOS_DEDUTIVEL, CAMPOS_LIQUIDADO, escalao
 
@@ -327,5 +336,54 @@ def contas_correntes(db: Session, empresa_id: int, ate: date, hoje: date | None 
         "ate": ate,
         "linhas": linhas,
         "total": _r(sum(ln["saldo"] for ln in linhas)),
+        "antiguidade": {nome: _r(sum(ln["antiguidade"][nome] for ln in linhas)) for nome, _ in ESCALOES_ANTIGUIDADE},
+    }
+
+
+def _escalao_antiguidade(dias: int) -> str:
+    if dias <= 0:
+        return "a_vencer"
+    if dias <= 30:
+        return "ate_30"
+    if dias <= 60:
+        return "ate_60"
+    if dias <= 90:
+        return "ate_90"
+    return "mais_90"
+
+
+def contas_correntes_clientes(db: Session, empresa_id: int, ate: date, hoje: date | None = None) -> dict:
+    """Saldo de cada cliente (2111xxxx) e antiguidade do que está por receber."""
+    hoje = hoje or date.today()
+    contas = {c.codigo: c for c in db.scalars(select(Conta).where(
+        Conta.empresa_id == empresa_id, Conta.codigo.like("2111%"), Conta.movimento
+    ))}
+    saldos = saldos_por_conta(db, empresa_id, ate=ate)
+    contabilizadas = select(Lancamento.venda_id).where(
+        Lancamento.empresa_id == empresa_id, Lancamento.origem == "venda", Lancamento.estado == LANCAMENTO_ATIVO,
+        Lancamento.venda_id.is_not(None),
+    )
+    por_receber = db.scalars(select(FaturaVenda).where(
+        FaturaVenda.empresa_id == empresa_id, FaturaVenda.estado == VENDA_NORMAL, FaturaVenda.recebida.is_(False),
+        FaturaVenda.tipo != "NC", FaturaVenda.id.in_(contabilizadas),
+    )).all()
+    antiguidade: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
+    for v in por_receber:
+        vencimento = v.data_vencimento or v.data
+        antiguidade[v.cliente_nif][_escalao_antiguidade((hoje - vencimento).days)] += v.total - v.valor_recebido
+
+    linhas = []
+    for codigo, conta in sorted(contas.items()):
+        saldo = saldos.get(codigo, 0.0)
+        idade = antiguidade.get(conta.nif or "", {}) if conta.nif else {}
+        if abs(saldo) < 0.005 and not idade:
+            continue
+        linhas.append({
+            "conta": codigo, "nome": conta.nome, "nif": conta.nif, "saldo": _r(saldo),  # positivo: o cliente deve
+            "antiguidade": {nome: _r(idade.get(nome, 0.0)) for nome, _ in ESCALOES_ANTIGUIDADE},
+        })
+    linhas.sort(key=lambda ln: ln["saldo"], reverse=True)
+    return {
+        "ate": ate, "linhas": linhas, "total": _r(sum(ln["saldo"] for ln in linhas)),
         "antiguidade": {nome: _r(sum(ln["antiguidade"][nome] for ln in linhas)) for nome, _ in ESCALOES_ANTIGUIDADE},
     }

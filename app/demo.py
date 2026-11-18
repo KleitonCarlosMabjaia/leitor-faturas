@@ -33,6 +33,7 @@ from app.modelos.tabelas import (
     Empresa,
     ExtratoBancario,
     Fatura,
+    FaturaVenda,
     Fornecedor,
     Lancamento,
     LinhaLancamento,
@@ -44,7 +45,7 @@ from app.modelos.tabelas import (
     Utilizador,
 )
 from app.servicos import armazenamento, autenticacao, repositorio
-from app.servicos.contabilidade import banco, extratos, lancamentos, obrigacoes, plano_snc, relatorios
+from app.servicos.contabilidade import banco, extratos, lancamentos, obrigacoes, plano_snc, relatorios, vendas
 from app.servicos.contabilidade.lancamentos import LinhaNova
 
 SEMENTE = 2026  # mesma semente -> mesmos dados em todas as execuções
@@ -446,7 +447,43 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                    [LinhaNova("2436", debito=a_pagar), LinhaNova("121", credito=a_pagar)])
         ano, trimestre = (ano + 1, 0) if trimestre == 3 else (ano, trimestre + 1)
     db.flush()
+    criar_vendas_demo(db, empresa, hoje)
     criar_extrato_demo(db, empresa, hoje)
+
+
+CLIENTES_DEMO = [
+    ("Hotel Miradouro do Tejo, S.A.", 1),
+    ("Eventos e Casamentos Lisboa, Lda.", 2),
+    ("Escritórios Avenida Central, Lda.", 3),
+]
+
+
+def criar_vendas_demo(db: Session, empresa: Empresa, hoje: date) -> None:
+    """
+    Faturas de catering a empresas (registadas como se viessem do programa de faturação),
+    a 30 dias: as antigas recebidas por transferência, uma vencida por cobrar, a mais
+    recente por receber e uma nota de crédito.
+    """
+    rng = random.Random(SEMENTE + 3)
+    clientes = [(nome, gerar_nif(rng, "5")) for nome, _ in CLIENTES_DEMO]
+    datas = sorted(hoje - timedelta(days=d) for d in (150, 128, 101, 86, 63, 47, 40, 12))
+    for indice, data in enumerate(datas, start=1):
+        nome, nif = clientes[indice % len(clientes)]
+        servico = round(rng.uniform(600, 1800), 2)
+        bebidas = round(rng.uniform(80, 300), 2)
+        venda = vendas.registar(
+            db, empresa, numero=f"FT A/{indice}", tipo="FT", data=data, cliente_nif=nif, cliente_nome=nome,
+            atcud=f"JJ7K2M9P-{indice}",
+            linhas=[vendas.LinhaVenda(13, servico, "721"), vendas.LinhaVenda(23, bebidas, "711")],
+        )
+        # Recebidas 25 a 35 dias depois, exceto a vencida (a 6.ª) e as que ainda não venceram
+        recebimento = data + timedelta(days=rng.randint(25, 35))
+        if indice != 6 and recebimento <= hoje - timedelta(days=3):
+            vendas.receber(db, empresa, venda, recebimento, "121")
+        if indice == 3:
+            vendas.registar(db, empresa, numero="NC A/1", tipo="NC", data=data + timedelta(days=4), cliente_nif=nif,
+                            cliente_nome=nome, linhas=[vendas.LinhaVenda(13, 50.0, "721")])
+    db.flush()
 
 
 def _descricao_banco(descricao: str) -> str:
@@ -499,6 +536,13 @@ def criar_extrato_demo(db: Session, empresa: Empresa, hoje: date, dias: int = 60
         movimentos.append((min(max(vencida.data_vencimento, inicio) + timedelta(days=5), hoje),
                            f"TRF SEPA {extratos.normalizar(vencida.nome_fornecedor).upper()[:40]}", -vencida.total))
 
+    # O cliente com a fatura vencida pagou por transferência, mas ainda ninguém registou o recebimento
+    atrasada = next((v for v in vendas.por_receber(db, empresa.id)
+                     if v.data_vencimento and v.data_vencimento < hoje - timedelta(days=5)), None)
+    if atrasada:
+        movimentos.append((hoje - timedelta(days=2),
+                           f"TRF RECEBIDA {extratos.normalizar(atrasada.cliente_nome).upper()[:40]}", atrasada.total))
+
     movimentos.sort(key=lambda m: m[0])
     saldo = relatorios.saldos_por_conta(db, empresa.id, ate=inicio - timedelta(days=1)).get("121", 0.0)
     texto = ["Consulta de movimentos - Conta à ordem", "", "Data movimento;Descrição;Montante;Saldo"]
@@ -522,6 +566,7 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))
     db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))
     db.execute(delete(Conta).where(Conta.empresa_id == empresa.id))
+    db.execute(delete(FaturaVenda).where(FaturaVenda.empresa_id == empresa.id))
     for fatura in db.scalars(select(Fatura).where(Fatura.empresa_id == empresa.id)):
         armazenamento.apagar_pdf(fatura.ficheiro)
         db.delete(fatura)

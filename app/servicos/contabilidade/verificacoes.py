@@ -20,7 +20,7 @@ from app.modelos.tabelas import (
     Lancamento,
     MovimentoBancario,
 )
-from app.servicos.contabilidade import obrigacoes, relatorios
+from app.servicos.contabilidade import obrigacoes, relatorios, vendas
 from app.servicos.contabilidade.lancamentos import _euros
 
 TAXA_TA_REPRESENTACAO = 0.10  # art. 88.º, n.º 7 do CIRC
@@ -141,7 +141,25 @@ def alertas(db: Session, empresa: Empresa, hoje: date | None = None) -> list[dic
             ("Reconciliar", f"bancos:{conta}"),
         ))
 
-    # 7. NIF inválido em faturas confirmadas
+    # 7. Vendas vencidas por receber e vendas por contabilizar
+    vencidas = [v for v in vendas.por_receber(db, empresa.id) if v.data_vencimento and v.data_vencimento < hoje]
+    if vencidas:
+        resultado.append(_alerta(
+            "aviso", f"{len(vencidas)} vendas vencidas por receber" if len(vencidas) > 1
+            else "1 venda vencida por receber",
+            f"Total em dívida: {_euros(sum(v.total - v.valor_recebido for v in vencidas))}. A mais antiga venceu a "
+            f"{min(v.data_vencimento for v in vencidas):%d/%m/%Y}.",
+            ("Ver vendas", "vendas"),
+        ))
+    sem_lancamento = vendas.por_contabilizar(db, empresa.id)
+    if sem_lancamento:
+        resultado.append(_alerta(
+            "aviso", f"{len(sem_lancamento)} venda{'s' if len(sem_lancamento) > 1 else ''} por contabilizar",
+            "Normalmente por o período estar fechado na data da venda. Contabilize-as na secção Vendas.",
+            ("Ver vendas", "vendas"),
+        ))
+
+    # 8. NIF inválido em faturas confirmadas
     nif_invalido = db.scalars(select(Fatura).where(
         Fatura.empresa_id == empresa.id, Fatura.estado == ESTADO_CONFIRMADA, Fatura.nif_valido.is_(False),
     )).all()

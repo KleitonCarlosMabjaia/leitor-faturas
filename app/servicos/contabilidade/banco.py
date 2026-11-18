@@ -31,12 +31,13 @@ from app.modelos.tabelas import (
     Empresa,
     ExtratoBancario,
     Fatura,
+    FaturaVenda,
     Lancamento,
     LinhaLancamento,
     MovimentoBancario,
     RegraBancaria,
 )
-from app.servicos.contabilidade import extratos, lancamentos, plano_snc, relatorios
+from app.servicos.contabilidade import extratos, lancamentos, plano_snc, relatorios, vendas
 from app.servicos.contabilidade.lancamentos import ErroContabilistico, LinhaNova
 
 JANELA_DIAS = 10        # diferença máxima de datas entre o banco e a contabilidade
@@ -181,7 +182,7 @@ def _semelhanca(a: str, b: str) -> int:
 
 
 def sugestoes(db: Session, empresa_id: int, mov: MovimentoBancario, linhas: list[LinhaLancamento] | None = None,
-              faturas: list[Fatura] | None = None) -> list[dict]:
+              faturas: list[Fatura] | None = None, vendas_abertas: list[FaturaVenda] | None = None) -> list[dict]:
     """Sugestões para um movimento por reconciliar, da melhor para a pior (com pontuação 0-100)."""
     valor = abs(mov.montante)
     resultado: list[dict] = []
@@ -218,6 +219,20 @@ def sugestoes(db: Session, empresa_id: int, mov: MovimentoBancario, linhas: list
                          f"({f.data_emissao:%d/%m/%Y})",
             })
 
+    # 2b. Vendas por receber com o mesmo valor em dívida (só nas entradas)
+    if mov.montante > 0:
+        if vendas_abertas is None:
+            vendas_abertas = vendas.por_receber(db, empresa_id)
+        for v in vendas_abertas:
+            em_divida = round(v.total - v.valor_recebido, 2)
+            if abs(em_divida - valor) > TOLERANCIA or v.data > mov.data:
+                continue
+            resultado.append({
+                "tipo": "receber_venda", "venda_id": v.id,
+                "pontuacao": min(80 + _semelhanca(mov.descricao, v.cliente_nome), 98),
+                "texto": f"Receber a {v.numero} de {v.cliente_nome} ({v.data:%d/%m/%Y})",
+            })
+
     # 3. Lançar numa conta: regra aprendida ou palavras-chave
     regra = _regra(db, empresa_id, mov)
     sinal = 1 if mov.montante > 0 else -1
@@ -250,7 +265,8 @@ def sugestao_segura(sugs: list[dict]) -> dict | None:
     melhor = sugs[0]
     if melhor["tipo"] == "lancar":
         return melhor if melhor["origem"] == "regra" else None
-    rivais = [s for s in sugs[1:] if s["tipo"] in ("associar", "pagar_fatura") and s["pontuacao"] >= PONTUACAO_SEGURA]
+    rivais = [s for s in sugs[1:]
+              if s["tipo"] in ("associar", "pagar_fatura", "receber_venda") and s["pontuacao"] >= PONTUACAO_SEGURA]
     return None if rivais else melhor
 
 
@@ -306,6 +322,21 @@ def pagar_fatura(db: Session, empresa: Empresa, mov: MovimentoBancario, fatura_i
                                                 utilizador_id=utilizador_id,
                                                 nota=f"Pago conforme extrato bancário: {mov.descricao}")
     fatura.paga = True
+    _marcar(mov, _linha_do_banco(lancamento, mov.conta_codigo), utilizador_id)
+    return lancamento
+
+
+def receber_venda(db: Session, empresa: Empresa, mov: MovimentoBancario, venda_id: int,
+                  utilizador_id: int | None = None) -> Lancamento:
+    """Regista o recebimento da venda na data do banco, pela conta do extrato, e reconcilia."""
+    _verificar_pendente(mov)
+    venda = db.scalar(select(FaturaVenda).where(FaturaVenda.id == venda_id, FaturaVenda.empresa_id == empresa.id))
+    if venda is None:
+        raise ErroContabilistico("Venda não encontrada.")
+    if mov.montante <= 0 or abs(round(venda.total - venda.valor_recebido, 2) - mov.montante) > TOLERANCIA:
+        raise ErroContabilistico("O valor do movimento não é igual ao que falta receber da venda.")
+    lancamento = vendas.receber(db, empresa, venda, mov.data, mov.conta_codigo, mov.montante, utilizador_id,
+                                nota=f"Recebido conforme extrato bancário: {mov.descricao}")
     _marcar(mov, _linha_do_banco(lancamento, mov.conta_codigo), utilizador_id)
     return lancamento
 
@@ -374,7 +405,7 @@ def reconciliar_automaticamente(db: Session, empresa: Empresa, conta_codigo: str
                                 utilizador_id: int | None = None) -> dict:
     """Aplica só as sugestões seguras. Devolve quantos movimentos reconciliou, por tipo."""
     verificar_conta(db, empresa.id, conta_codigo)
-    contagem = {"associar": 0, "pagar_fatura": 0, "lancar": 0}
+    contagem = {"associar": 0, "pagar_fatura": 0, "receber_venda": 0, "lancar": 0}
     pendentes = list(db.scalars(select(MovimentoBancario).where(
         MovimentoBancario.empresa_id == empresa.id, MovimentoBancario.conta_codigo == conta_codigo,
         MovimentoBancario.estado == MOVIMENTO_PENDENTE,
@@ -388,6 +419,8 @@ def reconciliar_automaticamente(db: Session, empresa: Empresa, conta_codigo: str
                 associar(db, empresa.id, mov, melhor["linha_id"], utilizador_id)
             elif melhor["tipo"] == "pagar_fatura":
                 pagar_fatura(db, empresa, mov, melhor["fatura_id"], utilizador_id)
+            elif melhor["tipo"] == "receber_venda":
+                receber_venda(db, empresa, mov, melhor["venda_id"], utilizador_id)
             else:
                 lancar(db, empresa, mov, melhor["conta"], utilizador_id=utilizador_id)
         except ErroContabilistico:

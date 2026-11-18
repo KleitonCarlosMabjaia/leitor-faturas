@@ -20,7 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app import config
-from app.modelos.tabelas import Conta, Empresa, Lancamento, LinhaLancamento
+from app.modelos.tabelas import CONSUMIDOR_FINAL, Conta, Empresa, Lancamento, LinhaLancamento
 from app.servicos import validacao
 from app.servicos.contabilidade import lancamentos, plano_snc, relatorios
 
@@ -138,8 +138,9 @@ def gerar(db: Session, empresa: Empresa, de: date, ate: date, agora: datetime | 
     contas = {c.codigo: c for c in plano_snc.contas_por_codigo(db, empresa.id).values() if len(c.codigo) >= 2}
     mestres = _sub(raiz, "MasterFiles")
     _plano_de_contas(mestres, db, empresa.id, contas, de, ate)
+    clientes = _clientes(mestres, contas)
     fornecedores = _fornecedores(mestres, contas)
-    _movimentos(raiz, db, empresa.id, de, ate, fornecedores)
+    _movimentos(raiz, db, empresa.id, de, ate, clientes, fornecedores)
 
     return ET.tostring(raiz, encoding="Windows-1252", xml_declaration=True)
 
@@ -199,6 +200,32 @@ def _plano_de_contas(mestres: ET.Element, db: Session, empresa_id: int, contas: 
             _sub(el, "GroupingCode", _pai(codigo, codigos))
 
 
+def _morada_desconhecida(pai: ET.Element) -> None:
+    morada = _sub(pai, "BillingAddress")
+    _sub(morada, "AddressDetail", "Desconhecido")
+    _sub(morada, "City", "Desconhecido")
+    _sub(morada, "PostalCode", "Desconhecido")
+    _sub(morada, "Country", "PT")
+
+
+def _clientes(mestres: ET.Element, contas: dict[str, Conta]) -> set[str]:
+    """Um cliente por subconta de 2111 (a dos diversos fica com o NIF de consumidor final)."""
+    usados = set()
+    for codigo in sorted(contas):
+        conta = contas[codigo]
+        if not codigo.startswith("2111") or not conta.movimento:
+            continue
+        el = _sub(mestres, "Customer")
+        _sub(el, "CustomerID", codigo)
+        _sub(el, "AccountID", codigo)
+        _sub(el, "CustomerTaxID", conta.nif or CONSUMIDOR_FINAL)
+        _sub(el, "CompanyName", _texto(conta.nome, 100))
+        _morada_desconhecida(el)
+        _sub(el, "SelfBillingIndicator", 0)
+        usados.add(codigo)
+    return usados
+
+
 def _fornecedores(mestres: ET.Element, contas: dict[str, Conta]) -> set[str]:
     """Um fornecedor por subconta com NIF. Devolve os SupplierID usados (= código da subconta)."""
     usados = set()
@@ -211,17 +238,14 @@ def _fornecedores(mestres: ET.Element, contas: dict[str, Conta]) -> set[str]:
         _sub(el, "AccountID", codigo)
         _sub(el, "SupplierTaxID", conta.nif)
         _sub(el, "CompanyName", _texto(conta.nome, 100))
-        morada = _sub(el, "BillingAddress")
-        _sub(morada, "AddressDetail", "Desconhecido")
-        _sub(morada, "City", "Desconhecido")
-        _sub(morada, "PostalCode", "Desconhecido")
-        _sub(morada, "Country", "PT")
+        _morada_desconhecida(el)
         _sub(el, "SelfBillingIndicator", 0)
         usados.add(codigo)
     return usados
 
 
-def _movimentos(raiz: ET.Element, db: Session, empresa_id: int, de: date, ate: date, fornecedores: set[str]) -> None:
+def _movimentos(raiz: ET.Element, db: Session, empresa_id: int, de: date, ate: date, clientes: set[str],
+                fornecedores: set[str]) -> None:
     todos = db.scalars(
         select(Lancamento)
         .options(selectinload(Lancamento.linhas).joinedload(LinhaLancamento.conta))
@@ -244,10 +268,10 @@ def _movimentos(raiz: ET.Element, db: Session, empresa_id: int, de: date, ate: d
         _sub(diario, "JournalID", codigo_diario)
         _sub(diario, "Description", lancamentos.DIARIOS.get(codigo_diario, codigo_diario))
         for la in por_diario[codigo_diario]:
-            _transacao(diario, la, fornecedores)
+            _transacao(diario, la, clientes, fornecedores)
 
 
-def _transacao(diario: ET.Element, la: Lancamento, fornecedores: set[str]) -> None:
+def _transacao(diario: ET.Element, la: Lancamento, clientes: set[str], fornecedores: set[str]) -> None:
     arquivo = f"{la.ano}/{la.numero}"
     registo = (la.criado_em or datetime.now()).replace(microsecond=0)
     t = _sub(diario, "Transaction")
@@ -259,8 +283,11 @@ def _transacao(diario: ET.Element, la: Lancamento, fornecedores: set[str]) -> No
     _sub(t, "DocArchivalNumber", arquivo)
     _sub(t, "TransactionType", "N")
     _sub(t, "GLPostingDate", registo.date().isoformat())
+    cliente = next((ln.conta.codigo for ln in la.linhas if ln.conta.codigo in clientes), None)
     fornecedor = next((ln.conta.codigo for ln in la.linhas if ln.conta.codigo in fornecedores), None)
-    if fornecedor:
+    if cliente:
+        _sub(t, "CustomerID", cliente)
+    elif fornecedor:
         _sub(t, "SupplierID", fornecedor)
 
     linhas = _sub(t, "Lines")

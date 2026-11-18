@@ -24,6 +24,7 @@ from app.modelos.tabelas import (
     MOVIMENTO_PENDENTE,
     Empresa,
     Fatura,
+    FaturaVenda,
     Lancamento,
     LinhaLancamento,
     MovimentoBancario,
@@ -129,6 +130,7 @@ def criar(
     documento: str | None = None,
     origem: str = "manual",
     fatura_id: str | None = None,
+    venda_id: int | None = None,
     notas: list[str] | None = None,
     utilizador_id: int | None = None,
     estorno_de_id: int | None = None,
@@ -137,7 +139,7 @@ def criar(
     lancamento = Lancamento(
         empresa_id=empresa.id, diario=diario, ano=data.year, numero=proximo_numero(db, empresa.id, diario, data.year),
         data=data, descricao=descricao.strip()[:300], documento=(documento or None) and documento[:80],
-        origem=origem, fatura_id=fatura_id, estado=LANCAMENTO_ATIVO, estorno_de_id=estorno_de_id,
+        origem=origem, fatura_id=fatura_id, venda_id=venda_id, estado=LANCAMENTO_ATIVO, estorno_de_id=estorno_de_id,
         notas=notas or None, criado_por_id=utilizador_id, linhas=novas,
     )
     db.add(lancamento)
@@ -174,6 +176,7 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
         db, empresa, lancamento.diario, data,
         f"Estorno de {lancamento.diario} {lancamento.ano}/{lancamento.numero}: {lancamento.descricao}"[:300],
         linhas, documento=lancamento.documento, origem="estorno", fatura_id=lancamento.fatura_id,
+        venda_id=lancamento.venda_id,
         utilizador_id=utilizador_id, estorno_de_id=lancamento.id,
     )
     lancamento.estado = LANCAMENTO_ESTORNADO
@@ -181,6 +184,13 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
     ids_linhas = [ln.id for ln in lancamento.linhas]
     for mov in db.scalars(select(MovimentoBancario).where(MovimentoBancario.linha_id.in_(ids_linhas))):
         mov.linha_id, mov.estado, mov.reconciliado_em, mov.reconciliado_por_id = None, MOVIMENTO_PENDENTE, None, None
+    # Estornar um recebimento de um cliente volta a pôr esse valor em dívida
+    if lancamento.origem == "recebimento" and lancamento.venda_id:
+        venda = db.get(FaturaVenda, lancamento.venda_id)
+        recebido = sum(ln.debito for ln in lancamento.linhas if ln.conta.codigo.startswith(("11", "12", "13")))
+        if venda:
+            venda.valor_recebido = round(max(venda.valor_recebido - recebido, 0.0), 2)
+            venda.recebida = venda.valor_recebido >= venda.total - TOLERANCIA
     return estorno
 
 

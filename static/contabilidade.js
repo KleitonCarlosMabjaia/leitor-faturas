@@ -87,7 +87,7 @@ const ORIGENS_CLASSIFICACAO = {
 
 const NOMES_ORIGEM_LANCAMENTO = {
   manual: "Manual", fatura: "Fatura", pagamento: "Pagamento", estorno: "Estorno",
-  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário",
+  apuramento: "Apuramento", assistente: "Assistente IA", banco: "Extrato bancário", venda: "Venda", recebimento: "Recebimento",
 };
 
 // ---------- Estado ----------
@@ -188,6 +188,7 @@ const textoPeriodo = () => `${formatarData(periodo.de)} a ${formatarData(periodo
 const SECOES = {
   resumo: carregarResumo,
   "por-contabilizar": carregarPorContabilizar,
+  vendas: carregarVendas,
   lancamentos: carregarLancamentos,
   balancete: carregarBalancete,
   extrato: carregarExtrato,
@@ -1114,12 +1115,284 @@ async function carregarPlano(secao) {
       form));
 }
 
+// ---------- Vendas (faturas de clientes) ----------
+
+let filtroVendas = "todas";
+let pesquisaVendas = "";
+
+const TAXAS_IVA = [23, 13, 6, 0, 22, 12, 4, 16, 9];
+const CONTAS_RENDIMENTO = [["711", "Vendas de mercadorias"], ["712", "Vendas de produtos acabados"], ["721", "Prestações de serviços"]];
+
+function janelaTemporaria(titulo, conteudo, aoSubmeter, textoBotao = "Guardar") {
+  document.getElementById("janela-temporaria")?.remove();
+  const erro = h("p", { class: "erro-campo", role: "alert", hidden: true });
+  const gravar = h("button", { type: "submit", class: "botao" }, textoBotao);
+  const cancelar = h("button", { type: "button", class: "botao secundario" }, "Cancelar");
+  const form = h("form", { novalidate: true }, h("h2", { id: "janela-temporaria-titulo", texto: titulo }), conteudo, erro,
+    h("div", { class: "janela-botoes" }, cancelar, gravar));
+  const janela = h("dialog", { class: "janela larga", id: "janela-temporaria", "aria-labelledby": "janela-temporaria-titulo" }, form);
+  cancelar.addEventListener("click", () => janela.close());
+  janela.addEventListener("close", () => janela.remove());
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    erro.hidden = true;
+    ocupado(gravar, true);
+    try {
+      await aoSubmeter();
+      janela.close();
+    } catch (falha) {
+      erro.hidden = false;
+      erro.replaceChildren(icone("erro"), falha.message);
+      ocupado(gravar, false);
+    }
+  });
+  document.body.append(janela);
+  janela.showModal();
+  return janela;
+}
+
+function campoJanela(id, rotulo, el, classe = "campo") {
+  return h("div", { class: classe }, h("label", { for: id, texto: rotulo }), el);
+}
+
+function abrirRegistoVenda() {
+  const tipo = h("select", { id: "venda-tipo" }, [["FT", "Fatura"], ["FS", "Fatura simplificada"], ["FR", "Fatura-recibo"],
+    ["NC", "Nota de crédito"], ["ND", "Nota de débito"]].map(([v, t]) => h("option", { value: v }, `${v} · ${t}`)));
+  const numero = h("input", { type: "text", id: "venda-numero", maxlength: "60", placeholder: "Ex.: A/123", required: true });
+  const data = h("input", { type: "date", id: "venda-data", value: iso(new Date()), required: true });
+  const vencimento = h("input", { type: "date", id: "venda-vencimento" });
+  const nif = h("input", { type: "text", id: "venda-nif", inputmode: "numeric", maxlength: "12", placeholder: "Vazio: consumidor final" });
+  const nome = h("input", { type: "text", id: "venda-cliente", maxlength: "200", placeholder: "Nome do cliente" });
+  const meio = h("select", { id: "venda-meio" }, [["", "—"], ["NU", "Numerário (caixa)"], ["TB", "Transferência"], ["MB", "Multibanco"],
+    ["CC", "Cartão de crédito"], ["CD", "Cartão de débito"]].map(([v, t]) => h("option", { value: v }, t)));
+  const corpo = h("tbody", {});
+  const totais = h("p", { class: "editor-totais" });
+
+  function linha() {
+    const taxa = h("select", { "aria-label": "Taxa de IVA" }, TAXAS_IVA.map((t) => h("option", { value: t }, `${t}%`)));
+    const base = h("input", { type: "number", min: "0", step: "0.01", "aria-label": "Valor sem IVA", placeholder: "0,00" });
+    const conta = h("select", { "aria-label": "Conta de rendimento" }, CONTAS_RENDIMENTO.map(([c, n]) => h("option", { value: c }, `${c} · ${n}`)));
+    for (const el of [taxa, base, conta]) el.addEventListener("input", recalcular);
+    const tr = h("tr", {}, h("td", {}, conta), h("td", {}, taxa), h("td", {}, base),
+      h("td", {}, botaoIcone("lixo", "Remover a linha", () => { tr.remove(); recalcular(); }, "pequeno perigo")));
+    return tr;
+  }
+  function lerLinhas() {
+    return [...corpo.querySelectorAll("tr")].map((tr) => {
+      const [conta, taxa] = tr.querySelectorAll("select");
+      return { conta: conta.value, taxa: Number(taxa.value), base: Number(tr.querySelector("input").value) || 0 };
+    }).filter((l) => l.base > 0);
+  }
+  function recalcular() {
+    const linhas = lerLinhas();
+    const base = linhas.reduce((s, l) => s + l.base, 0);
+    const imposto = linhas.reduce((s, l) => s + Math.round(l.base * l.taxa) / 100, 0);
+    totais.textContent = `Sem IVA ${euros(base)} · IVA ${euros(imposto)} · Total ${euros(base + imposto)}`;
+  }
+  corpo.append(linha());
+  recalcular();
+
+  const conteudo = h("div", {},
+    h("p", { class: "ajuda", texto: "Para vendas emitidas noutro programa ou no Portal das Finanças. Esta aplicação não emite faturas: isso exige um programa certificado pela AT." }),
+    h("div", { class: "grelha-3" }, campoJanela("venda-tipo", "Tipo", tipo), campoJanela("venda-numero", "Número", numero),
+      campoJanela("venda-data", "Data", data)),
+    h("div", { class: "grelha-3" }, campoJanela("venda-nif", "NIF do cliente", nif), campoJanela("venda-cliente", "Cliente", nome),
+      campoJanela("venda-vencimento", "Vencimento (opcional)", vencimento)),
+    h("table", { class: "editor-linhas" },
+      h("thead", {}, h("tr", {}, h("th", { texto: "Conta" }), h("th", { texto: "IVA" }), h("th", { texto: "Valor sem IVA" }),
+        h("th", {}, h("span", { class: "visualmente-oculto", texto: "Remover" })))),
+      corpo),
+    h("div", { class: "editor-totais" }, botao("Linha", () => corpo.append(linha()), "botao secundario pequeno", "mais"), totais),
+    campoJanela("venda-meio", "Forma de pagamento (faturas-recibo)", meio));
+
+  janelaTemporaria("Registar venda", conteudo, async () => {
+    const linhas = lerLinhas();
+    if (!numero.value.trim() || !data.value || !linhas.length) throw new Error("Preencha o número, a data e pelo menos uma linha com valor.");
+    const v = await enviar("/api/contabilidade/vendas", {
+      tipo: tipo.value, numero: numero.value.trim(), data: data.value, data_vencimento: vencimento.value || null,
+      cliente_nif: nif.value.trim() || null, cliente_nome: nome.value.trim() || null, meio_pagamento: meio.value || null,
+      linhas,
+    });
+    notificar(`Venda ${v.numero} registada e contabilizada (${euros(v.total)}).`, "ok");
+    invalidar("resumo", "lancamentos", "balancete", "iva", "resultados", "extrato", "bancos");
+    await mostrar("vendas", true);
+  }, "Registar e contabilizar");
+  numero.focus();
+}
+
+async function abrirRecebimento(v) {
+  const contasBanco = await obter("/api/contabilidade/banco/contas");
+  const data = h("input", { type: "date", id: "receber-data", value: iso(new Date()) });
+  const conta = h("select", { id: "receber-conta" }, contasBanco.map((c) => {
+    const o = h("option", { value: c.codigo }, `${c.codigo} · ${c.nome}`);
+    if (c.codigo === "121") o.selected = true;
+    return o;
+  }));
+  const valor = h("input", { type: "number", id: "receber-valor", min: "0.01", step: "0.01", value: v.em_divida.toFixed(2) });
+  janelaTemporaria(`Receber ${v.numero}`, h("div", {},
+    h("p", { class: "ajuda", texto: `${v.cliente_nome} · em dívida ${euros(v.em_divida)}. Para um recebimento parcial, altere o valor.` }),
+    h("div", { class: "grelha-3" }, campoJanela("receber-data", "Data", data), campoJanela("receber-conta", "Entrou em", conta),
+      campoJanela("receber-valor", "Valor", valor))), async () => {
+    const la = await enviar(`/api/contabilidade/vendas/${v.id}/receber`, { data: data.value, conta: conta.value, valor: Number(valor.value) });
+    notificar(`Recebimento lançado: ${la.referencia}.`, "ok");
+    invalidar("resumo", "lancamentos", "balancete", "extrato", "bancos");
+    await mostrar("vendas", true);
+  }, "Registar recebimento");
+}
+
+function estadoVenda(v) {
+  if (v.estado === "anulada") return criarEtiqueta("Anulada", "neutro");
+  if (v.estado === "faturada") return criarEtiqueta("Faturada noutro documento", "neutro");
+  if (!v.contabilizada) return criarEtiqueta("Por contabilizar", "aviso", "alerta");
+  if (v.tipo === "NC") return criarEtiqueta("Nota de crédito", "info");
+  if (v.recebida) return criarEtiqueta("Recebida", "ok", "check");
+  if (v.vencida) return criarEtiqueta(`Vencida · ${euros(v.em_divida)}`, "erro", "alerta");
+  return criarEtiqueta(v.valor_recebido ? `Por receber · ${euros(v.em_divida)}` : "Por receber", "info", "relogio");
+}
+
+function acoesVenda(v) {
+  if (v.estado !== "normal") return null;
+  if (!v.contabilizada) {
+    return botao("Contabilizar", async (e) => {
+      const alvo = e.currentTarget;
+      ocupado(alvo, true);
+      try {
+        const la = await enviar(`/api/contabilidade/vendas/${v.id}/contabilizar`);
+        notificar(`Lançado: ${la.referencia}.`, "ok");
+        invalidar("resumo", "lancamentos", "balancete", "iva", "resultados", "extrato");
+        await mostrar("vendas", true);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+        ocupado(alvo, false);
+      }
+    }, "botao secundario pequeno");
+  }
+  if (v.tipo !== "NC" && !v.recebida) return botao("Receber", () => abrirRecebimento(v).catch((e) => notificar(e.message, "erro")), "botao secundario pequeno");
+  return null;
+}
+
+async function carregarVendas(secao) {
+  const params = new URLSearchParams({ estado: filtroVendas, de: periodo.de, ate: periodo.ate });
+  if (pesquisaVendas) params.set("pesquisa", pesquisaVendas);
+  const [d, clientes] = await Promise.all([obter(`/api/contabilidade/vendas?${params}`), obter("/api/contabilidade/vendas/clientes")]);
+  const t = d.totais;
+
+  // Importação do SAF-T de faturação
+  const ficheiro = h("input", { type: "file", id: "vendas-ficheiro", class: "visualmente-oculto", accept: ".xml" });
+  const nomeFicheiro = h("span", { class: "ajuda nome-ficheiro", texto: "Nenhum ficheiro escolhido" });
+  ficheiro.addEventListener("change", () => { nomeFicheiro.textContent = ficheiro.files[0]?.name || "Nenhum ficheiro escolhido"; });
+  const importar = h("button", { type: "submit", class: "botao" }, icone("upload"), "Importar SAF-T");
+  const formImportar = h("form", { class: "filtros-linha" },
+    h("div", { class: "campo largo" }, h("span", { class: "rotulo", texto: "SAF-T (PT) de faturação (.xml)" }),
+      h("div", { class: "escolher-ficheiro" },
+        h("label", { for: "vendas-ficheiro", class: "botao secundario" }, icone("ficheiro"), "Escolher ficheiro"), ficheiro, nomeFicheiro)),
+    importar, botao("Registar venda", abrirRegistoVenda, "botao secundario", "mais"));
+  formImportar.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!ficheiro.files.length) return ficheiro.click();
+    const dados = new FormData();
+    dados.append("ficheiro", ficheiro.files[0]);
+    ocupado(importar, true);
+    try {
+      const resposta = await api("/api/contabilidade/vendas/importar-saft", { method: "POST", body: dados });
+      if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível importar o SAF-T."));
+      const r = await resposta.json();
+      const partes = [`${r.importadas} documento${r.importadas === 1 ? "" : "s"} importado${r.importadas === 1 ? "" : "s"} e contabilizado${r.importadas === 1 ? "" : "s"}`];
+      if (r.recebimentos) partes.push(`${r.recebimentos} recibo${r.recebimentos === 1 ? "" : "s"}`);
+      if (r.anuladas) partes.push(`${r.anuladas} anulado${r.anuladas === 1 ? "" : "s"}`);
+      if (r.duplicadas) partes.push(`${r.duplicadas} já existia${r.duplicadas === 1 ? "" : "m"}`);
+      notificar(partes.join(" · ") + ".", r.avisos.length ? "aviso" : "ok");
+      for (const aviso of r.avisos.slice(0, 3)) notificar(aviso, "aviso");
+      invalidar("resumo", "lancamentos", "balancete", "iva", "resultados", "extrato", "bancos");
+      await mostrar("vendas", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(importar, false);
+    }
+  });
+
+  // Filtros e lista
+  const filtros = h("div", { class: "segmentos", role: "group", "aria-label": "Mostrar vendas" },
+    [["todas", "Todas"], ["por_receber", "Por receber"], ["recebidas", "Recebidas"], ["por_contabilizar", "Por contabilizar"],
+      ["anuladas", "Anuladas"]].map(([v, texto]) => {
+      const b = h("button", { type: "button", "aria-pressed": String(filtroVendas === v) }, texto);
+      b.addEventListener("click", () => { filtroVendas = v; mostrar("vendas", true); });
+      return b;
+    }));
+  const pesquisa = h("input", { type: "search", id: "vendas-pesquisa", value: pesquisaVendas, placeholder: "Número, cliente ou NIF", autocomplete: "off" });
+  let temporizador;
+  pesquisa.addEventListener("input", () => {
+    clearTimeout(temporizador);
+    temporizador = setTimeout(async () => {
+      pesquisaVendas = pesquisa.value.trim();
+      await mostrar("vendas", true);
+      const campo = document.getElementById("vendas-pesquisa");
+      campo?.focus();
+      campo?.setSelectionRange(campo.value.length, campo.value.length);
+    }, 350);
+  });
+
+  const linhas = d.vendas.map((v) => h("tr", { class: v.estado !== "normal" ? "estornado" : null },
+    td(formatarData(v.data), "", "Data"),
+    h("td", { class: "nome" }, h("span", { class: "titulo", texto: v.numero }), h("span", { class: "ajuda", texto: v.tipo_nome })),
+    h("td", {}, h("span", { class: "titulo", texto: v.cliente_nome }),
+      h("span", { class: "ajuda", texto: v.cliente_nif === "999999990" ? " Consumidor final" : ` NIF ${v.cliente_nif}` })),
+    td(`${v.tipo === "NC" ? "−" : ""}${euros(v.total)}`, "num", "Total"),
+    h("td", {}, estadoVenda(v)),
+    h("td", { class: "acoes" }, acoesVenda(v))));
+
+  // Contas correntes de clientes
+  const linhasClientes = clientes.linhas.map((l) => {
+    const total = ESCALOES.reduce((s, [k]) => s + l.antiguidade[k], 0);
+    const barra = h("div", { class: "barra-antiguidade", role: "img",
+      "aria-label": ESCALOES.filter(([k]) => l.antiguidade[k]).map(([k, n]) => `${n}: ${euros(l.antiguidade[k])}`).join("; ") || "Nada por receber" },
+    total ? ESCALOES.filter(([k]) => l.antiguidade[k]).map(([k]) => h("span", { class: `ant-${k}`, style: `width:${(l.antiguidade[k] / total) * 100}%` })) : null);
+    return h("tr", {},
+      h("td", { class: "nome" }, h("a", { class: "titulo", href: `#extrato:${l.conta}`, texto: l.nome }),
+        h("span", { class: "ajuda", texto: ` ${l.conta}${l.nif ? ` · NIF ${l.nif}` : ""}` })),
+      td(euros(l.saldo), `num${l.saldo < 0 ? " valor-negativo" : ""}`, "Saldo"),
+      h("td", { class: "celula-barra", style: "width:30%" }, barra));
+  });
+
+  secao.replaceChildren(
+    h("section", { class: "indicadores", "aria-label": "Resumo das vendas" },
+      indicador("Vendas no período", euros(t.vendas_sem_iva), `${t.documentos} documento${t.documentos === 1 ? "" : "s"} · sem IVA`, "euro", true),
+      indicador("IVA liquidado", euros(t.iva_liquidado), "das vendas do período", "percentagem"),
+      indicador("Por receber", euros(t.por_receber), `${t.por_receber_quantidade} fatura${t.por_receber_quantidade === 1 ? "" : "s"} (todos os períodos)`, "carteira"),
+      indicador("Vencidas", euros(t.vencidas), t.vencidas_quantidade ? `${t.vencidas_quantidade} por cobrar` : "nenhuma vencida", "alerta")),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Faturas de clientes" }),
+        h("p", { class: "subtitulo", texto: "Importe o SAF-T de faturação exportado pelo seu programa certificado (todos os meses) ou registe vendas emitidas no Portal das Finanças. Ficam contabilizadas no diário de vendas, com o IVA liquidado por taxa." }))),
+      formImportar),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, filtros,
+        h("div", { class: "campo", style: "margin:0;min-width:16rem" }, h("label", { for: "vendas-pesquisa", class: "visualmente-oculto", texto: "Pesquisar vendas" }), pesquisa)),
+      linhas.length
+        ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+          h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Data" }), h("th", { scope: "col", texto: "Documento" }),
+            h("th", { scope: "col", texto: "Cliente" }), h("th", { scope: "col", class: "num", texto: "Total" }),
+            h("th", { scope: "col", texto: "Estado" }), h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Ações" })))),
+          h("tbody", {}, linhas)))
+        : vazio("recibo", "Sem vendas", `Não há vendas com estes filtros entre ${textoPeriodo()}.`)),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, h("div", {}, h("h2", { texto: "Contas correntes de clientes" }),
+        h("p", { class: "subtitulo", texto: `Em dívida: ${euros(clientes.total)} · antiguidade pelas faturas por receber` }))),
+      h("div", { class: "legenda-antiguidade" }, ESCALOES.map(([k, n]) => h("span", {}, h("i", { class: `ant-${k}` }), `${n}: ${euros(clientes.antiguidade[k])}`))),
+      linhasClientes.length
+        ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+          h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Cliente" }), h("th", { scope: "col", class: "num", texto: "Saldo" }),
+            h("th", { scope: "col", class: "celula-barra", texto: "Antiguidade" }))),
+          h("tbody", {}, linhasClientes)))
+        : vazio("check", "Sem dívidas de clientes")),
+  );
+}
+
 // ---------- Bancos: extratos e reconciliação ----------
 
 let contaBanco = "121";
 let filtroBanco = "pendente";
 
-const NOMES_SUGESTAO = { associar: "Associar", pagar_fatura: "Pagar fatura", lancar: "Lançar" };
+const NOMES_SUGESTAO = { associar: "Associar", pagar_fatura: "Pagar fatura", receber_venda: "Receber", lancar: "Lançar" };
 
 async function acaoMovimento(botaoAcao, url, corpo, mensagem) {
   ocupado(botaoAcao, true);
@@ -1141,6 +1414,7 @@ function botaoSugestao(mov, s, principal = false) {
   b.addEventListener("click", () => {
     if (s.tipo === "associar") acaoMovimento(b, `${base}/associar`, { linha_id: s.linha_id }, "Movimento reconciliado.");
     else if (s.tipo === "pagar_fatura") acaoMovimento(b, `${base}/pagar-fatura`, { fatura_id: s.fatura_id }, "Pagamento registado e reconciliado.");
+    else if (s.tipo === "receber_venda") acaoMovimento(b, `${base}/receber-venda`, { venda_id: s.venda_id }, "Recebimento registado e reconciliado.");
     else acaoMovimento(b, `${base}/lancar`, { conta: s.conta }, `Lançado em ${s.conta} e reconciliado.`);
   });
   return b;

@@ -153,7 +153,7 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
-    "obrigacoes", "plano", "assistente", "bancos")]
+    "obrigacoes", "plano", "assistente", "bancos", "vendas")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
@@ -235,3 +235,22 @@ def test_reconciliacao_bancaria(page: Page, tmp_path):
     page.set_input_files("#banco-ficheiro", str(extrato))
     page.get_by_role("button", name="Importar extrato").click()
     expect(page.get_by_text("1 movimento importado")).to_be_visible()
+
+
+def test_vendas_registar_e_receber(page: Page):
+    page.goto("/contabilidade#vendas")
+    expect(page.get_by_role("heading", name="Faturas de clientes")).to_be_visible()
+    page.get_by_role("button", name="Registar venda").click()
+    page.locator("#venda-numero").fill("Z/900")
+    page.locator("#venda-nif").fill("500000000")
+    page.locator("#venda-cliente").fill("Cliente de Teste, Lda.")
+    page.locator("#janela-temporaria .editor-linhas input[type=number]").fill("100")
+    expect(page.locator("#janela-temporaria")).to_contain_text("Total 123,00")
+    page.get_by_role("button", name="Registar e contabilizar").click()
+    expect(page.get_by_text("Venda FT Z/900 registada e contabilizada")).to_be_visible()
+
+    linha = page.locator("tr", has_text="FT Z/900")
+    linha.get_by_role("button", name="Receber").click()
+    page.get_by_role("button", name="Registar recebimento").click()
+    expect(page.get_by_text("Recebimento lançado")).to_be_visible()
+    expect(page.locator("tr", has_text="FT Z/900")).to_contain_text("Recebida")

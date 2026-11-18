@@ -202,6 +202,7 @@ class Lancamento(Base):
     # manual | fatura | pagamento | estorno | apuramento | assistente
     origem: Mapped[str] = mapped_column(String(12), default="manual")
     fatura_id: Mapped[str | None] = mapped_column(ForeignKey("faturas.id", ondelete="SET NULL"), index=True)
+    venda_id: Mapped[int | None] = mapped_column(ForeignKey("faturas_venda.id", ondelete="SET NULL"), index=True)
     estado: Mapped[str] = mapped_column(String(10), default=LANCAMENTO_ATIVO)
     estorno_de_id: Mapped[int | None] = mapped_column(ForeignKey("lancamentos.id"))
     notas: Mapped[list | None] = mapped_column(JSON)    # explicações da classificação (art. 21.º CIVA, etc.)
@@ -318,3 +319,45 @@ class RegraBancaria(Base):
     conta_codigo: Mapped[str] = mapped_column(String(20))
     usos: Mapped[int] = mapped_column(default=0)
     atualizada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+
+# ---------- Vendas (faturas de clientes) ----------
+
+VENDA_NORMAL = "normal"
+VENDA_ANULADA = "anulada"
+VENDA_FATURADA = "faturada"  # documento já incluído noutra fatura (estado F no SAF-T): não se contabiliza
+
+CONSUMIDOR_FINAL = "999999990"
+
+
+class FaturaVenda(Base):
+    """
+    Fatura emitida a um cliente. Não é emitida aqui (emitir faturas exige um programa
+    certificado pela AT): vem do SAF-T de faturação desse programa ou é registada à mão.
+    Valores sempre positivos; as notas de crédito (NC) invertem-se ao contabilizar.
+    """
+
+    __tablename__ = "faturas_venda"
+    __table_args__ = (UniqueConstraint("empresa_id", "numero", name="uq_venda_empresa_numero"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id"), index=True)
+    numero: Mapped[str] = mapped_column(String(60))           # ex.: "FT A/123" (já inclui o tipo)
+    tipo: Mapped[str] = mapped_column(String(2))              # FT FS FR NC ND
+    atcud: Mapped[str | None] = mapped_column(String(100))
+    data: Mapped[date] = mapped_column(Date, index=True)
+    data_vencimento: Mapped[date | None] = mapped_column(Date)
+    cliente_nif: Mapped[str] = mapped_column(String(20), default=CONSUMIDOR_FINAL)
+    cliente_nome: Mapped[str] = mapped_column(String(200), default="Consumidor final")
+    # [{taxa, base, valor, conta, isencao}]: uma linha por taxa de IVA e conta de rendimento
+    linhas: Mapped[list] = mapped_column(JSON)
+    valor_sem_iva: Mapped[float] = mapped_column(Float)
+    total_iva: Mapped[float] = mapped_column(Float)
+    total: Mapped[float] = mapped_column(Float)
+    estado: Mapped[str] = mapped_column(String(10), default=VENDA_NORMAL)
+    valor_recebido: Mapped[float] = mapped_column(Float, default=0.0)
+    recebida: Mapped[bool] = mapped_column(default=False, index=True)
+    meio_pagamento: Mapped[str | None] = mapped_column(String(2))  # NU numerário, TB transferência, CC cartão...
+    origem: Mapped[str] = mapped_column(String(10), default="manual")  # saft | manual
+    criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    criada_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
