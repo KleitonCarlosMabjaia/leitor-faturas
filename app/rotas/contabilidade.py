@@ -499,7 +499,22 @@ def obter_resultados(de: date | None = None, ate: date | None = None, db: Sessio
 @router.get("/fornecedores")
 def obter_contas_correntes(ate: date | None = None, db: Session = Depends(get_db),
                            utilizador: Utilizador = Depends(utilizador_atual)):
-    return relatorios.contas_correntes(db, utilizador.empresa_id, ate or date.today())
+    """Saldos e antiguidade por fornecedor, e as faturas contabilizadas por pagar (para registar o pagamento)."""
+    hoje = date.today()
+    dados = relatorios.contas_correntes(db, utilizador.empresa_id, ate or hoje)
+    por_pagar = sorted(banco.faturas_por_pagar(db, utilizador.empresa_id),
+                       key=lambda f: (f.data_vencimento or f.data_emissao or hoje, f.id))
+    dados["faturas_por_pagar"] = [{
+        "id": f.id, "fornecedor": f.nome_fornecedor, "nif": f.nif_fornecedor,
+        "documento": lancamentos.documento_fatura(f), "data_emissao": f.data_emissao,
+        "data_vencimento": f.data_vencimento, "total": f.total,
+        "nota_credito": (f.tipo_documento or "").upper() in lancamentos.TIPOS_NOTA_CREDITO,
+        "dias_atraso": (hoje - f.data_vencimento).days if f.data_vencimento and f.data_vencimento < hoje else 0,
+    } for f in por_pagar]
+    # Faturas por pagar que ainda não estão na contabilidade: o pagamento só se regista depois de contabilizar
+    pendentes = verificacoes.faturas_por_contabilizar(db, utilizador.empresa_id)
+    dados["por_pagar_sem_contabilizar"] = sum(1 for f in pendentes if not f.paga)
+    return dados
 
 
 @router.get("/obrigacoes")

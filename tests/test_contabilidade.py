@@ -293,3 +293,21 @@ def test_membro_nao_fecha_periodos(cliente_anonimo, fabrica_sessoes, empresa_tes
         db.commit()
     membro = entrar(cliente_anonimo, "membro@teste.pt")
     assert membro.put("/api/contabilidade/configuracao", json={"regime_iva": "mensal"}).status_code == 403
+
+
+def test_faturas_por_pagar_e_pagamento_pelos_fornecedores(cliente, fabrica_sessoes, empresa_teste):
+    contabilizada = criar_fatura(fabrica_sessoes, empresa_teste, data_vencimento="2026-01-31",
+                                 data_emissao="2026-01-02")
+    criar_fatura(fabrica_sessoes, empresa_teste, numero_fatura="FT 2026/999")  # por pagar, mas por contabilizar
+    cliente.post(f"/api/contabilidade/faturas/{contabilizada}/contabilizar", json={})
+
+    d = cliente.get("/api/contabilidade/fornecedores").json()
+    assert [f["id"] for f in d["faturas_por_pagar"]] == [contabilizada]
+    assert d["faturas_por_pagar"][0]["dias_atraso"] > 0 and d["por_pagar_sem_contabilizar"] == 1
+
+    r = cliente.post(f"/api/contabilidade/faturas/{contabilizada}/pagamento",
+                     json={"data": "2026-02-03", "conta": "111"})
+    assert r.status_code == 201, r.text
+    assert r.json()["diario"] == "CX" and r.json()["data"] == "2026-02-03"
+    assert cliente.get("/api/contabilidade/fornecedores").json()["faturas_por_pagar"] == []
+    assert cliente.get(f"/api/faturas/{contabilizada}").json()["paga"] is True

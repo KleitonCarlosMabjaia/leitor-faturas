@@ -1008,6 +1008,60 @@ const ESCALOES = [
   ["ate_90", "61 a 90 dias"], ["mais_90", "Mais de 90 dias"],
 ];
 
+function cartaoFaturasPorPagar(d) {
+  const lista = d.faturas_por_pagar;
+  const total = lista.reduce((soma, f) => soma + (f.nota_credito ? -f.total : f.total), 0);
+  const linhas = lista.map((f) => {
+    let estado;
+    if (f.dias_atraso) estado = criarEtiqueta(`Vencida há ${f.dias_atraso} dia${f.dias_atraso === 1 ? "" : "s"}`, "erro", "relogio");
+    else if (f.data_vencimento) estado = criarEtiqueta(`Vence a ${formatarData(f.data_vencimento)}`, "neutro");
+    else estado = criarEtiqueta("Sem vencimento", "neutro");
+    return h("tr", {},
+      h("td", { class: "nome" }, h("a", { class: "titulo", href: `/faturas/${f.id}`, texto: f.fornecedor || `NIF ${f.nif || "—"}` }),
+        h("span", { class: "ajuda", texto: ` ${f.documento}${f.nota_credito ? " · nota de crédito (a receber)" : ""}` })),
+      td(formatarData(f.data_emissao), "", "Emissão"),
+      h("td", { "data-rotulo": "Vencimento" }, estado),
+      td(euros(f.nota_credito ? -f.total : f.total), "num", "Valor"),
+      h("td", { class: "acoes" }, botao(f.nota_credito ? "Registar recebimento" : "Registar pagamento",
+        () => abrirPagamentoFatura(f), "botao secundario pequeno", "carteira")));
+  });
+  return h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: "Faturas por pagar" }),
+        h("p", { class: "subtitulo", texto: lista.length
+          ? `${lista.length} fatura${lista.length === 1 ? "" : "s"} contabilizada${lista.length === 1 ? "" : "s"}, ${euros(total)} no total, das vencidas para as mais recentes. O pagamento é lançado na conta do fornecedor contra o banco ou a caixa, e a fatura fica marcada como paga.`
+          : "Todas as faturas contabilizadas estão pagas." }))),
+    d.por_pagar_sem_contabilizar ? h("p", { class: "ajuda" }, icone("alerta"),
+      ` ${d.por_pagar_sem_contabilizar} fatura${d.por_pagar_sem_contabilizar === 1 ? "" : "s"} por pagar ainda não ${d.por_pagar_sem_contabilizar === 1 ? "está contabilizada" : "estão contabilizadas"}: contabilize primeiro em `,
+      h("a", { href: "#por-contabilizar", texto: "Por contabilizar" }), ".") : null,
+    linhas.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Fornecedor" }), h("th", { scope: "col", texto: "Emissão" }),
+        h("th", { scope: "col", texto: "Vencimento" }), h("th", { scope: "col", class: "num", texto: "Valor" }),
+        h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Ações" })))),
+      h("tbody", {}, linhas))) : null);
+}
+
+async function abrirPagamentoFatura(f) {
+  await obterContas();
+  const financeiras = contas.filter((c) => c.movimento && /^1[123]/.test(c.codigo));
+  const conta = h("select", { id: "pag-fat-conta" }, financeiras.map((c) => h("option", { value: c.codigo }, `${c.codigo} · ${c.nome}`)));
+  conta.value = financeiras.some((c) => c.codigo === "121") ? "121" : financeiras[0]?.codigo;
+  const data = h("input", { type: "date", id: "pag-fat-data", value: iso(new Date()), min: f.data_emissao, max: iso(new Date()) });
+  const recebimento = f.nota_credito;
+  janelaTemporaria(`${recebimento ? "Recebimento" : "Pagamento"}: ${f.documento}`, h("div", {},
+    h("p", { class: "ajuda", texto: `${f.fornecedor || "Fornecedor"} · ${euros(f.total)}${f.data_vencimento ? ` · vencimento ${formatarData(f.data_vencimento)}` : ""}. ${recebimento
+      ? "O fornecedor devolve o valor da nota de crédito."
+      : "Lançamento: débito na conta do fornecedor, crédito no banco ou na caixa. Se depois importar o extrato, este movimento é reconciliado com ele."}` }),
+    h("div", { class: "grelha-3" }, campoJanela("pag-fat-data", `Data do ${recebimento ? "recebimento" : "pagamento"}`, data),
+      h("div", { class: "campo", style: "grid-column: span 2" }, h("label", { for: "pag-fat-conta", texto: recebimento ? "Entra em" : "Sai de" }), conta))), async () => {
+    if (!data.value) throw new Error("Indique a data.");
+    const la = await enviar(`/api/contabilidade/faturas/${f.id}/pagamento`, { data: data.value, conta: conta.value });
+    notificar(`${recebimento ? "Recebimento" : "Pagamento"} lançado: ${la.referencia}.`, "ok");
+    invalidar("resumo", "lancamentos", "balancete", "extrato", "balanco", "bancos", "fecho");
+    await mostrar("fornecedores", true);
+  }, recebimento ? "Registar recebimento" : "Registar pagamento");
+}
+
 async function carregarFornecedores(secao) {
   const d = await obter("/api/contabilidade/fornecedores");
   const legenda = h("div", { class: "legenda-antiguidade" }, ESCALOES.map(([k, nome]) =>
@@ -1028,7 +1082,7 @@ async function carregarFornecedores(secao) {
     return tr;
   });
 
-  preencher(secao, h("section", { class: "cartao" },
+  preencher(secao, cartaoFaturasPorPagar(d), h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" },
       h("div", {}, h("h2", { texto: "Contas correntes de fornecedores" }),
         h("p", { class: "subtitulo", texto: `Saldo em dívida: ${euros(d.total)} · antiguidade pelas faturas confirmadas por pagar` }))),

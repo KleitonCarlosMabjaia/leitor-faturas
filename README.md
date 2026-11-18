@@ -49,7 +49,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - **IVA não dedutível automático (art. 21.º do CIVA):** gasóleo a 50%, gasolina, viaturas ligeiras, refeições e deslocações. A parte não dedutível vai para o gasto e fica explicada no lançamento. As notas de crédito invertem o lançamento.
 - Marcar uma fatura como paga gera o **pagamento no banco**; desmarcar estorna-o. Uma fatura contabilizada fica protegida contra alterações.
 - **Apuramento do IVA num clique** (2432/2433/2434 → 2435 → 2436 a pagar ou 2437 a recuperar, com reporte do crédito anterior) e **mapa de apoio à declaração periódica** (campos 1 a 6 e 20 a 24).
-- **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**.
+- **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**, com a lista das faturas por pagar e o registo do pagamento (data, banco ou caixa) a partir daí.
 - **Verificações automáticas** do dia a dia: faturas por contabilizar, IVA do período por apurar, caixa com saldo credor, fornecedores com saldo devedor, NIF inválido, **tributação autónoma estimada** das despesas de representação (art. 88.º do CIRC), retenção na fonte a pessoas singulares e faturas sem ATCUD.
 - **Vendas (faturas de clientes)** importadas do **SAF-T de faturação** do programa certificado (faturas, faturas simplificadas, faturas-recibo, notas de crédito e de débito, documentos anulados e recibos) ou registadas à mão (por exemplo, faturas do Portal das Finanças). Ficam contabilizadas no diário de vendas: cliente a débito; vendas (711), serviços (721) e IVA liquidado por taxa a crédito. Recebimentos totais ou parciais, **contas correntes de clientes com antiguidade**, alerta de vendas vencidas e, na reconciliação bancária, a sugestão de **receber a fatura** quando o dinheiro entra no banco. A aplicação **não emite** faturas: isso exige um programa certificado pela AT (Portaria n.º 363/2010).
 - **Inventários** pelo sistema de inventário periódico: contagens físicas importadas de CSV ou Excel (código, descrição, categoria, quantidade e custo) ou escritas à mão, inventário de abertura e **apuramento do CMVMC** (inventário inicial + compras líquidas − inventário final) para mercadorias e matérias-primas. As compras (31) passam para inventários (321/331) e o consumo para o custo das vendas (611/612), com a conta mostrada antes de lançar. Os inventários lançam-se por ordem e ficam protegidos depois de lançados.
@@ -83,7 +83,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 211 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
+- 212 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -186,8 +186,8 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 211 testes, sem navegador
-pytest tests_ui                    # interface: 50 testes num Chromium a sério (Playwright)
+pytest                             # servidor: 212 testes, sem navegador
+pytest tests_ui                    # interface: 51 testes num Chromium a sério (Playwright)
 ```
 
 Nos testes do servidor, cada teste usa uma base de dados temporária, a IA nunca é chamada (mesmo que o `.env` tenha uma chave) e é substituída por uma função falsa e o bucket S3 por um objeto falso.
@@ -301,7 +301,7 @@ Um teste confirma que as migrações e os modelos não divergem.
 | GET | `/api/contabilidade/extrato` | Extrato de uma conta e subcontas (`conta`, `de`, `ate`) |
 | GET | `/api/contabilidade/iva` | Mapa da declaração periódica; `POST /api/contabilidade/iva/apurar` gera o apuramento |
 | GET | `/api/contabilidade/resultados` | Demonstração de resultados por naturezas |
-| GET | `/api/contabilidade/fornecedores` | Contas correntes e antiguidade de saldos |
+| GET | `/api/contabilidade/fornecedores` | Contas correntes, antiguidade de saldos e faturas contabilizadas por pagar |
 | GET | `/api/contabilidade/obrigacoes` | Calendário fiscal |
 | GET / POST | `/api/contabilidade/contas` | Plano de contas / nova subconta |
 | PUT | `/api/contabilidade/configuracao` | Regime do IVA, período fechado, NIF e morada da sede (administradores) |
@@ -385,8 +385,8 @@ leitor-faturas/
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 211 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
-├── tests_ui/                # 50 testes da interface (Playwright)
+├── tests/                   # 212 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
+├── tests_ui/                # 51 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini
 ├── Dockerfile

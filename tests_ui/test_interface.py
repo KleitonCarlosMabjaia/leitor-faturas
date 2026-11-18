@@ -325,3 +325,16 @@ def test_acrescimo_e_balanco(page: Page):
     expect(page.get_by_role("heading", name=re.compile("Balanço em"))).to_be_visible()
     totais = page.locator("#sec-balanco tr.total td.num").all_inner_texts()
     assert len(totais) == 2 and totais[0] == totais[1]
+
+
+def test_registar_pagamento_de_fatura_nos_fornecedores(page: Page):
+    page.goto("/contabilidade#fornecedores")
+    expect(page.get_by_role("heading", name="Faturas por pagar")).to_be_visible()
+    linhas = page.locator("#sec-fornecedores tbody tr", has=page.get_by_role("button", name="Registar pagamento"))
+    antes = linhas.count()
+    assert antes > 0
+    linhas.first.get_by_role("button", name="Registar pagamento").click()
+    page.locator("#pag-fat-conta").select_option(value="111")
+    page.get_by_role("button", name="Registar pagamento").last.click()
+    expect(page.get_by_text(re.compile("Pagamento lançado"))).to_be_visible()
+    expect(linhas).to_have_count(antes - 1)
