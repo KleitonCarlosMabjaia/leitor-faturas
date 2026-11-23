@@ -178,9 +178,14 @@ formulario.addEventListener("submit", async (e) => {
       body: JSON.stringify(dados),
     });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível criar o convite."));
-    const { membro, link, email_enviado: enviado } = await resposta.json();
-    mostrarLink(link, membro.nome);
-    notificar(enviado ? `Convite enviado por email para ${membro.email}.` : `Convite criado para ${membro.nome}.`, "ok");
+    const { membro, link, email_enviado: enviado, conta_existente: existente } = await resposta.json();
+    if (existente) {
+      document.getElementById("caixa-link").hidden = true;
+      notificar(`${membro.email} já tinha conta no Dobra: passou a ter acesso a esta empresa${enviado ? " e foi avisado por email" : ""}.`, "ok");
+    } else {
+      mostrarLink(link, membro.nome);
+      notificar(enviado ? `Convite enviado por email para ${membro.email}.` : `Convite criado para ${membro.nome}.`, "ok");
+    }
     formulario.reset();
     await carregar();
   } catch (erro) {

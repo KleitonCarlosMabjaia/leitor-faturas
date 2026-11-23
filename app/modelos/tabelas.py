@@ -11,7 +11,20 @@ um tipo decimal verdadeiro, por isso aqui a diferença não existiria.
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, String, Text, UniqueConstraint, false, true
+from sqlalchemy import (
+    JSON,
+    Date,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    String,
+    Text,
+    UniqueConstraint,
+    event,
+    false,
+    true,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -84,6 +97,36 @@ class Utilizador(Base):
     alertas_email: Mapped[bool] = mapped_column(default=True, server_default=true())
 
 
+class AcessoEmpresa(Base):
+    """
+    A que empresas cada pessoa tem acesso e com que papel (gabinetes de contabilidade: uma conta,
+    várias empresas). Utilizador.empresa_id e Utilizador.papel passam a ser os da empresa escolhida
+    na sessão, aplicados a cada pedido depois de confirmado este acesso (ver servicos/empresas.py).
+    """
+
+    __tablename__ = "acessos_empresa"
+    __table_args__ = (UniqueConstraint("utilizador_id", "empresa_id", name="uq_acesso_utilizador_empresa"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    utilizador_id: Mapped[int] = mapped_column(ForeignKey("utilizadores.id", ondelete="CASCADE"), index=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    papel: Mapped[str] = mapped_column(String(10), default=PAPEL_MEMBRO)
+    ativo: Mapped[bool] = mapped_column(default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+    utilizador: Mapped["Utilizador"] = relationship()
+    empresa: Mapped[Empresa] = relationship()
+
+
+@event.listens_for(Utilizador, "after_insert")
+def _acesso_da_primeira_empresa(_mapper, ligacao, utilizador) -> None:
+    """Quem é criado numa empresa (convite, registo, administração) fica logo com acesso a ela."""
+    ligacao.execute(AcessoEmpresa.__table__.insert().values(
+        utilizador_id=utilizador.id, empresa_id=utilizador.empresa_id, papel=utilizador.papel or PAPEL_MEMBRO,
+        ativo=True if utilizador.ativo is None else utilizador.ativo, criado_em=datetime.now(),
+    ))
+
+
 class Sessao(Base):
     """Sessão iniciada. Guarda-se só o hash do token: quem ler a base de dados não consegue entrar."""
 
@@ -94,6 +137,8 @@ class Sessao(Base):
     utilizador: Mapped[Utilizador] = relationship()
     criada_em: Mapped[datetime] = mapped_column(DateTime)
     expira_em: Mapped[datetime] = mapped_column(DateTime)
+    # Empresa escolhida nesta sessão (cada separador/dispositivo pode estar numa empresa diferente)
+    empresa_id: Mapped[int | None] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"))
     # Para a lista "sessões abertas" na página da conta
     ip: Mapped[str | None] = mapped_column(String(45))
     agente: Mapped[str | None] = mapped_column(String(200))

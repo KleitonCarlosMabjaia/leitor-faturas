@@ -20,7 +20,7 @@ from app.db import get_db
 from app.dependencias import NOME_COOKIE, utilizador_atual
 from app.modelos.esquemas import SessaoSaida
 from app.modelos.tabelas import Utilizador
-from app.servicos import atividade, autenticacao, email, limites, subscricoes
+from app.servicos import atividade, autenticacao, email, empresas, limites, subscricoes
 from app.servicos.autenticacao import CodigoNecessario, ErroAutenticacao
 
 router = APIRouter(prefix="/api/auth", tags=["autenticação"])
@@ -150,8 +150,8 @@ def recuperar(dados: PedidoRecuperacao, request: Request, tarefas: BackgroundTas
                             detail="A recuperação por email não está disponível. Peça um link ao administrador.")
     endereco = autenticacao.normalizar_email(dados.email)
     utilizador = db.scalar(select(Utilizador).where(Utilizador.email == endereco))
-    if (utilizador is None or not utilizador.ativo or not utilizador.empresa.ativa
-            or utilizador.hash_palavra_passe is None):
+    if (utilizador is None or not utilizador.ativo or utilizador.hash_palavra_passe is None
+            or not empresas.acessos_ativos(db, utilizador.id)):
         return
     minutos = config.VALIDADE_REPOSICAO_MINUTOS
     link = autenticacao.criar_link_acesso(db, utilizador, minutos=minutos)
@@ -162,8 +162,13 @@ def recuperar(dados: PedidoRecuperacao, request: Request, tarefas: BackgroundTas
 
 
 @router.get("/eu", response_model=SessaoSaida)
-def quem_sou_eu(utilizador: Utilizador = Depends(utilizador_atual)):
-    return _descrever(utilizador)
+def quem_sou_eu(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    from app.rotas.empresas import pode_criar_empresas
+
+    descricao = _descrever(utilizador)
+    descricao.n_empresas = len(empresas.acessos_ativos(db, utilizador.id))
+    descricao.pode_criar_empresas = pode_criar_empresas(utilizador)
+    return descricao
 
 
 # O token vai no corpo do pedido (POST) e não no endereço, para não ficar em registos

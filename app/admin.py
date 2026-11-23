@@ -17,7 +17,7 @@ import sys
 from sqlalchemy import func, select, update
 
 from app.db import SessaoLocal, preparar_base_dados
-from app.modelos.tabelas import PAPEL_ADMIN, Empresa, Fatura, Fornecedor, Utilizador
+from app.modelos.tabelas import PAPEL_ADMIN, AcessoEmpresa, Empresa, Fatura, Fornecedor, Utilizador
 from app.servicos import autenticacao, validacao
 
 
@@ -64,7 +64,8 @@ def listar() -> int:
             faturas = db.scalar(select(func.count()).select_from(Fatura).where(Fatura.empresa_id == empresa.id))
             estado = "ativa" if empresa.ativa else "DESATIVADA"
             print(f"[{empresa.id}] {empresa.nome} ({estado}) - {faturas} faturas")
-            da_empresa = select(Utilizador).where(Utilizador.empresa_id == empresa.id).order_by(Utilizador.nome)
+            da_empresa = (select(Utilizador).join(AcessoEmpresa, AcessoEmpresa.utilizador_id == Utilizador.id)
+                          .where(AcessoEmpresa.empresa_id == empresa.id).order_by(Utilizador.nome))
             for u in db.scalars(da_empresa):
                 pendente = " (convite por aceitar)" if u.hash_palavra_passe is None else ""
                 inativo = " (desativado)" if not u.ativo else ""

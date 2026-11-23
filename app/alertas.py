@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 
 from app import config
 from app.db import SessaoLocal
-from app.modelos.tabelas import Empresa, Utilizador
+from app.modelos.tabelas import AcessoEmpresa, Empresa, Utilizador
 from app.servicos import email
 from app.servicos.contabilidade import obrigacoes
 
@@ -32,10 +32,11 @@ def alertas_do_dia(db: Session, hoje: date) -> list[email.Mensagem]:
                  if o["dias"] in config.DIAS_ALERTA_PRAZOS]
         if not perto:
             continue
-        destinatarios = db.scalars(select(Utilizador).where(
-            Utilizador.empresa_id == empresa.id, Utilizador.ativo, Utilizador.alertas_email,
-            Utilizador.hash_palavra_passe.is_not(None),
-        ))
+        destinatarios = db.scalars(
+            select(Utilizador).join(AcessoEmpresa, AcessoEmpresa.utilizador_id == Utilizador.id).where(
+                AcessoEmpresa.empresa_id == empresa.id, AcessoEmpresa.ativo, Utilizador.ativo, Utilizador.alertas_email,
+                Utilizador.hash_palavra_passe.is_not(None),
+            ))
         for u in destinatarios:
             mensagens.append(email.alerta_prazos(u.email, u.nome, empresa.nome, perto))
     return mensagens

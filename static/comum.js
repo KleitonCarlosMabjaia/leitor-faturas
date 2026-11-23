@@ -736,6 +736,95 @@ function ligacaoMenu(p) {
   return a;
 }
 
+// ---------- Seletor de empresas (gabinetes: uma conta, várias empresas) ----------
+
+function iniciarSeletorEmpresas(caixa, eu) {
+  const botao = h("button", {
+    type: "button", class: "lateral-empresa seletor-empresa", id: "seletor-empresa", "aria-haspopup": "listbox",
+    "aria-expanded": "false", title: `${eu.empresa}: mudar de empresa`,
+  }, h("span", { class: "lateral-empresa-nome", texto: eu.empresa }), icone("chevron-baixo"));
+  const painel = h("div", { class: "painel-empresas", id: "painel-empresas", hidden: true });
+  caixa.replaceWith(botao);
+  botao.after(painel);
+
+  const abrir = async (sim) => {
+    painel.hidden = !sim;
+    botao.setAttribute("aria-expanded", String(sim));
+    if (!sim) return;
+    preencher(painel, h("p", { class: "painel-vazio", texto: "A carregar…" }));
+    try {
+      const d = await obter("/api/empresas");
+      const pesquisa = h("input", { type: "text", class: "pesquisa-empresas", placeholder: "Procurar empresa", "aria-label": "Procurar empresa" });
+      const lista = h("ul", { class: "lista-empresas", role: "listbox", "aria-label": "Empresas" });
+      const desenhar = () => {
+        const termo = normalizarPesquisa(pesquisa.value.trim());
+        const visiveis = d.empresas.filter((e) => !termo || normalizarPesquisa(`${e.nome} ${e.nif || ""}`).includes(termo));
+        preencher(lista, visiveis.length ? visiveis.map((e) => h("li", {
+          role: "option", "aria-selected": String(e.id === d.atual), tabindex: "0", class: "opcao-empresa", dataset: { id: String(e.id) },
+          onclick: () => escolher(e), onkeydown: (ev) => { if (ev.key === "Enter") escolher(e); },
+        }, h("span", { class: "avatar pequeno", "aria-hidden": "true", texto: iniciais(e.nome) }),
+        h("span", { class: "opcao-empresa-texto" }, h("strong", { texto: e.nome }),
+          h("span", { texto: `${e.nif ? `NIF ${e.nif} · ` : ""}${e.papel === "admin" ? "Administrador" : "Membro"}` })),
+        e.id === d.atual ? icone("check") : null)) : [h("li", { class: "painel-vazio", texto: "Nenhuma empresa encontrada." })]);
+      };
+      pesquisa.addEventListener("input", desenhar);
+      desenhar();
+      preencher(painel, d.empresas.length > 6 ? pesquisa : null, lista,
+        d.pode_criar ? h("button", { type: "button", class: "nova-empresa", onclick: novaEmpresaCliente }, icone("mais"), "Adicionar empresa cliente") : null);
+      (d.empresas.length > 6 ? pesquisa : lista.querySelector("[aria-selected=true]"))?.focus();
+    } catch (erro) {
+      preencher(painel, h("p", { class: "painel-vazio", texto: erro.message }));
+    }
+  };
+  const escolher = async (e) => {
+    if (lista_atual() === e.id) return abrir(false);
+    try {
+      const r = await enviar(`/api/empresas/${e.id}/selecionar`);
+      abrirNovaEmpresa(r.contabilidade ? "/contabilidade#resumo" : "/");
+    } catch (erro) {
+      notificar(erro.message, "erro");
+    }
+  };
+  botao.addEventListener("click", () => abrir(painel.hidden));
+  document.addEventListener("click", (ev) => {
+    if (!painel.hidden && !painel.contains(ev.target) && !botao.contains(ev.target)) abrir(false);
+  });
+  painel.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") {
+      abrir(false);
+      botao.focus();
+    }
+  });
+}
+
+// Depois de mudar de empresa, a página tem de recarregar mesmo que o endereço só mude no "#"
+function abrirNovaEmpresa(destino) {
+  const caminho = destino.split("#")[0];
+  if (location.pathname === caminho) {
+    history.replaceState(null, "", destino);
+    location.reload();
+  } else {
+    location.href = destino;
+  }
+}
+
+function lista_atual() {
+  const marcada = document.querySelector("#painel-empresas [aria-selected=true]");
+  return marcada ? Number(marcada.dataset.id) : null;
+}
+
+function novaEmpresaCliente() {
+  const nome = h("input", { id: "nova-empresa-nome", maxlength: "200", required: true, autocomplete: "organization" });
+  const nif = h("input", { id: "nova-empresa-nif", inputmode: "numeric", maxlength: "12", required: true });
+  janelaTemporaria("Adicionar empresa cliente", h("div", {},
+    h("p", { class: "ajuda", texto: "Fica administrador da empresa nova e pode convidar o cliente para a equipa dela. Os dados de cada empresa ficam totalmente separados." }),
+    campoJanela("nova-empresa-nome", "Nome da empresa", nome),
+    campoJanela("nova-empresa-nif", "NIF", nif)), async () => {
+    await enviar("/api/empresas", { nome: nome.value, nif: nif.value });
+    abrirNovaEmpresa("/contabilidade#resumo");
+  }, "Criar empresa");
+}
+
 // O plano da empresa: áreas fora do plano ficam com cadeado e levam à página da subscrição;
 // o período experimental aparece no fundo da barra; com a subscrição em falta, um aviso no topo.
 function aplicarPlano(eu) {
@@ -811,6 +900,7 @@ async function iniciarConta() {
     empresa.replaceChildren(Object.assign(document.createElement("span"), { className: "lateral-empresa-nome", textContent: eu.empresa }));
     empresa.title = eu.empresa;
     empresa.hidden = false;
+    if (eu.n_empresas > 1 || eu.pode_criar_empresas) iniciarSeletorEmpresas(empresa, eu);
   }
 
   if (eu.modo_demo) {

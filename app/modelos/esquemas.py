@@ -40,6 +40,8 @@ class SessaoSaida(BaseModel):
     faturacao_ativa: bool = False
     dias_experimentais: int | None = None
     aviso_subscricao: str | None = None   # motivo do bloqueio suave (só leitura)
+    n_empresas: int = 1                   # empresas com acesso (o seletor só aparece com mais de uma)
+    pode_criar_empresas: bool = False     # plano Gabinete: criar empresas cliente
 
 
 class FornecedorSaida(BaseModel):

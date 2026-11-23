@@ -22,6 +22,7 @@ from app.modelos.tabelas import (
     MOVIMENTO_PENDENTE,
     PAPEL_ADMIN,
     VENDA_NORMAL,
+    AcessoEmpresa,
     AtivoFixo,
     Conta,
     Diferimento,
@@ -187,7 +188,7 @@ def primeiros_passos(db: Session = Depends(get_db), utilizador: Utilizador = Dep
         passos = [p for p in passos if p[0] != "dois-passos"]
     elif utilizador.papel == PAPEL_ADMIN:
         passos.insert(5, ("equipa", "Convidar a equipa", "O contabilista e os colegas que tratam das faturas.",
-                          existe(Utilizador, Utilizador.id != utilizador.id), "/equipa"))
+                          existe(AcessoEmpresa, AcessoEmpresa.utilizador_id != utilizador.id), "/equipa"))
     lista = [{"chave": c, "titulo": t, "texto": x, "feito": f, "destino": d} for c, t, x, f, d in passos]
     return {"empresa_id": empresa.id, "passos": lista, "feitos": sum(p["feito"] for p in lista), "total": len(lista)}
 

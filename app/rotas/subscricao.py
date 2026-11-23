@@ -19,7 +19,7 @@ from app import config
 from app.db import get_db
 from app.dependencias import admin_atual, utilizador_atual
 from app.modelos.esquemas import SessaoSaida
-from app.modelos.tabelas import PAPEL_ADMIN, Empresa, Utilizador
+from app.modelos.tabelas import PAPEL_ADMIN, AcessoEmpresa, Empresa, Utilizador
 from app.servicos import atividade, autenticacao, email, limites, subscricoes, validacao
 from app.servicos.autenticacao import ErroAutenticacao
 from app.servicos.subscricoes import ErroSubscricao
@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 
 
 def utilizadores_ativos(db: Session, empresa_id: int) -> int:
-    return db.scalar(select(func.count()).select_from(Utilizador).where(
-        Utilizador.empresa_id == empresa_id, Utilizador.ativo,
+    return db.scalar(select(func.count()).select_from(AcessoEmpresa).where(
+        AcessoEmpresa.empresa_id == empresa_id, AcessoEmpresa.ativo,
     )) or 0
 
 

@@ -183,3 +183,15 @@ def boas_vindas(para: str, nome: str, empresa: str, dias: int) -> Mensagem:
         nota="Antes do fim do período experimental, escolha um plano na página Subscrição. "
              "Pode cancelar quando quiser.",
     )
+
+
+def acesso_adicionado(para: str, nome: str, empresa: str, quem: str) -> Mensagem:
+    return Mensagem(
+        para=para, assunto=f"Tem acesso a mais uma empresa no Dobra: {empresa}",
+        titulo=f"Acesso a {empresa}",
+        paragrafos=[f"Olá, {nome}. {quem} deu-lhe acesso à contabilidade de {empresa} no Dobra.",
+                    "Use a mesma conta de sempre: a empresa nova aparece no seletor de empresas, "
+                    "no topo da barra lateral."],
+        botao=("Abrir o Dobra", f"{config.URL_PUBLICO}/"),
+        nota="Se não reconhece esta empresa, fale com quem lhe deu o acesso.",
+    )

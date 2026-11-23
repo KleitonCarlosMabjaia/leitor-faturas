@@ -26,6 +26,11 @@ def _utilizador_demo(db: Session) -> Utilizador:
     )
     if utilizador is None:
         raise HTTPException(status_code=503, detail="A demonstração ainda está a ser preparada. Tente daqui a pouco.")
+    from app.servicos import empresas
+
+    escolhido = empresas.resolver(db, utilizador, utilizador.empresa_id)
+    if escolhido is not None:
+        empresas.aplicar(utilizador, escolhido)
     return utilizador
 
 

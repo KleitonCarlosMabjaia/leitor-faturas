@@ -29,6 +29,7 @@ from app.modelos.tabelas import (
     ESTADO_CONFIRMADA,
     ESTADO_POR_REVER,
     PAPEL_ADMIN,
+    AcessoEmpresa,
     AtivoFixo,
     Conta,
     DepreciacaoAtivo,
@@ -679,6 +680,7 @@ def apagar_empresa_demo(db: Session) -> None:
         db.delete(fatura)
     db.flush()
     db.execute(delete(Fornecedor).where(Fornecedor.empresa_id == empresa.id))
+    db.execute(delete(AcessoEmpresa).where(AcessoEmpresa.empresa_id == empresa.id))
     ids = select(Utilizador.id).where(Utilizador.empresa_id == empresa.id)
     db.execute(delete(Sessao).where(Sessao.utilizador_id.in_(ids)))
     db.execute(delete(TokenAcesso).where(TokenAcesso.utilizador_id.in_(ids)))

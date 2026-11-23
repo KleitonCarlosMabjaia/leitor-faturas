@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app import config
 from app.modelos.tabelas import Sessao, TokenAcesso, Utilizador
-from app.servicos import dois_passos
+from app.servicos import dois_passos, empresas
 
 _hasher = PasswordHasher()
 # Hash de uma palavra-passe qualquer, usado quando o email não existe (ver entrar())
@@ -86,8 +86,10 @@ def entrar(db: Session, email: str, palavra_passe: str, codigo: str | None = Non
         db.commit()
         raise erro_generico
 
-    if not utilizador.ativo or not utilizador.empresa.ativa:
+    escolhido = empresas.resolver(db, utilizador, utilizador.empresa_id) if utilizador.ativo else None
+    if escolhido is None:
         raise ErroAutenticacao("Esta conta está desativada. Fale com o administrador da sua empresa.")
+    empresas.aplicar(utilizador, escolhido)
 
     # Verificação em dois passos: um código errado conta como tentativa falhada (bloqueio incluído)
     if utilizador.totp_ativo:
@@ -126,6 +128,7 @@ def criar_sessao(db: Session, utilizador: Utilizador, ip: str | None = None, age
     db.add(Sessao(
         hash_token=_hash_token(token),
         utilizador_id=utilizador.id,
+        empresa_id=utilizador.empresa_id,
         criada_em=agora(),
         expira_em=agora() + timedelta(days=config.DURACAO_SESSAO_DIAS),
         ip=ip,
@@ -148,14 +151,33 @@ def utilizador_da_sessao(db: Session, token: str | None) -> Utilizador | None:
     if sessao is None or sessao.expira_em < agora():
         return None
     utilizador = sessao.utilizador
-    # Desativar uma conta ou empresa corta o acesso logo, mesmo com sessões abertas
-    if not utilizador.ativo or not utilizador.empresa.ativa:
+    # Desativar uma conta, um acesso ou uma empresa corta o acesso logo, mesmo com sessões abertas
+    if not utilizador.ativo:
         return None
+    escolhido = empresas.resolver(db, utilizador, sessao.empresa_id)
+    if escolhido is None:
+        return None
+    empresas.aplicar(utilizador, escolhido)
+    mudou = sessao.empresa_id != escolhido.empresa_id
+    sessao.empresa_id = escolhido.empresa_id
     # "Último uso" para a lista de sessões: no máximo uma escrita a cada 5 minutos por sessão
-    if sessao.ultimo_uso is None or agora() - sessao.ultimo_uso > timedelta(minutes=5):
+    if mudou or sessao.ultimo_uso is None or agora() - sessao.ultimo_uso > timedelta(minutes=5):
         sessao.ultimo_uso = agora()
         db.commit()
     return utilizador
+
+
+def selecionar_empresa(db: Session, token: str | None, utilizador: Utilizador, empresa_id: int) -> bool:
+    """Muda a empresa desta sessão (só se o utilizador tiver acesso ativo a ela)."""
+    escolhido = empresas.acesso(db, utilizador.id, empresa_id)
+    if escolhido is None or not token:
+        return False
+    sessao = db.get(Sessao, _hash_token(token))
+    if sessao is None or sessao.utilizador_id != utilizador.id:
+        return False
+    sessao.empresa_id = empresa_id
+    empresas.aplicar(utilizador, escolhido)
+    return True
 
 
 def hash_da_sessao(token: str | None) -> str | None:
@@ -208,6 +230,13 @@ def terminar_sessao(db: Session, token: str | None) -> None:
 
 def terminar_todas_as_sessoes(db: Session, utilizador_id: int) -> None:
     db.execute(delete(Sessao).where(Sessao.utilizador_id == utilizador_id))
+
+
+def terminar_sessoes_na_empresa(db: Session, utilizador_id: int, empresa_id: int) -> None:
+    """Sessões da pessoa que estão nesta empresa (ou ainda sem empresa escolhida)."""
+    db.execute(delete(Sessao).where(
+        Sessao.utilizador_id == utilizador_id, (Sessao.empresa_id == empresa_id) | Sessao.empresa_id.is_(None),
+    ))
 
 
 # ---------- Convites e reposição ----------

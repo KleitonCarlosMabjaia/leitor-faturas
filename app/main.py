@@ -28,7 +28,7 @@ from app import config
 from app.db import SessaoLocal, get_db, preparar_base_dados
 from app.dependencias import utilizador_opcional
 from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
-from app.rotas import auth, conta, contabilidade, dashboard, equipa, faturas, fornecedores, subscricao
+from app.rotas import auth, conta, contabilidade, dashboard, empresas, equipa, faturas, fornecedores, subscricao
 from app.servicos import atividade as atividade_servico
 from app.servicos import subscricoes
 
@@ -81,7 +81,7 @@ app = FastAPI(
 # Respostas comprimidas (JSON da contabilidade, JS e CSS): 4 a 8 vezes menos dados na rede
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
-for modulo in (auth, conta, faturas, fornecedores, dashboard, contabilidade, equipa, subscricao):
+for modulo in (auth, conta, empresas, faturas, fornecedores, dashboard, contabilidade, equipa, subscricao):
     app.include_router(modulo.router)
 
 
@@ -121,7 +121,7 @@ def _origem_estrangeira(request: Request) -> bool:
 
 
 # Rotas que continuam a funcionar com a subscrição em "só leitura" (entrar, conta, pagar, exportar)
-LIVRES_DO_BLOQUEIO = ("/api/auth/", "/api/conta/", "/api/subscricao", "/api/stripe/", "/api/registo")
+LIVRES_DO_BLOQUEIO = ("/api/auth/", "/api/conta/", "/api/subscricao", "/api/stripe/", "/api/registo", "/api/empresas")
 
 
 def _motivo_so_leitura(request: Request) -> str | None:
