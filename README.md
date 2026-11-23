@@ -24,6 +24,30 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 
 ## Funcionalidades
 
+A aplicação tem duas áreas, escolhidas no topo da barra lateral: **Gestão**, para o dia a dia do
+empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam os mesmos dados.
+
+**Gestão** (`/gestao`, em todos os planos)
+- **Painel de gestão:** vendas do mês face ao mês anterior, resultado do ano, dinheiro disponível e o previsto a 30 dias, valores a receber e a pagar (com o vencido), valor do stock, vendas e compras dos últimos 12 meses, melhores clientes, maiores fornecedores e alertas com ligação ao sítio onde se resolvem.
+- **Clientes:** faturado no ano, peso de cada cliente, dívida, valor vencido e dias de atraso, e os documentos de cada um. Os dados vêm das faturas emitidas (SAF-T de faturação ou registo à mão).
+- **Artigos e stock:** mercadorias, matérias e serviços, com custo médio ponderado, stock mínimo e margem. Há quatro movimentos:
+  - entradas a partir das faturas de compra já lidas, sem passar do valor da fatura;
+  - saídas a partir das faturas emitidas, que dão a margem por artigo;
+  - consumos e contagens físicas;
+  - passagem do stock para os **Inventários** da contabilidade, de onde sai o apuramento do CMVMC.
+- **Tesouraria:** previsão para 13 semanas. Parte do saldo de caixa e bancos da contabilidade e soma ou subtrai, por vencimento:
+  - as vendas por receber;
+  - as faturas de fornecedores por pagar;
+  - os salários, a Segurança Social e o IRS retido, estimados pelas fichas do pessoal;
+  - o IVA a entregar.
+
+  Avisa a semana em que o saldo fica negativo.
+- **Orçamento:** valores mensais por rubrica (vendas, compras e CMVMC, FSE, pessoal, outros), que podem partir do real do ano anterior com uma variação. A comparação com o real usa os lançamentos e mostra o desvio e a percentagem de execução.
+
+**Declarações de remunerações** (Salários › Declarações)
+- **Segurança Social:** ficheiro da declaração de remunerações no formato oficial das "Normas de preenchimento" (modelo RC4008, versão 01, registos R0/R1/R2/R3 de 118 caracteres), gerado a partir do processamento do mês, com um bloco por taxa contributiva. Exige o NISS da empresa (Obrigações fiscais › Configuração) e o NISS e a data de nascimento de cada pessoa.
+- **AT, DMR:** mapa por trabalhador (NIF, rendimento da categoria A, IRS retido e contribuições obrigatórias), também em CSV, para preencher no Portal das Finanças. O ficheiro XML da DMR e o da declaração periódica do IVA não são gerados, porque a AT não publica os esquemas de forma que se possam validar aqui.
+
 **Leitura das faturas**
 - Carregamento de PDFs por arrastar e largar (até 10 MB, vários de uma vez).
 - Leitura do **código QR da AT** (Portaria n.º 195/2020): NIF, data, número, ATCUD, IVA por taxa (Continente, Açores e Madeira) e total. Funciona também em faturas digitalizadas.
@@ -284,6 +308,16 @@ Um teste confirma que as migrações e os modelos não divergem.
 
 | Método | Endereço | Descrição |
 | --- | --- | --- |
+| GET | `/api/gestao/painel` | Painel de gestão (indicadores, evolução, melhores clientes e fornecedores, alertas) |
+| GET / POST / PUT | `/api/gestao/artigos[/{id}]` | Artigos com stock, custo médio e margem |
+| GET / POST | `/api/gestao/movimentos` | Movimentos de stock (`entrada`, `saida`, `ajuste` para a quantidade contada) |
+| GET | `/api/gestao/stock/origens` | Faturas de compra por dar entrada e faturas emitidas por dar saída |
+| POST | `/api/gestao/stock/entrada-fatura`, `/saida-venda` | Entrada ou saída de stock ligada a uma fatura |
+| POST | `/api/gestao/stock/inventario` | Passa o stock numa data para os Inventários da contabilidade |
+| GET | `/api/gestao/margens`, `/clientes[/{nif}]`, `/tesouraria` | Margens por artigo, clientes e previsão de tesouraria |
+| GET / PUT | `/api/gestao/orcamento` | Orçamento e comparação com o real; `/orcamento/proposta` sugere a partir do ano anterior |
+| GET | `/api/contabilidade/salarios/{ano}/{mes}/seguranca-social` | Ficheiro da declaração de remunerações (Segurança Social) |
+| GET | `/api/contabilidade/salarios/{ano}/{mes}/declaracoes`, `/dmr.csv` | Mapa da DMR (AT) e resumo da declaração da Segurança Social |
 | GET | `/api/saude` | Estado do servidor e da base de dados (503 se não responder), IA e modo de demonstração. A única rota pública |
 | POST | `/api/auth/entrar` | Inicia sessão (`email`, `palavra_passe`). 429 depois de muitas tentativas do mesmo IP |
 | POST | `/api/auth/sair` | Termina a sessão |

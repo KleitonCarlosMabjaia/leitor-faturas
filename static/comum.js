@@ -194,6 +194,10 @@ const ICONES = {
   venda: "M3 12.5V4h8.5L21 13.5 13.5 21zM7.5 8h.01",
   caixa: "M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9",
   menu: "M4 6h16M4 12h16M4 18h16",
+  painel: "M4 4h7v9H4zM13 4h7v5h-7zM13 11h7v9h-7zM4 15h7v5H4z",
+  cliente: "M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM4.5 21a7.5 7.5 0 0 1 15 0",
+  tendencia: "M3 17l6-6 4 4 8-8M15 7h6v6",
+  calculadora: "M6 3h12a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM8 6.5h8v3.5H8zM8.5 14h.01M12 14h.01M15.5 14h.01M8.5 17.5h.01M12 17.5h.01M15.5 17.5h.01",
   alvo: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01",
   camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
   instalar: "M12 3v12M7 10l5 5 5-5M5 21h14",
@@ -422,39 +426,62 @@ const LOGO_SVG = `<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
   <path d="M9 16.75h15.46A8 8 0 0 1 16.5 24H9z" fill="var(--logo-metade)"/></svg>`;
 
 const CONTAB = "/contabilidade#";
-const NAVEGACAO = [
-  { itens: [{ chave: "resumo", href: `${CONTAB}resumo`, texto: "Início", icone: "inicio" }] },
-  { titulo: "Compras", itens: [
-    { chave: "faturas", href: "/", texto: "Faturas", titulo: "Faturas de fornecedores", icone: "recibo", contador: "por_rever" },
-    { chave: "por-contabilizar", href: `${CONTAB}por-contabilizar`, texto: "Por contabilizar", icone: "lista", contador: "por_contabilizar" },
-    { chave: "fornecedores", href: `${CONTAB}fornecedores`, texto: "Fornecedores", icone: "loja" },
-    { chave: "dashboard", href: "/dashboard", texto: "Análise de compras", icone: "grafico" },
+const GESTAO = "/gestao#";
+// Duas áreas: Gestão (o dia a dia do empresário) e Contabilidade (SNC, IVA e fiscal).
+// Cada área tem a sua cor; a barra lateral mostra os grupos da área onde se está.
+const AREAS = [
+  { chave: "gestao", texto: "Gestão", href: `${GESTAO}painel`, icone: "painel", grupos: [
+    { itens: [{ chave: "painel", href: `${GESTAO}painel`, texto: "Painel de gestão", icone: "painel" }] },
+    { titulo: "Vendas e clientes", itens: [
+      { chave: "clientes", href: `${GESTAO}clientes`, texto: "Clientes", icone: "cliente" },
+      { chave: "vendas", href: `${CONTAB}vendas`, texto: "Faturas emitidas", titulo: "Vendas", icone: "venda" },
+      { chave: "artigos", href: `${GESTAO}artigos`, texto: "Artigos e stock", icone: "caixa" },
+    ] },
+    { titulo: "Compras", itens: [
+      { chave: "faturas", href: "/", texto: "Faturas de compra", titulo: "Faturas de fornecedores", icone: "recibo", contador: "por_rever" },
+      { chave: "fornecedores", href: `${CONTAB}fornecedores`, texto: "Fornecedores", icone: "loja" },
+      { chave: "dashboard", href: "/dashboard", texto: "Análise de compras", icone: "grafico" },
+    ] },
+    { titulo: "Finanças", itens: [
+      { chave: "tesouraria", href: `${GESTAO}tesouraria`, texto: "Tesouraria", icone: "tendencia" },
+      { chave: "bancos", href: `${CONTAB}bancos`, texto: "Bancos", icone: "banco" },
+      { chave: "orcamento", href: `${GESTAO}orcamento`, texto: "Orçamento", icone: "calculadora" },
+    ] },
+    { titulo: "Pessoal", itens: [
+      { chave: "salarios", href: `${CONTAB}salarios`, texto: "Salários e declarações", titulo: "Salários", icone: "equipa" },
+    ] },
   ] },
-  { titulo: "Vendas e tesouraria", itens: [
-    { chave: "vendas", href: `${CONTAB}vendas`, texto: "Vendas", icone: "venda" },
-    { chave: "bancos", href: `${CONTAB}bancos`, texto: "Bancos", icone: "banco" },
-  ] },
-  { titulo: "Pessoal e património", itens: [
-    { chave: "salarios", href: `${CONTAB}salarios`, texto: "Salários", icone: "equipa" },
-    { chave: "ativos", href: `${CONTAB}ativos`, texto: "Ativos fixos", icone: "edificio" },
-    { chave: "inventarios", href: `${CONTAB}inventarios`, texto: "Inventários", icone: "caixa" },
-  ] },
-  { titulo: "Contabilidade", itens: [
-    { chave: "lancamentos", href: `${CONTAB}lancamentos`, texto: "Lançamentos", icone: "livro" },
-    { chave: "balancete", href: `${CONTAB}balancete`, texto: "Balancete", icone: "balanca" },
-    { chave: "extrato", href: `${CONTAB}extrato`, texto: "Extratos de conta", icone: "ficheiro" },
-    { chave: "periodizacao", href: `${CONTAB}periodizacao`, texto: "Acréscimos e diferimentos", icone: "relogio" },
-    { chave: "centros", href: `${CONTAB}centros`, texto: "Centros de custo", icone: "alvo" },
-    { chave: "plano", href: `${CONTAB}plano`, texto: "Plano de contas", icone: "arvore" },
-  ] },
-  { titulo: "Relatórios e fiscal", itens: [
-    { chave: "resultados", href: `${CONTAB}resultados`, texto: "Resultados", titulo: "Demonstração de resultados", icone: "euro" },
-    { chave: "balanco", href: `${CONTAB}balanco`, texto: "Balanço", icone: "carteira" },
-    { chave: "iva", href: `${CONTAB}iva`, texto: "IVA", icone: "percentagem" },
-    { chave: "obrigacoes", href: `${CONTAB}obrigacoes`, texto: "Obrigações fiscais", icone: "calendario" },
-    { chave: "fecho", href: `${CONTAB}fecho`, texto: "Fecho do exercício", icone: "cadeado" },
+  { chave: "contabilidade", texto: "Contabilidade", href: `${CONTAB}resumo`, icone: "livro", grupos: [
+    { itens: [{ chave: "resumo", href: `${CONTAB}resumo`, texto: "Início da contabilidade", titulo: "Contabilidade", icone: "inicio" }] },
+    { titulo: "Registo", itens: [
+      { chave: "por-contabilizar", href: `${CONTAB}por-contabilizar`, texto: "Por contabilizar", icone: "lista", contador: "por_contabilizar" },
+      { chave: "lancamentos", href: `${CONTAB}lancamentos`, texto: "Lançamentos", icone: "livro" },
+      { chave: "inventarios", href: `${CONTAB}inventarios`, texto: "Inventários", icone: "caixa" },
+      { chave: "ativos", href: `${CONTAB}ativos`, texto: "Ativos fixos", icone: "edificio" },
+      { chave: "periodizacao", href: `${CONTAB}periodizacao`, texto: "Acréscimos e diferimentos", icone: "relogio" },
+      { chave: "centros", href: `${CONTAB}centros`, texto: "Centros de custo", icone: "alvo" },
+    ] },
+    { titulo: "Consulta", itens: [
+      { chave: "balancete", href: `${CONTAB}balancete`, texto: "Balancete", icone: "balanca" },
+      { chave: "extrato", href: `${CONTAB}extrato`, texto: "Extratos de conta", icone: "ficheiro" },
+      { chave: "plano", href: `${CONTAB}plano`, texto: "Plano de contas", icone: "arvore" },
+    ] },
+    { titulo: "Relatórios e fiscal", itens: [
+      { chave: "resultados", href: `${CONTAB}resultados`, texto: "Resultados", titulo: "Demonstração de resultados", icone: "euro" },
+      { chave: "balanco", href: `${CONTAB}balanco`, texto: "Balanço", icone: "carteira" },
+      { chave: "iva", href: `${CONTAB}iva`, texto: "IVA", icone: "percentagem" },
+      { chave: "obrigacoes", href: `${CONTAB}obrigacoes`, texto: "Obrigações fiscais", icone: "calendario" },
+      { chave: "fecho", href: `${CONTAB}fecho`, texto: "Fecho do exercício", icone: "cadeado" },
+    ] },
   ] },
 ];
+// Todos os grupos (as duas áreas), para os títulos, as migalhas e a pesquisa
+const NAVEGACAO = AREAS.flatMap((a) => a.grupos.map((g) => ({ ...g, area: a.chave })));
+
+function areaDaChave(chave) {
+  for (const a of AREAS) if (a.grupos.some((g) => g.itens.some((i) => i.chave === chave))) return a;
+  return null;
+}
 const NAV_ASSISTENTE = { chave: "assistente", href: `${CONTAB}assistente`, texto: "Assistente IA", icone: "faisca" };
 const NAV_EQUIPA = { chave: "equipa", href: "/equipa", texto: "Equipa", icone: "equipa" };
 
@@ -466,7 +493,8 @@ function tituloDaArea(chave) {
 
 // Grupo da barra lateral a que a área pertence (para as migalhas por cima do título)
 function grupoDaArea(chave) {
-  for (const g of NAVEGACAO) if (g.itens.some((i) => i.chave === chave)) return g.titulo || null;
+  const area = areaDaChave(chave);
+  for (const g of NAVEGACAO) if (g.itens.some((i) => i.chave === chave)) return [area?.texto, g.titulo].filter(Boolean).join(" · ") || null;
   return chave === "assistente" ? "Ferramentas" : null;
 }
 
@@ -479,6 +507,7 @@ function iniciais(nome) {
 function areaAtual() {
   const pagina = document.body.dataset.pagina;
   if (pagina === "contabilidade") return decodeURIComponent(location.hash.slice(1)).split(":")[0] || "resumo";
+  if (pagina === "gestao") return decodeURIComponent(location.hash.slice(1)).split(":")[0] || "painel";
   return pagina;
 }
 
@@ -487,6 +516,21 @@ function marcarAreaAtual() {
   for (const a of document.querySelectorAll(".lateral-nav a[data-chave]")) {
     if (a.dataset.chave === atual) a.setAttribute("aria-current", "page");
     else a.removeAttribute("aria-current");
+  }
+  // Área (Gestão ou Contabilidade): a da página atual; nas outras páginas (equipa, conta...) fica a última vista
+  let area = areaDaChave(atual)?.chave;
+  try {
+    if (area) localStorage.setItem("dobra-area", area);
+    else area = localStorage.getItem("dobra-area");
+  } catch {
+    // sem armazenamento local: fica a Gestão
+  }
+  area = area || "gestao";
+  document.body.dataset.area = area;
+  for (const g of document.querySelectorAll(".lateral-nav .lateral-grupo[data-area]")) g.hidden = g.dataset.area !== area;
+  for (const b of document.querySelectorAll(".seletor-area a")) {
+    if (b.dataset.area === area) b.setAttribute("aria-current", "true");
+    else b.removeAttribute("aria-current");
   }
 }
 
@@ -500,13 +544,14 @@ function montarBarra() {
   barra.setAttribute("aria-label", "Navegação");
   barra.innerHTML = `
     <div class="lateral-topo">
-      <a class="marca" href="/contabilidade#resumo" aria-label="${NOME_PRODUTO}, início">
+      <a class="marca" href="/gestao#painel" aria-label="${NOME_PRODUTO}, início">
         <span class="marca-logo">${LOGO_SVG}</span>
         <span class="marca-nome">${NOME_PRODUTO}</span>
       </a>
       <button type="button" class="botao-icone lateral-fechar" id="lateral-fechar" aria-label="Fechar o menu"></button>
     </div>
     <div class="lateral-empresa" id="lateral-empresa" hidden></div>
+    <nav class="seletor-area" aria-label="Área"></nav>
     <button type="button" class="lateral-pesquisa" id="abrir-paleta" aria-keyshortcuts="Control+K Meta+K">
       <span data-icone="pesquisa"></span><span>Pesquisar</span><kbd>Ctrl K</kbd>
     </button>
@@ -518,10 +563,17 @@ function montarBarra() {
         <button type="button" class="botao-icone barra-botao" id="botao-tema"></button>
       </div>
     </div>`;
+  const seletor = barra.querySelector(".seletor-area");
+  for (const area of AREAS) {
+    const a = h("a", { href: area.href, "data-area": area.chave, "data-chave-area": area.chave }, icone(area.icone),
+      h("span", { texto: area.texto }));
+    seletor.appendChild(a);
+  }
   const nav = barra.querySelector(".lateral-nav");
   for (const grupo of NAVEGACAO) {
     const bloco = document.createElement("div");
     bloco.className = "lateral-grupo";
+    bloco.dataset.area = grupo.area;
     if (grupo.titulo) {
       const t = document.createElement("p");
       t.className = "lateral-titulo";
@@ -539,7 +591,7 @@ function montarBarra() {
   topo.className = "barra-movel";
   topo.innerHTML = `
     <button type="button" class="botao-icone" id="lateral-abrir" aria-label="Abrir o menu" aria-controls="barra" aria-expanded="false"></button>
-    <a class="marca" href="/contabilidade#resumo"><span class="marca-logo">${LOGO_SVG}</span><span class="marca-nome">${NOME_PRODUTO}</span></a>`;
+    <a class="marca" href="/gestao#painel"><span class="marca-logo">${LOGO_SVG}</span><span class="marca-nome">${NOME_PRODUTO}</span></a>`;
   topo.querySelector("#lateral-abrir").appendChild(icone("menu"));
   barra.after(topo);
   const veu = document.createElement("div");
@@ -577,7 +629,8 @@ let faturasPaleta = null;
 function itensDaPaleta() {
   const itens = [];
   for (const g of NAVEGACAO) {
-    for (const i of g.itens) itens.push({ tipo: g.titulo || "Ir para", texto: i.titulo || i.texto, icone: i.icone, href: i.href });
+    const area = AREAS.find((a) => a.chave === g.area)?.texto;
+    for (const i of g.itens) itens.push({ tipo: [area, g.titulo].filter(Boolean).join(" · "), texto: i.titulo || i.texto, icone: i.icone, href: i.href });
   }
   itens.push({ tipo: "Ferramentas", texto: NAV_ASSISTENTE.texto, icone: NAV_ASSISTENTE.icone, href: NAV_ASSISTENTE.href });
   itens.push({ tipo: "Ferramentas", texto: "A minha conta e segurança", icone: "cadeado", href: "/conta" });
@@ -792,7 +845,7 @@ function iniciarSeletorEmpresas(caixa, eu) {
     if (lista_atual() === e.id) return abrir(false);
     try {
       const r = await enviar(`/api/empresas/${e.id}/selecionar`);
-      abrirNovaEmpresa(r.contabilidade ? "/contabilidade#resumo" : "/");
+      abrirNovaEmpresa("/gestao#painel");
     } catch (erro) {
       notificar(erro.message, "erro");
     }
@@ -833,7 +886,7 @@ function novaEmpresaCliente() {
     campoJanela("nova-empresa-nome", "Nome da empresa", nome),
     campoJanela("nova-empresa-nif", "NIF", nif)), async () => {
     await enviar("/api/empresas", { nome: nome.value, nif: nif.value });
-    abrirNovaEmpresa("/contabilidade#resumo");
+    abrirNovaEmpresa("/gestao#painel");
   }, "Criar empresa");
 }
 
@@ -842,11 +895,13 @@ function novaEmpresaCliente() {
 function aplicarPlano(eu) {
   const temContabilidade = (eu.funcionalidades || []).includes("contabilidade");
   if (!temContabilidade) {
+    const separador = document.querySelector('.seletor-area a[data-area="contabilidade"]');
+    if (separador) {
+      separador.href = "/subscricao?recurso=contabilidade";
+      separador.classList.add("bloqueado");
+      separador.title = "Disponível no plano Contabilidade";
+    }
     for (const a of document.querySelectorAll('.lateral-nav a[href^="/contabilidade#"]')) {
-      if (a.dataset.chave === "resumo") {
-        a.href = "/";
-        continue;
-      }
       a.href = "/subscricao?recurso=contabilidade";
       a.classList.add("bloqueado");
       a.title = "Disponível no plano Contabilidade";

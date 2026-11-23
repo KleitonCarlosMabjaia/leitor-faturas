@@ -53,6 +53,8 @@ class Empresa(Base):
     morada: Mapped[str | None] = mapped_column(String(210))
     codigo_postal: Mapped[str | None] = mapped_column(String(8))
     localidade: Mapped[str | None] = mapped_column(String(50))
+    # Número de identificação da Segurança Social da entidade empregadora (declaração de remunerações)
+    niss: Mapped[str | None] = mapped_column(String(11))
 
     # Subscrição (ver servicos/subscricoes.py). As empresas anteriores ficam no plano Contabilidade, ativas.
     plano: Mapped[str] = mapped_column(String(20), default="contabilidade", server_default="contabilidade")
@@ -576,6 +578,7 @@ class Funcionario(Base):
     nome: Mapped[str] = mapped_column(String(200))
     nif: Mapped[str | None] = mapped_column(String(9))
     niss: Mapped[str | None] = mapped_column(String(11))
+    data_nascimento: Mapped[date | None] = mapped_column(Date)  # obrigatória na declaração da Segurança Social
     tipo: Mapped[str] = mapped_column(String(15), default=FUNCIONARIO_PESSOAL)
     data_admissao: Mapped[date] = mapped_column(Date)
     data_saida: Mapped[date | None] = mapped_column(Date)
@@ -632,3 +635,71 @@ class Diferimento(Base):
     # [{"ate": "AAAA-MM-DD", "meses": n, "valor": v, "lancamento_id": id}]
     reconhecimentos: Mapped[list] = mapped_column(JSON, default=list)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+# ---------- Gestão: artigos, stock e orçamento ----------
+
+ARTIGO_MERCADORIA = "M"   # entra no inventário de mercadorias (321)
+ARTIGO_MATERIA = "P"      # matérias-primas, subsidiárias e de consumo (331)
+ARTIGO_SERVICO = "S"      # sem stock
+
+MOVIMENTO_ENTRADA = "entrada"
+MOVIMENTO_SAIDA = "saida"
+MOVIMENTO_AJUSTE = "ajuste"
+
+
+class Artigo(Base):
+    """Produto, matéria ou serviço que a empresa compra ou vende, com o stock e o custo médio."""
+
+    __tablename__ = "artigos"
+    __table_args__ = (UniqueConstraint("empresa_id", "codigo", name="uq_artigo_empresa_codigo"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    codigo: Mapped[str] = mapped_column(String(60))
+    nome: Mapped[str] = mapped_column(String(200))
+    tipo: Mapped[str] = mapped_column(String(1), default=ARTIGO_MERCADORIA)
+    unidade: Mapped[str] = mapped_column(String(10), default="UN")
+    preco_venda: Mapped[float] = mapped_column(Float, default=0.0)     # sem IVA
+    taxa_iva: Mapped[float] = mapped_column(Float, default=23.0)
+    stock_minimo: Mapped[float] = mapped_column(Float, default=0.0)
+    # Atualizados a cada movimento (custo médio ponderado)
+    quantidade: Mapped[float] = mapped_column(Float, default=0.0)
+    custo_medio: Mapped[float] = mapped_column(Float, default=0.0)
+    ativo: Mapped[bool] = mapped_column(default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class MovimentoStock(Base):
+    """Entrada (compra), saída (venda ou consumo) ou acerto de contagem de um artigo."""
+
+    __tablename__ = "movimentos_stock"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    artigo_id: Mapped[int] = mapped_column(ForeignKey("artigos.id", ondelete="CASCADE"), index=True)
+    artigo: Mapped[Artigo] = relationship()
+    data: Mapped[date] = mapped_column(Date, index=True)
+    tipo: Mapped[str] = mapped_column(String(10))
+    quantidade: Mapped[float] = mapped_column(Float)          # positiva nas entradas, negativa nas saídas
+    custo_unitario: Mapped[float] = mapped_column(Float)
+    valor: Mapped[float] = mapped_column(Float)               # quantidade x custo (com sinal)
+    preco_unitario: Mapped[float | None] = mapped_column(Float)  # nas saídas por venda: preço sem IVA
+    documento: Mapped[str | None] = mapped_column(String(80))
+    fatura_id: Mapped[str | None] = mapped_column(ForeignKey("faturas.id", ondelete="SET NULL"), index=True)
+    venda_id: Mapped[int | None] = mapped_column(ForeignKey("faturas_venda.id", ondelete="SET NULL"), index=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+
+
+class LinhaOrcamento(Base):
+    """Valor orçamentado por mês para uma rubrica de gestão (vendas, pessoal, FSE...)."""
+
+    __tablename__ = "linhas_orcamento"
+    __table_args__ = (UniqueConstraint("empresa_id", "ano", "rubrica", name="uq_orcamento_empresa_ano_rubrica"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    ano: Mapped[int] = mapped_column()
+    rubrica: Mapped[str] = mapped_column(String(30))
+    valores: Mapped[list] = mapped_column(JSON)   # 12 valores, de janeiro a dezembro

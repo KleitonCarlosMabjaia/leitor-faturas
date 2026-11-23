@@ -30,6 +30,7 @@ from app.modelos.tabelas import (
     ESTADO_POR_REVER,
     PAPEL_ADMIN,
     AcessoEmpresa,
+    Artigo,
     AtivoFixo,
     CentroCusto,
     Conta,
@@ -45,7 +46,9 @@ from app.modelos.tabelas import (
     Lancamento,
     LinhaInventario,
     LinhaLancamento,
+    LinhaOrcamento,
     MovimentoBancario,
+    MovimentoStock,
     ProcessamentoSalarial,
     RegistoAtividade,
     RegraBancaria,
@@ -357,8 +360,62 @@ def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int
 
     criar_contabilidade_demo(db, empresa_id, min(datas), hoje)
     criar_centros_demo(db, empresa_id)
+    criar_gestao_demo(db, empresa_id, min(datas), hoje)
     db.commit()
     return quantidade
+
+
+PRECOS_DEMO = {"B01": 14.0, "B02": 22.0, "B03": 43.2, "B04": 2.5, "C01": 0.0, "C02": 0.0, "C03": 0.0, "C04": 0.0}
+
+
+def criar_gestao_demo(db: Session, empresa_id: int, inicio: date, hoje: date) -> None:
+    """Artigos com stock, compras e consumos mensais, saídas ligadas a vendas e um orçamento do ano."""
+    from app.servicos.gestao import orcamento as orc
+    from app.servicos.gestao import stock
+
+    abertura = date(inicio.year, inicio.month, 1)
+    artigos = {}
+    for codigo, nome, categoria, unidade, inicial, _, custo in ARTIGOS_DEMO:
+        a = stock.guardar(db, empresa_id, None, codigo=codigo, nome=nome, tipo=categoria, unidade=unidade,
+                          preco_venda=PRECOS_DEMO[codigo], taxa_iva=13.0 if codigo.startswith("C") else 23.0,
+                          stock_minimo=round(inicial * 0.4))
+        stock.movimentar(db, empresa_id, a, "entrada", inicial, abertura, custo_unitario=custo,
+                         documento="Stock inicial")
+        artigos[codigo] = (a, inicial, custo)
+    stock.guardar(db, empresa_id, None, codigo="S01", nome="Serviço de catering (por pessoa)", tipo="S",
+                  unidade="UN", preco_venda=28.0, taxa_iva=13.0)
+    # Cada mês: compras no dia 5 e consumos ao longo do mês (os últimos meses gastam mais do que compram)
+    dia = abertura
+    n = 0
+    while dia <= hoje:
+        compra = date(dia.year, dia.month, 5)
+        for codigo, (a, inicial, custo) in artigos.items():
+            if compra <= hoje:
+                stock.movimentar(db, empresa_id, a, "entrada", round(inicial * 0.8), compra,
+                                 custo_unitario=round(custo * (1 + 0.01 * n), 2), documento=f"Compra {compra:%m/%Y}")
+            consumo = date(dia.year, dia.month, 25)
+            if consumo <= hoje:
+                quantidade = min(a.quantidade, round(inicial * (0.85 if codigo in ("B03", "C02") else 0.75)))
+                if quantidade > 0:
+                    stock.movimentar(db, empresa_id, a, "saida", quantidade, consumo,
+                                     preco_unitario=a.preco_venda or None, documento=f"Consumo {consumo:%m/%Y}")
+        n += 1
+        dia = date(dia.year + dia.month // 12, dia.month % 12 + 1, 1)
+    # Vendas a empresas com vinho servido (saída ligada à fatura)
+    for venda in db.scalars(select(FaturaVenda).where(FaturaVenda.empresa_id == empresa_id,
+                                                      FaturaVenda.tipo != "NC").order_by(FaturaVenda.data).limit(3)):
+        a = artigos["B02"][0]
+        if a.quantidade >= 2:
+            stock.saida_por_venda(db, db.get(Empresa, empresa_id), venda,
+                                  [stock.LinhaMovimento(a.id, 2, 22.0)])
+    # Orçamento: o ritmo real do ano, com mais 8% de vendas
+    real = orc.real(db, empresa_id, hoje.year, hoje)
+    meses = max(1, hoje.month - 1)
+    valores = {}
+    for chave, _, _, sinal in orc.RUBRICAS:
+        media = sum(real[chave][:meses]) / meses
+        valores[chave] = [round(max(media, 0) * (1.08 if sinal > 0 else 1.0), 2)] * 12
+    orc.guardar(db, empresa_id, hoje.year, valores)
 
 
 def criar_centros_demo(db: Session, empresa_id: int) -> None:
@@ -403,9 +460,11 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
                                         "Posto de Combustíveis da Estrada, Lda.")
     lancar("OD", abertura, "Entrada de capital e saldo bancário inicial",
            [LinhaNova("121", debito=25000), LinhaNova("511", credito=25000)])
-    for nome, tipo, base, alimentacao, irs in PESSOAL_DEMO:
+    empresa.niss = "20012345678"
+    for nome, tipo, base, alimentacao, irs, nascimento, niss in PESSOAL_DEMO:
         salarios.registar(db, empresa, nome=nome, tipo=tipo, data_admissao=abertura, salario_base=base,
-                          subsidio_alimentacao=alimentacao, alimentacao_cartao=tipo == "pessoal", taxa_irs=irs)
+                          subsidio_alimentacao=alimentacao, alimentacao_cartao=tipo == "pessoal", taxa_irs=irs,
+                          data_nascimento=nascimento, niss=niss, nif=gerar_nif(rng, "2"))
     # Seguro multirriscos anual pago na abertura e repartido pelos 12 meses
     lancar("BAN", abertura + timedelta(days=9), "Seguro multirriscos anual",
            [LinhaNova("6263", debito=1440), LinhaNova("121", credito=1440)], documento="Apólice 2026")
@@ -506,10 +565,10 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
 
 
 PESSOAL_DEMO = [
-    # (nome, tipo, vencimento base, subsídio de alimentação por dia, taxa de retenção de IRS)
-    ("Maria Fernandes (cozinheira)", "pessoal", 1150.0, 8.0, 9.5),
-    ("João Pereira (empregado de mesa)", "pessoal", 920.0, 8.0, 4.0),
-    ("Carla Sousa (gerente)", "orgaos_sociais", 1800.0, 6.0, 13.5),
+    # (nome, tipo, vencimento base, subsídio de alimentação por dia, taxa de retenção de IRS, nascimento, NISS)
+    ("Maria Fernandes (cozinheira)", "pessoal", 1150.0, 8.0, 9.5, date(1984, 3, 12), "12345678901"),
+    ("João Pereira (empregado de mesa)", "pessoal", 920.0, 8.0, 4.0, date(1996, 9, 30), "12345678902"),
+    ("Carla Sousa (gerente)", "orgaos_sociais", 1800.0, 6.0, 13.5, date(1979, 6, 4), "12345678903"),
 ]
 
 ARTIGOS_DEMO = [
@@ -688,6 +747,9 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(Diferimento).where(Diferimento.empresa_id == empresa.id))
     db.execute(delete(RegistoAtividade).where(RegistoAtividade.empresa_id == empresa.id))
     db.execute(delete(CentroCusto).where(CentroCusto.empresa_id == empresa.id))
+    db.execute(delete(MovimentoStock).where(MovimentoStock.empresa_id == empresa.id))
+    db.execute(delete(Artigo).where(Artigo.empresa_id == empresa.id))
+    db.execute(delete(LinhaOrcamento).where(LinhaOrcamento.empresa_id == empresa.id))
     db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))
     db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))

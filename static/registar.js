@@ -35,7 +35,7 @@ formRegisto.addEventListener("submit", async (e) => {
       }),
     });
     if (!r.ok) throw new Error(await lerErro(r, "Não foi possível criar a conta."));
-    location.href = plano === "essencial" ? "/" : "/contabilidade#resumo";
+    location.href = "/gestao#painel";
   } catch (falha) {
     erroRegisto(falha.message);
     ocupado(b, false);

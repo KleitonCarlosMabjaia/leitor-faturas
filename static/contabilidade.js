@@ -1108,14 +1108,16 @@ async function carregarObrigacoes(secao) {
   const morada = campoTexto("conf-morada", empresa.morada, { maxlength: "210", placeholder: "Rua, número, andar" });
   const codigoPostal = campoTexto("conf-cp", empresa.codigo_postal, { maxlength: "8", pattern: "[0-9]{4}-[0-9]{3}", placeholder: "0000-000" });
   const localidade = campoTexto("conf-localidade", empresa.localidade, { maxlength: "50", placeholder: "Lisboa" });
-  for (const campo of [regime, fechado, nif, morada, codigoPostal, localidade]) campo.disabled = !podeConfigurar;
+  const nissEmpresa = campoTexto("conf-niss", empresa.niss, { inputmode: "numeric", maxlength: "11", pattern: "[0-9]{11}", placeholder: "20000000000" });
+  for (const campo of [regime, fechado, nif, morada, codigoPostal, localidade, nissEmpresa]) campo.disabled = !podeConfigurar;
   const gravar = h("button", { type: "submit", class: "botao", disabled: !podeConfigurar }, icone("cadeado"), "Guardar");
   const campo = (id, rotulo, el, classe = "campo") => h("div", { class: classe }, h("label", { for: id, texto: rotulo }), el);
   const form = h("form", {},
     h("div", { class: "filtros-linha" },
       campo("conf-regime", "Periodicidade do IVA", regime),
       campo("conf-fechado", "Período fechado até", fechado),
-      campo("conf-nif", "NIF da empresa", nif)),
+      campo("conf-nif", "NIF da empresa", nif),
+      campo("conf-niss", "NISS da empresa (Segurança Social)", nissEmpresa)),
     h("div", { class: "filtros-linha" },
       campo("conf-morada", "Morada da sede", morada, "campo largo"),
       campo("conf-cp", "Código postal", codigoPostal),
@@ -1128,6 +1130,7 @@ async function carregarObrigacoes(secao) {
       await enviar("/api/contabilidade/configuracao", {
         regime_iva: regime.value, fechado_ate: fechado.value || null, nif: nif.value.trim(),
         morada: morada.value.trim(), codigo_postal: codigoPostal.value.trim(), localidade: localidade.value.trim(),
+        niss: nissEmpresa.value.trim(),
       }, "PUT");
       notificar("Configuração guardada.", "ok");
       invalidar("resumo", "iva");
@@ -1855,7 +1858,8 @@ async function carregarSalarios(secao) {
       td(String(m.pessoas), "num", "Pessoas"), td(euros(m.iliquido), "num", "Ilíquido"), td(euros(m.irs), "num", "IRS"),
       td(euros(m.seguranca_social), "num", "Seg. Social"), td(euros(m.liquido), "num", "Líquido"),
       h("td", { "data-rotulo": "Salários" }, estado(pag.salarios)), h("td", { "data-rotulo": "Seg. Social" }, estado(pag.seguranca_social)),
-      h("td", { "data-rotulo": "IRS" }, estado(pag.irs)));
+      h("td", { "data-rotulo": "IRS" }, estado(pag.irs)),
+      h("td", {}, botao("Declarações", () => abrirDeclaracoes(anoSalarios, m.mes), "botao secundario pequeno", "ficheiro")));
   });
 
   const processamento = h("div", {});
@@ -1892,13 +1896,49 @@ async function carregarSalarios(secao) {
       mapa.length ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
         h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Mês" }),
           ...["Pessoas", "Ilíquido", "IRS", "Seg. Social", "Líquido"].map((x) => h("th", { scope: "col", class: "num", texto: x })),
-          ...["Salários", "Seg. Social", "IRS"].map((x) => h("th", { scope: "col", texto: x })))),
+          ...["Salários", "Seg. Social", "IRS"].map((x) => h("th", { scope: "col", texto: x })),
+          h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Declarações" })))),
         h("tbody", {}, mapa),
         h("tfoot", {}, h("tr", {}, td("Total"), td(""), td(euros(t.iliquido), "num"), td(euros(t.irs), "num"),
-          td(euros(t.seguranca_social), "num"), td(euros(t.liquido), "num"), td(""), td(""), td("")))))
+          td(euros(t.seguranca_social), "num"), td(euros(t.liquido), "num"), td(""), td(""), td(""), td("")))))
         : vazio("calendario", "Nada processado neste ano", null)),
   );
   if (d.funcionarios.length) await mostrarProcessamento(processamento, d);
+}
+
+// Declarações do mês: ficheiro da Segurança Social (RC4008) e mapa da DMR (AT)
+async function abrirDeclaracoes(ano, mes) {
+  const d = await obter(`/api/contabilidade/salarios/${ano}/${mes}/declaracoes`);
+  const ss = d.seguranca_social;
+  const dmr = d.dmr;
+  const blocoSS = h("div", { class: "declaracao" },
+    h("h3", {}, icone("ficheiro"), "Segurança Social · declaração de remunerações"),
+    ss.pronto
+      ? h("div", {},
+        h("p", { texto: `Ficheiro ${ss.ficheiro} (formato oficial RC4008, versão 01), com ${ss.grupos.reduce((s, g) => s + g.registos, 0)} registos de remunerações.` }),
+        h("ul", { class: "lista-simples" }, ss.grupos.map((g) => h("li", {
+          texto: `Taxa ${g.taxa.toLocaleString("pt-PT")}%: ${g.pessoas} pessoa(s), remunerações ${euros(g.remuneracoes)}, contribuições ${euros(g.contribuicoes)}` }))),
+        h("p", {}, h("a", { class: "botao", href: `/api/contabilidade/salarios/${ano}/${mes}/seguranca-social`, download: ss.ficheiro },
+          icone("descarregar"), "Descarregar o ficheiro")),
+        h("p", { class: "ajuda", texto: "Entregue na Segurança Social Direta: Emprego › Declaração de remunerações › Entregar por ficheiro. Prazo: dia 10 do mês seguinte." }))
+      : h("p", { class: "erro-campo", role: "alert" }, icone("alerta"), ss.erro));
+  const blocoDMR = h("div", { class: "declaracao" },
+    h("h3", {}, icone("recibo"), "AT · declaração mensal de remunerações (DMR)"),
+    h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+      h("thead", {}, h("tr", {}, ...["NIF", "Nome", "Código", "Rendimento", "IRS retido", "Contribuições"].map((x, i) =>
+        h("th", { scope: "col", class: i > 2 ? "num" : null, texto: x })))),
+      h("tbody", {}, dmr.linhas.map((l) => h("tr", {}, td(l.nif || "—", "", "NIF"), td(l.nome, "", "Nome"), td(l.codigo, "", "Código"),
+        td(euros(l.rendimento), "num", "Rendimento"), td(euros(l.retencao_irs), "num", "IRS retido"),
+        td(euros(l.contribuicoes_obrigatorias), "num", "Contribuições")))),
+      h("tfoot", {}, h("tr", {}, td("Total"), td(""), td(""), td(euros(dmr.totais.rendimento), "num"),
+        td(euros(dmr.totais.retencao_irs), "num"), td(euros(dmr.totais.contribuicoes_obrigatorias), "num"))))),
+    ...dmr.avisos.map((a) => h("p", { class: "erro-campo" }, icone("alerta"), a)),
+    h("p", { class: "ajuda", texto: dmr.nota }),
+    h("p", {}, h("a", { class: "botao secundario", href: `/api/contabilidade/salarios/${ano}/${mes}/dmr.csv`, download: "" },
+      icone("descarregar"), "Descarregar o mapa (CSV)")));
+  const janela = janelaTemporaria(`Declarações de ${dmr.nome_mes}`, h("div", { class: "declaracoes-grelha" }, blocoSS, blocoDMR),
+    async () => {}, "Fechar");
+  janela.querySelector(".janela-botoes .secundario").hidden = true;
 }
 
 async function mostrarProcessamento(caixa, dadosSalarios) {
@@ -2048,6 +2088,7 @@ function abrirFichaFuncionario(dados, f) {
   const niss = h("input", { type: "text", id: "func-niss", inputmode: "numeric", maxlength: "11", value: v.niss || "" });
   const admissao = h("input", { type: "date", id: "func-admissao", value: v.data_admissao || iso(new Date()) });
   const saida = h("input", { type: "date", id: "func-saida", value: v.data_saida || "" });
+  const nascimento = h("input", { type: "date", id: "func-nascimento", value: v.data_nascimento || "" });
   const base = h("input", { type: "number", id: "func-base", min: "0", step: "0.01", value: v.salario_base ?? "" });
   const alimentacao = h("input", { type: "number", id: "func-alimentacao", min: "0", step: "0.01", value: v.subsidio_alimentacao });
   const cartao = h("select", { id: "func-cartao" }, h("option", { value: "1" }, "Cartão refeição"), h("option", { value: "0" }, "Numerário (no recibo)"));
@@ -2058,7 +2099,8 @@ function abrirFichaFuncionario(dados, f) {
   const duodecimos = h("input", { type: "checkbox", id: "func-duodecimos", checked: v.duodecimos });
   janelaTemporaria(f ? `Ficha de ${f.nome}` : "Adicionar pessoa", h("div", {},
     h("div", { class: "grelha-3" }, campoJanela("func-nome", "Nome", nome), campoJanela("func-tipo", "Tipo", tipo), campoJanela("func-admissao", "Admissão", admissao)),
-    h("div", { class: "grelha-3" }, campoJanela("func-nif", "NIF", nif), campoJanela("func-niss", "N.º Segurança Social", niss), campoJanela("func-saida", "Saída (se saiu)", saida)),
+    h("div", { class: "grelha-3" }, campoJanela("func-nif", "NIF", nif), campoJanela("func-niss", "N.º Segurança Social", niss), campoJanela("func-nascimento", "Data de nascimento", nascimento)),
+    h("div", { class: "grelha-3" }, campoJanela("func-saida", "Saída (se saiu)", saida)),
     h("div", { class: "grelha-3" }, campoJanela("func-base", "Vencimento base mensal (€)", base), campoJanela("func-alimentacao", "Subsídio de alimentação por dia (€)", alimentacao),
       campoJanela("func-cartao", "Pago em", cartao)),
     h("div", { class: "grelha-3" }, campoJanela("func-irs", "Taxa de retenção de IRS (%)", irs), campoJanela("func-ss-t", "SS do trabalhador (%)", ssT),
@@ -2068,7 +2110,8 @@ function abrirFichaFuncionario(dados, f) {
     if (!nome.value.trim() || base.value === "") throw new Error("Indique o nome e o vencimento base.");
     const corpo = {
       nome: nome.value.trim(), tipo: tipo.value, nif: nif.value.trim() || null, niss: niss.value.trim() || null,
-      data_admissao: admissao.value, data_saida: saida.value || null, salario_base: Number(base.value),
+      data_admissao: admissao.value, data_saida: saida.value || null, data_nascimento: nascimento.value || null,
+      salario_base: Number(base.value),
       subsidio_alimentacao: Number(alimentacao.value) || 0, alimentacao_cartao: cartao.value === "1", duodecimos: duodecimos.checked,
       taxa_irs: Number(irs.value) || 0, taxa_ss_trabalhador: ssT.value === "" ? null : Number(ssT.value),
       taxa_ss_entidade: ssE.value === "" ? null : Number(ssE.value),

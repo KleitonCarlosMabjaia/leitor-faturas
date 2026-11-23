@@ -7,7 +7,7 @@
 // - Pedidos que alteram dados nunca passam pela cache.
 // - Ao terminar a sessão, a página pede para apagar as páginas e os dados guardados.
 
-const VERSAO = "2026-11-23.14";
+const VERSAO = "2026-11-23.15";
 const ESTATICOS = `dobra-estaticos-${VERSAO}`;
 const PAGINAS = "dobra-paginas";
 const DADOS = "dobra-dados";
@@ -19,7 +19,8 @@ const PRECACHE = [
   "/static/icones/icone-192.png",
 ];
 // Nunca guardar: sessão, pagamentos, ficheiros PDF e exportações (podem ser grandes ou sensíveis)
-const NAO_GUARDAR = [/^\/api\/auth\//, /^\/api\/stripe\//, /^\/api\/subscricao/, /\/pdf$/, /\/exportar/, /^\/api\/conta(\/|$)/];
+const NAO_GUARDAR = [/^\/api\/auth\//, /^\/api\/stripe\//, /^\/api\/subscricao/, /\/pdf$/, /\/exportar/, /^\/api\/conta(\/|$)/,
+  /\/seguranca-social$/, /\.csv$/];
 
 self.addEventListener("install", (evento) => {
   evento.waitUntil(caches.open(ESTATICOS).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));

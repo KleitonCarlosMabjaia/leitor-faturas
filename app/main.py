@@ -28,7 +28,18 @@ from app import config
 from app.db import SessaoLocal, get_db, preparar_base_dados
 from app.dependencias import utilizador_opcional
 from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
-from app.rotas import auth, conta, contabilidade, dashboard, empresas, equipa, faturas, fornecedores, subscricao
+from app.rotas import (
+    auth,
+    conta,
+    contabilidade,
+    dashboard,
+    empresas,
+    equipa,
+    faturas,
+    fornecedores,
+    gestao,
+    subscricao,
+)
 from app.servicos import atividade as atividade_servico
 from app.servicos import subscricoes
 
@@ -81,11 +92,12 @@ app = FastAPI(
 # Respostas comprimidas (JSON da contabilidade, JS e CSS): 4 a 8 vezes menos dados na rede
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
-for modulo in (auth, conta, empresas, faturas, fornecedores, dashboard, contabilidade, equipa, subscricao):
+for modulo in (auth, conta, empresas, faturas, fornecedores, dashboard, contabilidade, gestao, equipa, subscricao):
     app.include_router(modulo.router)
 
 
-PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/conta", "/subscricao", "/registar", "/entrar",
+PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/gestao",
+                "/equipa", "/conta", "/subscricao", "/registar", "/entrar",
                 "/definir-palavra-passe",
                 "/apresentacao", "/privacidade", "/termos", "/offline"}
 
@@ -287,6 +299,11 @@ def pagina_contabilidade(request: Request, utilizador: Utilizador | None = Depen
     if utilizador and not subscricoes.tem_funcionalidade(utilizador.empresa, subscricoes.FUNC_CONTABILIDADE):
         return RedirectResponse("/subscricao?recurso=contabilidade", status_code=303)
     return _protegida(request, utilizador, "contabilidade.html")
+
+
+@app.get("/gestao", include_in_schema=False)
+def pagina_gestao(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "gestao.html")
 
 
 @app.get("/subscricao", include_in_schema=False)

@@ -453,3 +453,31 @@ def test_centros_de_custo_na_demonstracao(page: Page):
     # Nos lançamentos, as linhas de gastos e rendimentos têm o seletor do centro
     page.goto("/contabilidade#lancamentos")
     expect(page.locator(".seletor-centro").first).to_be_attached()
+
+
+def test_area_de_gestao_e_seletor_de_areas(page: Page, erros_js):
+    page.goto("/gestao#painel")
+    expect(page.get_by_role("heading", name="Painel de gestão")).to_be_visible()
+    expect(page.locator(".indicadores.seis .indicador")).to_have_count(6)
+    # O seletor mostra a Gestão ativa e os grupos da Gestão
+    expect(page.locator('.seletor-area a[data-area="gestao"]')).to_have_attribute("aria-current", "true")
+    expect(page.locator(".lateral-nav a[data-chave='tesouraria']")).to_be_visible()
+    expect(page.locator(".lateral-nav a[data-chave='balancete']")).to_be_hidden()
+    # Mudar para a Contabilidade troca os grupos da barra lateral
+    page.locator('.seletor-area a[data-area="contabilidade"]').click()
+    expect(page.locator(".lateral-nav a[data-chave='balancete']")).to_be_visible()
+    expect(page.locator(".lateral-nav a[data-chave='tesouraria']")).to_be_hidden()
+    for secao, titulo in (("artigos", "Artigos"), ("clientes", "Clientes"), ("tesouraria", "Saldo previsto por semana"),
+                          ("orcamento", "Orçado e real")):
+        page.goto(f"/gestao#{secao}")
+        expect(page.get_by_role("heading", name=titulo, exact=True)).to_be_visible()
+    assert erros_js == []
+
+
+def test_declaracoes_de_remuneracoes(page: Page):
+    page.goto("/contabilidade#salarios")
+    page.get_by_role("button", name="Declarações").first.click()
+    janela = page.locator("#janela-temporaria")
+    expect(janela).to_contain_text("RC4008")
+    expect(janela.get_by_role("link", name="Descarregar o ficheiro")).to_be_visible()
+    expect(janela).to_contain_text("declaração mensal de remunerações")

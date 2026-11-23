@@ -39,6 +39,7 @@ ESTADO_CANCELADA = "cancelada"
 
 FUNC_COMPRAS = "compras"
 FUNC_CONTABILIDADE = "contabilidade"
+FUNC_GESTAO = "gestao"
 
 
 @dataclass(frozen=True)
@@ -52,11 +53,13 @@ class Plano:
 
 
 PLANOS = {
-    "essencial": Plano("essencial", "Essencial", 19.0, 2, frozenset({FUNC_COMPRAS}),
-                       "Leitura de faturas, análise de compras e exportação"),
-    "contabilidade": Plano("contabilidade", "Contabilidade", 49.0, 5, frozenset({FUNC_COMPRAS, FUNC_CONTABILIDADE}),
-                           "A contabilidade completa da empresa"),
-    "gabinete": Plano("gabinete", "Gabinete", None, None, frozenset({FUNC_COMPRAS, FUNC_CONTABILIDADE}),
+    "essencial": Plano("essencial", "Essencial", 19.0, 2, frozenset({FUNC_COMPRAS, FUNC_GESTAO}),
+                       "Leitura de faturas, gestão, stock e tesouraria"),
+    "contabilidade": Plano("contabilidade", "Contabilidade", 49.0, 5,
+                           frozenset({FUNC_COMPRAS, FUNC_GESTAO, FUNC_CONTABILIDADE}),
+                           "Gestão e contabilidade completa da empresa"),
+    "gabinete": Plano("gabinete", "Gabinete", None, None,
+                      frozenset({FUNC_COMPRAS, FUNC_GESTAO, FUNC_CONTABILIDADE}),
                       "Para contabilistas com vários clientes"),
 }
 PLANOS_COM_CHECKOUT = ("essencial", "contabilidade")

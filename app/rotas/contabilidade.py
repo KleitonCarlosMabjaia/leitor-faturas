@@ -46,6 +46,7 @@ from app.servicos.contabilidade import (
     banco,
     centros,
     classificacao,
+    declaracoes,
     extratos,
     fecho,
     ia,
@@ -718,7 +719,7 @@ def _dados_empresa(empresa: Empresa) -> dict:
     return {
         "nome": empresa.nome, "nif": empresa.nif, "regime_iva": empresa.regime_iva,
         "fechado_ate": empresa.fechado_ate, "morada": empresa.morada, "codigo_postal": empresa.codigo_postal,
-        "localidade": empresa.localidade,
+        "localidade": empresa.localidade, "niss": empresa.niss,
     }
 
 
@@ -730,6 +731,7 @@ class Configuracao(BaseModel):
     morada: str | None = Field(None, max_length=210)
     codigo_postal: str | None = Field(None, max_length=8)
     localidade: str | None = Field(None, max_length=50)
+    niss: str | None = Field(None, max_length=11)
 
 
 @router.put("/configuracao")
@@ -742,10 +744,12 @@ def configurar(conf: Configuracao, db: Session = Depends(get_db), utilizador: Ut
         raise HTTPException(status_code=422, detail="O NIF da empresa não é válido.")
     if conf.codigo_postal and not saft.PADRAO_CODIGO_POSTAL.match(conf.codigo_postal.strip()):
         raise HTTPException(status_code=422, detail="O código postal tem de ter o formato 0000-000.")
+    if conf.niss and not (conf.niss.strip().isdigit() and len(conf.niss.strip()) == 11):
+        raise HTTPException(status_code=422, detail="O NISS da empresa tem 11 algarismos.")
     empresa = _empresa(db, utilizador)
     empresa.regime_iva = conf.regime_iva
     empresa.fechado_ate = conf.fechado_ate
-    for campo in ("nif", "morada", "codigo_postal", "localidade"):
+    for campo in ("nif", "morada", "codigo_postal", "localidade", "niss"):
         valor = getattr(conf, campo)
         if valor is not None:
             setattr(empresa, campo, valor.strip() or None)
@@ -1609,6 +1613,7 @@ class FuncionarioEntrada(BaseModel):
     niss: str | None = Field(None, max_length=11)
     data_admissao: date
     data_saida: date | None = None
+    data_nascimento: date | None = None
     salario_base: float = Field(ge=0)
     subsidio_alimentacao: float = Field(0, ge=0, le=100)
     alimentacao_cartao: bool = True
@@ -1736,6 +1741,51 @@ def lancar_acrescimo_ferias(dados: AnoEntrada, db: Session = Depends(get_db),
         raise HTTPException(status_code=409, detail=str(erro))
     db.commit()
     return lancamento_dict(lancamento)
+
+
+@router.get("/salarios/{ano}/{mes}/seguranca-social")
+def ficheiro_seguranca_social(ano: int, mes: int, db: Session = Depends(get_db),
+                              utilizador: Utilizador = Depends(utilizador_atual)):
+    """Ficheiro da declaração de remunerações para entregar na Segurança Social Direta."""
+    if not (2000 <= ano <= 9999 and 1 <= mes <= 12):
+        raise HTTPException(status_code=422, detail="Mês inválido.")
+    empresa = _empresa(db, utilizador)
+    try:
+        conteudo, nome, _ = declaracoes.ficheiro_seguranca_social(db, empresa, ano, mes)
+    except declaracoes.ErroDeclaracao as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    return Response(conteudo, media_type="text/plain; charset=ascii",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
+
+
+@router.get("/salarios/{ano}/{mes}/declaracoes")
+def resumo_declaracoes(ano: int, mes: int, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    """Mapa da DMR (AT) e resumo da declaração da Segurança Social, com o que falta preencher."""
+    if not (2000 <= ano <= 9999 and 1 <= mes <= 12):
+        raise HTTPException(status_code=422, detail="Mês inválido.")
+    empresa = _empresa(db, utilizador)
+    try:
+        dmr = declaracoes.mapa_dmr(db, empresa, ano, mes)
+    except declaracoes.ErroDeclaracao as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    try:
+        _, nome, ss = declaracoes.ficheiro_seguranca_social(db, empresa, ano, mes)
+        ss |= {"pronto": True, "ficheiro": nome}
+    except declaracoes.ErroDeclaracao as erro:
+        ss = {"pronto": False, "erro": str(erro)}
+    return {"dmr": dmr, "seguranca_social": ss}
+
+
+@router.get("/salarios/{ano}/{mes}/dmr.csv")
+def csv_dmr(ano: int, mes: int, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    try:
+        mapa = declaracoes.mapa_dmr(db, empresa, ano, mes)
+    except declaracoes.ErroDeclaracao as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    return Response(declaracoes.csv_dmr(mapa), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="DMR-{ano}{mes:02d}.csv"'})
 
 
 @router.get("/salarios/{ano}/{mes}")

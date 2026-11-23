@@ -78,7 +78,7 @@ def test_registo_com_email_existente_ou_fechado(cliente_anonimo, empresa_teste, 
 
 def test_plano_essencial_sem_contabilidade_e_com_dois_utilizadores(cliente, fabrica_sessoes, empresa_teste):
     _empresa(fabrica_sessoes, empresa_teste, plano="essencial")
-    assert cliente.get("/api/auth/eu").json()["funcionalidades"] == ["compras"]
+    assert cliente.get("/api/auth/eu").json()["funcionalidades"] == ["compras", "gestao"]
     r = cliente.get("/api/contabilidade/resumo")
     assert r.status_code == 403 and "Essencial" in r.json()["detail"]
     destino = cliente.get("/contabilidade", follow_redirects=False).headers["location"]

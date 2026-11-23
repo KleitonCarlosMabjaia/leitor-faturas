@@ -94,13 +94,14 @@ def registar(db: Session, empresa: Empresa, *, nome: str, data_admissao: date, s
              tipo: str = FUNCIONARIO_PESSOAL, nif: str | None = None, niss: str | None = None,
              subsidio_alimentacao: float = 0.0, alimentacao_cartao: bool = True, duodecimos: bool = False,
              taxa_irs: float = 0.0, taxa_ss_trabalhador: float | None = None,
-             taxa_ss_entidade: float | None = None) -> Funcionario:
+             taxa_ss_entidade: float | None = None, data_nascimento: date | None = None) -> Funcionario:
     f = Funcionario(empresa_id=empresa.id, numero=(db.scalar(select(func.max(Funcionario.numero)).where(
         Funcionario.empresa_id == empresa.id)) or 0) + 1)
     db.add(f)
     alterar(f, nome=nome, data_admissao=data_admissao, salario_base=salario_base, tipo=tipo, nif=nif, niss=niss,
             subsidio_alimentacao=subsidio_alimentacao, alimentacao_cartao=alimentacao_cartao, duodecimos=duodecimos,
-            taxa_irs=taxa_irs, taxa_ss_trabalhador=taxa_ss_trabalhador, taxa_ss_entidade=taxa_ss_entidade)
+            taxa_irs=taxa_irs, taxa_ss_trabalhador=taxa_ss_trabalhador, taxa_ss_entidade=taxa_ss_entidade,
+            data_nascimento=data_nascimento)
     db.flush()
     return f
 
@@ -108,7 +109,7 @@ def registar(db: Session, empresa: Empresa, *, nome: str, data_admissao: date, s
 def alterar(f: Funcionario, *, nome: str, data_admissao: date, salario_base: float, tipo: str, nif: str | None,
             niss: str | None, subsidio_alimentacao: float, alimentacao_cartao: bool, duodecimos: bool,
             taxa_irs: float, taxa_ss_trabalhador: float | None, taxa_ss_entidade: float | None,
-            data_saida: date | None = None) -> None:
+            data_saida: date | None = None, data_nascimento: date | None = None) -> None:
     if tipo not in CONTAS:
         raise ErroSalarios("Tipo desconhecido: pessoal ou órgãos sociais.")
     if not nome.strip():
@@ -126,9 +127,11 @@ def alterar(f: Funcionario, *, nome: str, data_admissao: date, salario_base: flo
             raise ErroSalarios("As taxas têm de estar entre 0 e 100%.")
     if data_saida and data_saida < data_admissao:
         raise ErroSalarios("A data de saída é anterior à de admissão.")
+    if data_nascimento and not date(1900, 1, 1) <= data_nascimento <= data_admissao:
+        raise ErroSalarios("A data de nascimento não é válida.")
     omissao_trab, omissao_ent = TAXAS_SS[tipo]
     f.nome, f.tipo, f.nif, f.niss = nome.strip()[:200], tipo, nif, niss
-    f.data_admissao, f.data_saida = data_admissao, data_saida
+    f.data_admissao, f.data_saida, f.data_nascimento = data_admissao, data_saida, data_nascimento
     f.salario_base, f.subsidio_alimentacao = _r(salario_base), _r(subsidio_alimentacao)
     f.alimentacao_cartao, f.duodecimos, f.taxa_irs = alimentacao_cartao, duodecimos, round(taxa_irs, 2)
     f.taxa_ss_trabalhador = omissao_trab if taxa_ss_trabalhador is None else round(taxa_ss_trabalhador, 2)
@@ -138,7 +141,8 @@ def alterar(f: Funcionario, *, nome: str, data_admissao: date, salario_base: flo
 def funcionario_dict(f: Funcionario) -> dict:
     return {
         "id": f.id, "numero": f.numero, "nome": f.nome, "nif": f.nif, "niss": f.niss, "tipo": f.tipo,
-        "data_admissao": f.data_admissao, "data_saida": f.data_saida, "salario_base": f.salario_base,
+        "data_admissao": f.data_admissao, "data_saida": f.data_saida, "data_nascimento": f.data_nascimento,
+        "salario_base": f.salario_base,
         "subsidio_alimentacao": f.subsidio_alimentacao, "alimentacao_cartao": f.alimentacao_cartao,
         "duodecimos": f.duodecimos, "taxa_irs": f.taxa_irs, "taxa_ss_trabalhador": f.taxa_ss_trabalhador,
         "taxa_ss_entidade": f.taxa_ss_entidade, "ativo": f.data_saida is None or f.data_saida >= date.today(),
