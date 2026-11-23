@@ -91,3 +91,9 @@ if MODO_DEMO:
 # Esforço de raciocínio do modelo. Extrair campos de uma fatura é uma tarefa
 # simples, por isso "low" chega e torna cada leitura mais rápida e barata.
 ESFORCO_IA = os.getenv("ESFORCO_IA", "low")
+
+# Páginas públicas (apresentação, privacidade e termos): quem presta o serviço e como contactar.
+# Sem EMAIL_COMERCIAL, os botões "Pedir uma proposta" levam à página de entrada.
+EMPRESA_RESPONSAVEL = os.getenv("EMPRESA_RESPONSAVEL", "").strip()
+EMAIL_COMERCIAL = os.getenv("EMAIL_COMERCIAL", "").strip()
+URL_DEMO = os.getenv("URL_DEMO", "https://leitor-faturas-vwgk.onrender.com").strip()

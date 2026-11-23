@@ -3,21 +3,33 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Entrar · Leitor de Faturas</title>
-  <script src="/static/tema.js?v=2026-11-18.13"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-18.13">
+  <title>Entrar · Dobra</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <script src="/static/tema.js?v=2026-11-23.3"></script>
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.3">
 </head>
 <body>
-  <main class="pagina-acesso">
-    <div class="acesso">
-      <a class="marca" href="/entrar">
-        <span class="marca-simbolo" aria-hidden="true"><span data-icone="recibo"></span></span>
-        <span>Leitor de Faturas</span>
+  <main class="pagina-acesso dividida">
+    <section class="acesso-montra" aria-label="Sobre o Dobra">
+      <a class="marca" href="/apresentacao">
+        <img class="marca-logo" src="/static/logo.svg" alt="">
+        <span class="marca-nome">Dobra</span>
       </a>
+      <div class="montra-texto">
+        <h2>A contabilidade da sua empresa, feita a partir das faturas.</h2>
+        <ul class="montra-lista">
+          <li>Faturas lidas do QR da AT e por IA</li>
+          <li>Lançamentos SNC propostos e memorizados</li>
+          <li>IVA, bancos, salários e SAF-T em dia</li>
+        </ul>
+      </div>
+      <p class="montra-rodape">
+        <a href="/apresentacao">Conhecer o Dobra</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos</a>
+      </p>
+    </section>
 
+    <div class="acesso">
       <div class="cartao-acesso">
         <h1>Entrar</h1>
         <p class="subtitulo">Use a conta da sua empresa.</p>
@@ -34,55 +46,14 @@
           </div>
           <button type="submit" class="botao largo">Entrar</button>
         </form>
+        <p class="nota-acesso">
+          O acesso é feito por convite. Se se esqueceu da palavra-passe, peça um novo link ao administrador da sua empresa.
+        </p>
       </div>
-
-      <p class="nota-acesso">
-        O acesso é feito por convite. Se se esqueceu da palavra-passe, peça um novo link ao administrador da sua empresa.
-      </p>
     </div>
   </main>
 
-  <script src="/static/comum.js?v=2026-11-18.13"></script>
-  <script>
-    const formulario = document.getElementById("formulario");
-    const mensagem = document.getElementById("mensagem");
-    botaoVerPalavraPasse(formulario.palavra_passe);
-
-    function erro(texto) {
-      mensagem.replaceChildren(icone("erro"), texto);
-    }
-
-    // Só aceita destinos dentro da própria aplicação ("/x"), nunca "//outro-site.com"
-    function destinoSeguro() {
-      const voltar = new URLSearchParams(location.search).get("voltar") || "/";
-      return voltar.startsWith("/") && !voltar.startsWith("//") ? voltar : "/";
-    }
-
-    formulario.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      mensagem.replaceChildren();
-      if (!formulario.email.value.trim() || !formulario.palavra_passe.value) {
-        erro("Preencha o email e a palavra-passe.");
-        (formulario.email.value.trim() ? formulario.palavra_passe : formulario.email).focus();
-        return;
-      }
-      const botao = formulario.querySelector('button[type="submit"]');
-      ocupado(botao, true);
-      try {
-        const resposta = await fetch("/api/auth/entrar", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: formulario.email.value, palavra_passe: formulario.palavra_passe.value }),
-        });
-        if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível entrar."));
-        location.href = destinoSeguro();
-      } catch (falha) {
-        erro(falha.message);
-        formulario.palavra_passe.value = "";
-        formulario.palavra_passe.focus();
-        ocupado(botao, false);
-      }
-    });
-  </script>
+  <script src="/static/comum.js?v=2026-11-23.3"></script>
+  <script src="/static/entrar.js?v=2026-11-23.3"></script>
 </body>
 </html>

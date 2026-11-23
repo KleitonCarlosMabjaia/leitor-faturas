@@ -46,6 +46,10 @@ jobs:
       - name: Verificação de estilo (ruff)
         run: ruff check .
 
+      # Falha se alguma dependência tiver uma vulnerabilidade conhecida (base de dados PyPA/OSV)
+      - name: Vulnerabilidades nas dependências (pip-audit)
+        run: pipx run pip-audit -r requirements-dev.txt
+
       - name: Testes do servidor (pytest + PostgreSQL)
         env:
           TESTE_POSTGRES_URL: postgresql://teste:teste@localhost:5432/teste

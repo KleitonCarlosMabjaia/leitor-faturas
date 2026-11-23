@@ -99,7 +99,7 @@ def mudar_estado_empresa(id_empresa: int, ativa: bool) -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Administração do Leitor de Faturas")
+    parser = argparse.ArgumentParser(description="Administração do Dobra")
     comandos = parser.add_subparsers(dest="comando", required=True)
 
     criar = comandos.add_parser("criar-empresa", help="cria uma empresa cliente e o convite do administrador")

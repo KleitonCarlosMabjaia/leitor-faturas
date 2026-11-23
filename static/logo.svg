@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <title>Dobra</title>
+  <rect width="32" height="32" rx="8" fill="#0B5F75"/>
+  <path d="M9 8h7.5a8 8 0 0 1 7.96 7.25H9z" fill="#FFFFFF"/>
+  <path d="M9 16.75h15.46A8 8 0 0 1 16.5 24H9z" fill="#7DD3E8"/>
+</svg>

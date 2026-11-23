@@ -1,4 +1,4 @@
-// Leitor de Faturas - página inicial: carregar, pesquisar, filtrar, ordenar e listar faturas
+// Dobra - página inicial: carregar, pesquisar, filtrar, ordenar e listar faturas
 
 const zona = document.getElementById("zona");
 const inputFicheiro = document.getElementById("ficheiro");

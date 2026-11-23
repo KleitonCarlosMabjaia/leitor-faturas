@@ -3,12 +3,11 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Dashboard · Leitor de Faturas</title>
-  <script src="/static/tema.js?v=2026-11-18.13"></script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-18.13">
+  <title>Análise de compras · Dobra</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <script src="/static/tema.js?v=2026-11-23.3"></script>
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.3">
 </head>
 <body data-pagina="dashboard">
   <header id="barra"></header>
@@ -16,8 +15,9 @@
   <main class="conteudo">
     <div class="cabecalho-pagina">
       <div>
-        <h1>Dashboard</h1>
-        <p class="subtitulo">Inclui todas as faturas lidas, confirmadas ou por rever.</p>
+        <p class="migalhas">Compras</p>
+        <h1>Análise de compras</h1>
+        <p class="subtitulo">Todas as faturas lidas, confirmadas ou por rever.</p>
       </div>
       <div class="campo seletor-mes">
         <label for="mes">Mês</label>
@@ -121,8 +121,8 @@
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script src="/static/comum.js?v=2026-11-18.13"></script>
-  <script src="/static/dashboard.js?v=2026-11-18.13"></script>
+  <script src="/static/vendor/chart.umd.min.js?v=4.4.1"></script>
+  <script src="/static/comum.js?v=2026-11-23.3"></script>
+  <script src="/static/dashboard.js?v=2026-11-23.3"></script>
 </body>
 </html>

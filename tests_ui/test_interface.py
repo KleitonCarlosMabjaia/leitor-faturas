@@ -288,7 +288,7 @@ def test_registar_ativo_e_lancar_depreciacoes(page: Page):
 
 def test_fecho_do_exercicio_mostra_verificacoes_e_estimativa(page: Page):
     page.goto("/contabilidade#fecho")
-    expect(page.get_by_role("heading", name="Fecho do exercício")).to_be_visible()
+    expect(page.get_by_role("heading", name="Fecho do exercício", level=1)).to_be_visible()
     expect(page.locator(".lista-alertas li")).to_have_count(9)
     irc = page.locator("table.dr tr", has_text="IRC").first
     antes = irc.inner_text()
@@ -314,7 +314,7 @@ def test_processar_salarios_do_mes(page: Page):
 
 def test_acrescimo_e_balanco(page: Page):
     page.goto("/contabilidade#periodizacao")
-    expect(page.get_by_role("heading", name="Diferimentos")).to_be_visible()
+    expect(page.get_by_role("heading", name="Diferimentos", exact=True)).to_be_visible()
     page.get_by_role("button", name="Novo acréscimo").click()
     page.locator("#acr-descricao").fill("Eletricidade por faturar")
     page.locator("#acr-valor").fill("210")

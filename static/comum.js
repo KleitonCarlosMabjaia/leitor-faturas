@@ -104,6 +104,8 @@ const ICONES = {
   banco: "M3 9.5 12 4l9 5.5M4.5 10v8M9.5 10v8M14.5 10v8M19.5 10v8M3 20h18",
   venda: "M3 12.5V4h8.5L21 13.5 13.5 21zM7.5 8h.01",
   caixa: "M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9",
+  menu: "M4 6h16M4 12h16M4 18h16",
+  inicio: "M3 10.5 12 4l9 6.5M5.5 9v11h13V9M10 20v-5h4v5",
   edificio: "M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 10h4a1 1 0 0 1 1 1v10M3 21h18M8 8h3M8 12h3M8 16h3",
 };
 
@@ -305,51 +307,191 @@ async function api(url, opcoes) {
   return resposta;
 }
 
-// ---------- Cabeçalho ----------
+// ---------- Barra lateral (navegação da aplicação) ----------
 
-const PAGINAS = [
-  { chave: "faturas", href: "/", texto: "Faturas", icone: "recibo" },
-  { chave: "dashboard", href: "/dashboard", texto: "Dashboard", icone: "euro" },
-  { chave: "contabilidade", href: "/contabilidade", texto: "Contabilidade", icone: "livro" },
+const NOME_PRODUTO = "Dobra";
+
+// Logótipo: um "D" partido em duas metades, como as partidas dobradas (débito e crédito)
+const LOGO_SVG = `<svg viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+  <rect width="32" height="32" rx="8" fill="var(--logo-fundo)"/>
+  <path d="M9 8h7.5a8 8 0 0 1 7.96 7.25H9z" fill="#FFFFFF"/>
+  <path d="M9 16.75h15.46A8 8 0 0 1 16.5 24H9z" fill="var(--logo-metade)"/></svg>`;
+
+const CONTAB = "/contabilidade#";
+const NAVEGACAO = [
+  { itens: [{ chave: "resumo", href: `${CONTAB}resumo`, texto: "Início", icone: "inicio" }] },
+  { titulo: "Compras", itens: [
+    { chave: "faturas", href: "/", texto: "Faturas", titulo: "Faturas de fornecedores", icone: "recibo", contador: "por_rever" },
+    { chave: "por-contabilizar", href: `${CONTAB}por-contabilizar`, texto: "Por contabilizar", icone: "lista", contador: "por_contabilizar" },
+    { chave: "fornecedores", href: `${CONTAB}fornecedores`, texto: "Fornecedores", icone: "loja" },
+    { chave: "dashboard", href: "/dashboard", texto: "Análise de compras", icone: "grafico" },
+  ] },
+  { titulo: "Vendas e tesouraria", itens: [
+    { chave: "vendas", href: `${CONTAB}vendas`, texto: "Vendas", icone: "venda" },
+    { chave: "bancos", href: `${CONTAB}bancos`, texto: "Bancos", icone: "banco" },
+  ] },
+  { titulo: "Pessoal e património", itens: [
+    { chave: "salarios", href: `${CONTAB}salarios`, texto: "Salários", icone: "equipa" },
+    { chave: "ativos", href: `${CONTAB}ativos`, texto: "Ativos fixos", icone: "edificio" },
+    { chave: "inventarios", href: `${CONTAB}inventarios`, texto: "Inventários", icone: "caixa" },
+  ] },
+  { titulo: "Contabilidade", itens: [
+    { chave: "lancamentos", href: `${CONTAB}lancamentos`, texto: "Lançamentos", icone: "livro" },
+    { chave: "balancete", href: `${CONTAB}balancete`, texto: "Balancete", icone: "balanca" },
+    { chave: "extrato", href: `${CONTAB}extrato`, texto: "Extratos de conta", icone: "ficheiro" },
+    { chave: "periodizacao", href: `${CONTAB}periodizacao`, texto: "Acréscimos e diferimentos", icone: "relogio" },
+    { chave: "plano", href: `${CONTAB}plano`, texto: "Plano de contas", icone: "arvore" },
+  ] },
+  { titulo: "Relatórios e fiscal", itens: [
+    { chave: "resultados", href: `${CONTAB}resultados`, texto: "Resultados", titulo: "Demonstração de resultados", icone: "euro" },
+    { chave: "balanco", href: `${CONTAB}balanco`, texto: "Balanço", icone: "carteira" },
+    { chave: "iva", href: `${CONTAB}iva`, texto: "IVA", icone: "percentagem" },
+    { chave: "obrigacoes", href: `${CONTAB}obrigacoes`, texto: "Obrigações fiscais", icone: "calendario" },
+    { chave: "fecho", href: `${CONTAB}fecho`, texto: "Fecho do exercício", icone: "cadeado" },
+  ] },
 ];
+const NAV_ASSISTENTE = { chave: "assistente", href: `${CONTAB}assistente`, texto: "Assistente IA", icone: "faisca" };
+const NAV_EQUIPA = { chave: "equipa", href: "/equipa", texto: "Equipa", icone: "equipa" };
+
+// Nome de cada área (para o título da página e do separador do navegador)
+function tituloDaArea(chave) {
+  for (const g of NAVEGACAO) for (const i of g.itens) if (i.chave === chave) return i.titulo || i.texto;
+  return chave === "assistente" ? NAV_ASSISTENTE.texto : null;
+}
+
+// Grupo da barra lateral a que a área pertence (para as migalhas por cima do título)
+function grupoDaArea(chave) {
+  for (const g of NAVEGACAO) if (g.itens.some((i) => i.chave === chave)) return g.titulo || null;
+  return chave === "assistente" ? "Ferramentas" : null;
+}
 
 function iniciais(nome) {
   const partes = nome.trim().split(/\s+/);
   return ((partes[0]?.[0] || "") + (partes.length > 1 ? partes.at(-1)[0] : "")).toUpperCase() || "?";
 }
 
-// Monta o cabeçalho fixo: marca, menu, tema e conta. A página diz qual é a atual em <body data-pagina>.
+// Área atual: a página (body data-pagina) e, na contabilidade, a secção do endereço (#secao)
+function areaAtual() {
+  const pagina = document.body.dataset.pagina;
+  if (pagina === "contabilidade") return decodeURIComponent(location.hash.slice(1)).split(":")[0] || "resumo";
+  return pagina;
+}
+
+function marcarAreaAtual() {
+  const atual = areaAtual();
+  for (const a of document.querySelectorAll(".lateral-nav a[data-chave]")) {
+    if (a.dataset.chave === atual) a.setAttribute("aria-current", "page");
+    else a.removeAttribute("aria-current");
+  }
+}
+
+// Monta a barra lateral: marca, áreas agrupadas, assistente, tema e conta.
+// Em ecrãs estreitos fica escondida e abre-se pelo botão de menu da barra do topo.
 function montarBarra() {
   const barra = document.getElementById("barra");
   if (!barra) return;
-  const atual = document.body.dataset.pagina;
-  barra.className = "barra";
+  document.body.classList.add("com-lateral");
+  barra.className = "lateral";
+  barra.setAttribute("aria-label", "Navegação");
   barra.innerHTML = `
-    <div class="barra-interior">
-      <a class="marca" href="/" aria-label="Leitor de Faturas, página inicial">
-        <span class="marca-simbolo" aria-hidden="true"><span data-icone="recibo"></span></span>
-        <span class="marca-nome">Leitor de Faturas</span>
+    <div class="lateral-topo">
+      <a class="marca" href="/contabilidade#resumo" aria-label="${NOME_PRODUTO}, início">
+        <span class="marca-logo">${LOGO_SVG}</span>
+        <span class="marca-nome">${NOME_PRODUTO}</span>
       </a>
-      <nav class="navegacao" aria-label="Principal"></nav>
-      <div class="barra-acoes">
-        <button type="button" class="botao-icone barra-botao" id="botao-tema"></button>
+      <button type="button" class="botao-icone lateral-fechar" id="lateral-fechar" aria-label="Fechar o menu"></button>
+    </div>
+    <div class="lateral-empresa" id="lateral-empresa" hidden></div>
+    <nav class="lateral-nav" aria-label="Principal"></nav>
+    <div class="lateral-fundo">
+      <nav class="lateral-nav lateral-extra" aria-label="Ferramentas"></nav>
+      <div class="lateral-conta">
         <div class="conta" id="conta"></div>
+        <button type="button" class="botao-icone barra-botao" id="botao-tema"></button>
       </div>
     </div>`;
-  const nav = barra.querySelector(".navegacao");
-  for (const p of PAGINAS) nav.appendChild(ligacaoMenu(p, atual));
+  const nav = barra.querySelector(".lateral-nav");
+  for (const grupo of NAVEGACAO) {
+    const bloco = document.createElement("div");
+    bloco.className = "lateral-grupo";
+    if (grupo.titulo) {
+      const t = document.createElement("p");
+      t.className = "lateral-titulo";
+      t.textContent = grupo.titulo;
+      bloco.appendChild(t);
+    }
+    for (const item of grupo.itens) bloco.appendChild(ligacaoMenu(item));
+    nav.appendChild(bloco);
+  }
+  barra.querySelector(".lateral-extra").appendChild(ligacaoMenu(NAV_ASSISTENTE));
+  barra.querySelector("#lateral-fechar").appendChild(icone("x"));
+
+  // Barra do topo, só em ecrãs estreitos: botão de menu e marca
+  const topo = document.createElement("div");
+  topo.className = "barra-movel";
+  topo.innerHTML = `
+    <button type="button" class="botao-icone" id="lateral-abrir" aria-label="Abrir o menu" aria-controls="barra" aria-expanded="false"></button>
+    <a class="marca" href="/contabilidade#resumo"><span class="marca-logo">${LOGO_SVG}</span><span class="marca-nome">${NOME_PRODUTO}</span></a>`;
+  topo.querySelector("#lateral-abrir").appendChild(icone("menu"));
+  barra.after(topo);
+  const veu = document.createElement("div");
+  veu.className = "lateral-veu";
+  topo.after(veu);
+  const abrir = (sim) => {
+    document.body.classList.toggle("menu-aberto", sim);
+    topo.querySelector("#lateral-abrir").setAttribute("aria-expanded", String(sim));
+    if (sim) barra.querySelector("a[aria-current]")?.focus();
+  };
+  topo.querySelector("#lateral-abrir").addEventListener("click", () => abrir(true));
+  barra.querySelector("#lateral-fechar").addEventListener("click", () => abrir(false));
+  veu.addEventListener("click", () => abrir(false));
+  barra.addEventListener("click", (e) => {
+    if (e.target.closest("a[href]")) abrir(false);
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && document.body.classList.contains("menu-aberto")) abrir(false);
+  });
+
   preencherIcones(barra);
+  marcarAreaAtual();
+  window.addEventListener("hashchange", marcarAreaAtual);
   atualizarBotaoTema();
   barra.querySelector("#botao-tema").addEventListener("click", alternarTema);
+  atualizarContadores();
 }
 
-function ligacaoMenu(p, atual) {
+function ligacaoMenu(p) {
   const a = document.createElement("a");
   a.href = p.href;
+  a.dataset.chave = p.chave;
   a.appendChild(icone(p.icone));
-  a.append(p.texto);
-  if (p.chave === atual) a.setAttribute("aria-current", "page");
+  const texto = document.createElement("span");
+  texto.className = "lateral-texto";
+  texto.textContent = p.texto;
+  a.appendChild(texto);
+  if (p.contador) {
+    const c = document.createElement("span");
+    c.className = "lateral-contador";
+    c.dataset.contador = p.contador;
+    a.appendChild(c);
+  }
   return a;
+}
+
+// Números ao lado de "Faturas de fornecedores" (por rever) e "Por contabilizar"
+async function atualizarContadores() {
+  try {
+    const resposta = await api("/api/faturas/contadores");
+    if (!resposta.ok) return;
+    const d = await resposta.json();
+    for (const el of document.querySelectorAll("[data-contador]")) {
+      const n = d[el.dataset.contador] || 0;
+      el.textContent = n ? String(n) : "";
+      el.closest("a")?.setAttribute("aria-label", `${el.closest("a").querySelector(".lateral-texto").textContent}${n ? ` (${n})` : ""}`);
+    }
+  } catch {
+    // sem contadores a navegação continua a funcionar
+  }
 }
 
 // Menu da conta: iniciais → nome, empresa, Equipa (admins) e Sair
@@ -366,19 +508,27 @@ async function iniciarConta() {
   }
 
   if (eu.papel === "admin" && !eu.modo_demo) {
-    const nav = document.querySelector(".navegacao");
-    nav.appendChild(ligacaoMenu({ chave: "equipa", href: "/equipa", texto: "Equipa", icone: "equipa" }, document.body.dataset.pagina));
+    document.querySelector(".lateral-extra")?.appendChild(ligacaoMenu(NAV_EQUIPA));
+    marcarAreaAtual();
+    preencherIcones();
+  }
+
+  const empresa = document.getElementById("lateral-empresa");
+  if (empresa && eu.empresa) {
+    empresa.replaceChildren(Object.assign(document.createElement("span"), { className: "lateral-empresa-nome", textContent: eu.empresa }));
+    empresa.title = eu.empresa;
+    empresa.hidden = false;
   }
 
   if (eu.modo_demo) {
-    zona.innerHTML = '<span class="selo-demo">Demonstração</span>';
+    zona.innerHTML = '<span class="selo-demo">Modo de demonstração</span>';
     return;
   }
 
   zona.innerHTML = `
     <button type="button" class="conta-botao" id="conta-botao" aria-expanded="false" aria-controls="conta-painel">
       <span class="avatar" aria-hidden="true"></span>
-      <span class="conta-nome"></span>
+      <span class="conta-texto"><span class="conta-nome"></span><span class="conta-papel"></span></span>
       <span data-icone="chevron-baixo"></span>
     </button>
     <div class="conta-painel" id="conta-painel" hidden>
@@ -390,7 +540,8 @@ async function iniciarConta() {
       <button type="button" class="conta-sair"><span data-icone="sair"></span>Terminar sessão</button>
     </div>`;
   zona.querySelector(".avatar").textContent = iniciais(eu.nome);
-  zona.querySelector(".conta-nome").textContent = eu.nome.split(" ")[0];
+  zona.querySelector(".conta-nome").textContent = eu.nome;
+  zona.querySelector(".conta-papel").textContent = eu.papel === "admin" ? "Administrador" : "Utilizador";
   zona.querySelector(".conta-quem strong").textContent = eu.nome;
   zona.querySelector(".conta-email").textContent = eu.email;
   zona.querySelector(".conta-empresa").textContent = eu.empresa;

@@ -1,14 +1,16 @@
-# Leitor de Faturas
+# <img src="static/logo.svg" alt="" width="32" height="32" align="top"> Dobra
 
 [![Testes](https://github.com/KleitonCarlosMabjaia/leitor-faturas/actions/workflows/testes.yml/badge.svg)](https://github.com/KleitonCarlosMabjaia/leitor-faturas/actions/workflows/testes.yml)
 
-Aplicação web para pequenas empresas portuguesas (restaurantes, oficinas, lojas, escritórios de contabilidade), com **acesso por convite e dados separados por empresa**, que **lê faturas de fornecedores em PDF**, extrai os dados automaticamente, **contabiliza-as segundo o SNC** (partidas dobradas, IVA por taxa, art. 21.º do CIVA) e mostra gastos, balancete, apuramento do IVA e prazos fiscais, com um **assistente de IA** que consulta a contabilidade e propõe lançamentos.
+**Dobra** (de *partidas dobradas*) é uma aplicação web de contabilidade para pequenas empresas portuguesas (restaurantes, oficinas, lojas, escritórios de contabilidade), com **acesso por convite e dados separados por empresa**, que **lê faturas de fornecedores em PDF**, extrai os dados automaticamente, **contabiliza-as segundo o SNC** (partidas dobradas, IVA por taxa, art. 21.º do CIVA) e mostra gastos, balancete, apuramento do IVA e prazos fiscais, com um **assistente de IA** que consulta a contabilidade e propõe lançamentos.
 
 A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o **código QR da AT** (gratuito e exato), depois uma **cache de fornecedores** por NIF e, só no fim, **IA** (API do Claude) para o que falta.
 
 **[▶ Ver a demonstração](https://leitor-faturas-vwgk.onrender.com)** — sem login, com 30 faturas fictícias e a respetiva contabilidade. O servidor gratuito adormece quando não há visitas: a primeira abertura pode demorar cerca de 1 minuto.
 
-| Lista de faturas | Revisão | Dashboard (modo escuro) |
+![Página de apresentação do Dobra: destaque com o ecrã inicial da aplicação, funcionalidades, segurança e planos](docs/capturas/apresentacao.png)
+
+| Lista de faturas | Revisão | Análise de compras (modo escuro) |
 | --- | --- | --- |
 | ![Lista de faturas com pesquisa, filtros por estado e etiquetas](docs/capturas/lista.png) | ![PDF da fatura ao lado dos campos editáveis](docs/capturas/revisao.png) | ![Indicadores, gasto por fornecedor e evolução mensal em modo escuro](docs/capturas/dashboard.png) |
 | **Contabilidade** | **Por contabilizar** | **Balancete (modo escuro)** |
@@ -39,7 +41,7 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - Estados "por rever" e "confirmada", marcação de faturas pagas.
 - Filtros por fornecedor, mês e estado.
 
-**Dashboard e exportação**
+**Análise de compras e exportação**
 - Total gasto no mês, IVA suportado no mês e acumulado no ano, faturas por pagar (com as vencidas em destaque).
 - Gráficos de **gasto por fornecedor** e de **evolução mensal** (Chart.js), com tabela alternativa para leitores de ecrã.
 - **Exportação para Excel e CSV** com os filtros ativos: colunas de base e IVA por taxa, linha de totais e proteção contra *CSV injection*.
@@ -80,12 +82,20 @@ A leitura funciona em cascata, da fonte mais barata para a mais cara: primeiro o
 - **Cópia de segurança diária** da base de dados, num formato que se restaura em SQLite ou PostgreSQL.
 - **Limite de pedidos** no login (por IP) e no envio de faturas (por utilizador).
 - Registo de erros no **Sentry** (opcional), sem dados pessoais nem dados das faturas.
+- **Política de segurança de conteúdo** estrita (só scripts da própria aplicação), **HSTS**, `Permissions-Policy`, `Cross-Origin-Opener-Policy` e recusa de pedidos que alteram dados vindos de outros sites (CSRF, além do cookie `SameSite`). Documentação da API (`/docs`) desligada em produção.
+- **Sem pedidos a terceiros** nas páginas: o tipo de letra (Inter) e o Chart.js são servidos pela aplicação (RGPD).
+- **Desempenho**: respostas comprimidas (gzip), CSS/JS/imagens com versão em cache durante um ano, SQLite em modo WAL.
+- **Dependências auditadas** com `pip-audit` em cada push (GitHub Actions).
+
+**Para vender**
+- **Página de apresentação** (`/apresentacao`) com funcionalidades, segurança, planos e perguntas frequentes: é o que vê quem abre o endereço sem sessão.
+- **Política de privacidade** (RGPD) e **termos de utilização** (`/privacidade`, `/termos`), com o nome de quem presta o serviço e o email comercial lidos da configuração.
 
 **Qualidade**
-- Interface em português de Portugal, paleta grafite e âmbar, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
+- Interface em português de Portugal com **barra lateral** que reúne todas as áreas (compras, vendas e tesouraria, pessoal e património, contabilidade, relatórios e fiscal), paleta azul-petróleo, modo claro e escuro (automático ou escolhido no menu), adaptada a telemóvel.
 - Pesquisa instantânea, filtros por estado com contadores, ordenação por coluna, fila de envio com o resultado de cada PDF e notificações.
 - Revisão rápida: atalhos **Ctrl+S** (guardar) e **Ctrl+Enter** (confirmar), aviso de alterações por guardar, erros junto a cada campo e botão "Próxima por rever".
-- 212 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
+- 218 testes automáticos (pytest), incluindo isolamento entre empresas, migrações, as regras contabilísticas e a validação do SAF-T contra o XSD oficial e a leitura de extratos de vários formatos. Correm sem Internet e sem chave da API.
 
 ## Como funciona
 
@@ -105,13 +115,13 @@ PDF ──► QR da AT? ──sim──► fornecedor conhecido (cache)? ──s
 | Área | Tecnologia |
 | --- | --- |
 | Backend | Python 3.11+, FastAPI, Uvicorn, Pydantic |
-| Segurança | Argon2 (argon2-cffi), sessões no servidor, cookies HttpOnly |
+| Segurança | Argon2 (argon2-cffi), sessões no servidor, cookies HttpOnly, CSP, HSTS, pip-audit |
 | Base de dados | SQLAlchemy 2.0; SQLite (desenvolvimento) e PostgreSQL com psycopg 3 (produção); Alembic |
 | Ficheiros | Pasta local ou Cloudflare R2 / S3 (boto3) |
 | PDF e QR | pypdf, pdfplumber, pypdfium2, zxing-cpp |
 | IA | SDK oficial `anthropic` (modelo configurável) |
 | Exportação | openpyxl |
-| Frontend | HTML, CSS e JavaScript, sem frameworks; Chart.js; ícones SVG próprios |
+| Frontend | HTML, CSS e JavaScript, sem frameworks; Chart.js e Inter servidos localmente; ícones SVG próprios |
 | Testes | pytest, Playwright, ruff, GitHub Actions |
 | Publicação | Docker, Render (web + tarefa agendada), Sentry |
 
@@ -188,7 +198,7 @@ pip install -r requirements-dev.txt
 playwright install chromium        # só da primeira vez
 
 ruff check .                       # estilo e erros comuns
-pytest                             # servidor: 212 testes, sem navegador
+pytest                             # servidor: 218 testes, sem navegador
 pytest tests_ui                    # interface: 51 testes num Chromium a sério (Playwright)
 ```
 
@@ -238,6 +248,7 @@ A demonstração e a versão dos clientes são **serviços separados**, a partir
 | Cópia diária | Tarefa agendada do Render (`python -m app.copias criar`) | as mesmas da base de dados e do bucket |
 | Erros | Sentry (opcional) | `SENTRY_DSN` |
 | SAF-T | NIF e nome de quem produz o programa (opcional; sem eles, usam-se os da empresa) | `SAFT_NIF_PRODUTOR`, `SAFT_NOME_PRODUTOR` |
+| Página de apresentação e páginas legais | Quem presta o serviço, email comercial e endereço da demonstração | `EMPRESA_RESPONSAVEL`, `EMAIL_COMERCIAL`, `URL_DEMO` |
 
 O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.
 
@@ -283,6 +294,7 @@ Um teste confirma que as migrações e os modelos não divergem.
 | POST | `/api/faturas` | Carrega um PDF (campo `ficheiro`) e extrai os dados. 409 se for repetida |
 | GET | `/api/faturas` | Lista as faturas. Filtros: `fornecedor_id`, `mes` (AAAA-MM), `estado` |
 | GET | `/api/faturas/exportar` | Exporta para `formato=xlsx` ou `csv`, com os mesmos filtros |
+| GET | `/api/faturas/contadores` | Faturas por rever e por contabilizar (números da barra lateral) |
 | GET | `/api/faturas/{id}` | Dados de uma fatura |
 | GET | `/api/faturas/{id}/pdf` | PDF original |
 | PUT | `/api/faturas/{id}` | Edita os dados; com `"confirmar": true` marca-a como confirmada |
@@ -387,7 +399,7 @@ leitor-faturas/
 │       └── armazenamento.py # PDFs e cópias: pasta local ou bucket R2/S3
 ├── migracoes/               # migrações Alembic (versions/0001_esquema_inicial.py, ...)
 ├── static/                  # páginas (login, lista, revisão, dashboard, equipa), CSS e JS
-├── tests/                   # 212 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
+├── tests/                   # 218 testes do servidor (pytest); tests/dados/ tem o XSD oficial do SAF-T
 ├── tests_ui/                # 51 testes da interface (Playwright)
 ├── .github/workflows/       # CI: ruff + testes em cada push
 ├── alembic.ini

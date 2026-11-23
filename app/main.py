@@ -1,5 +1,5 @@
 """
-Leitor de Faturas - ponto de entrada da aplicação.
+Dobra - ponto de entrada da aplicação.
 
 Aqui só se cria a aplicação e se ligam as rotas. A lógica está em:
 - app/rotas/      -> endpoints HTTP
@@ -8,12 +8,15 @@ Aqui só se cria a aplicação e se ligam as rotas. A lógica está em:
 - app/dependencias.py -> quem está a fazer o pedido (sessão)
 """
 
+import html
 import logging
 from contextlib import asynccontextmanager
+from functools import lru_cache
 from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -65,28 +68,80 @@ async def ciclo_de_vida(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Leitor de Faturas", version=config.VERSAO_APLICACAO, lifespan=ciclo_de_vida)
+# Em produção a documentação automática da API não é publicada: não se expõe o mapa das rotas
+_docs = config.AMBIENTE != "producao"
+app = FastAPI(
+    title="Dobra", version=config.VERSAO_APLICACAO, lifespan=ciclo_de_vida,
+    docs_url="/docs" if _docs else None, redoc_url=None, openapi_url="/openapi.json" if _docs else None,
+)
+# Respostas comprimidas (JSON da contabilidade, JS e CSS): 4 a 8 vezes menos dados na rede
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
 for modulo in (auth, faturas, fornecedores, dashboard, contabilidade, equipa):
     app.include_router(modulo.router)
 
 
-PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/entrar", "/definir-palavra-passe"}
+PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/entrar", "/definir-palavra-passe",
+                "/apresentacao", "/privacidade", "/termos"}
+
+# Política de segurança de conteúdo: só scripts, estilos, tipos de letra e imagens da própria
+# aplicação. Um script injetado (XSS) não corre nem consegue enviar dados para outro site.
+# style-src-attr: alguns elementos têm estilos em linha (larguras de barras), sem risco de execução.
+CSP = "; ".join([
+    "default-src 'self'",
+    "script-src 'self'",
+    "style-src 'self'",
+    "style-src-attr 'unsafe-inline'",
+    "img-src 'self' data: blob:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "frame-src 'self' blob:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'self'",
+])
+METODOS_QUE_ALTERAM = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+def _origem_estrangeira(request: Request) -> bool:
+    """
+    Defesa contra CSRF, além do cookie SameSite=Lax: um pedido que altera dados tem de vir
+    de uma página desta aplicação. O navegador indica a origem (Origin / Sec-Fetch-Site).
+    """
+    origem = request.headers.get("origin")
+    if origem:
+        return origem.split("://", 1)[-1] != request.headers.get("host", "")
+    return request.headers.get("sec-fetch-site") == "cross-site"
 
 
 @app.middleware("http")
 async def cabecalhos_seguranca(request: Request, call_next):
     """Cabeçalhos HTTP que reduzem ataques comuns no navegador."""
+    if request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/") and _origem_estrangeira(request):
+        return JSONResponse(status_code=403, content={"detail": "Pedido recusado: origem não autorizada."})
     resposta = await call_next(request)
-    resposta.headers["X-Content-Type-Options"] = "nosniff"        # não "adivinhar" tipos de ficheiro
-    resposta.headers["X-Frame-Options"] = "SAMEORIGIN"            # só esta app pode mostrar as páginas em iframe
-    resposta.headers["Referrer-Policy"] = "same-origin"           # não enviar endereços internos a outros sites
-    if request.url.path.startswith("/api/"):
-        resposta.headers["Cache-Control"] = "no-store"            # dados das faturas não ficam em caches
-    elif request.url.path.startswith("/static/") or request.url.path in PAGINAS_HTML:
-        # O navegador pode guardar CSS/JS/páginas, mas confirma sempre se mudaram (ETag -> 304).
-        # Sem isto, depois de uma atualização, a página nova podia usar o CSS e o JS antigos.
-        resposta.headers["Cache-Control"] = "no-cache"
+    cab = resposta.headers
+    cab["X-Content-Type-Options"] = "nosniff"        # não "adivinhar" tipos de ficheiro
+    cab["X-Frame-Options"] = "SAMEORIGIN"            # só esta app pode mostrar as páginas em iframe
+    cab["Referrer-Policy"] = "same-origin"           # não enviar endereços internos a outros sites
+    cab["Permissions-Policy"] = "camera=(), microphone=(), geolocation=(), payment=(), usb=()"
+    cab["Cross-Origin-Opener-Policy"] = "same-origin"
+    if cab.get("content-type", "").startswith("text/html"):
+        cab["Content-Security-Policy"] = CSP
+    if request.url.scheme == "https":
+        # O navegador passa a usar sempre HTTPS neste domínio durante um ano
+        cab["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    caminho = request.url.path
+    if caminho.startswith("/api/"):
+        cab["Cache-Control"] = "no-store"            # dados das faturas não ficam em caches
+    elif caminho.startswith("/static/") and request.query_params.get("v"):
+        # Ficheiros com versão no endereço (?v=...) nunca mudam: o navegador guarda-os um ano
+        # e não volta a pedi-los. Uma atualização muda a versão e, com ela, o endereço.
+        cab["Cache-Control"] = "public, max-age=31536000, immutable"
+    elif caminho.startswith("/static/") or caminho in PAGINAS_HTML:
+        # O navegador pode guardar as páginas, mas confirma sempre se mudaram (ETag -> 304)
+        cab["Cache-Control"] = "no-cache"
     return resposta
 
 
@@ -115,7 +170,44 @@ def _protegida(request: Request, utilizador: Utilizador | None, nome: str, so_ad
 
 @app.get("/", include_in_schema=False)
 def pagina_inicial(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    # Visitantes sem sessão veem a apresentação do produto; clientes entram direto na aplicação
+    if utilizador is None:
+        return RedirectResponse("/apresentacao", status_code=303)
     return _protegida(request, utilizador, "index.html")
+
+
+# ---------- Páginas públicas ----------
+
+@lru_cache(maxsize=8)
+def _pagina_publica(nome: str) -> str:
+    """Páginas públicas com os dados comerciais da configuração (escapados) no lugar das marcas {{...}}."""
+    email = config.EMAIL_COMERCIAL
+    valores = {
+        "URL_DEMO": config.URL_DEMO or "/entrar",
+        "CONTACTO": f"mailto:{email}?subject=Dobra" if email else "/entrar",
+        "CONTACTO_TEXTO": "Pedir uma proposta" if email else "Entrar na minha conta",
+        "RESPONSAVEL": config.EMPRESA_RESPONSAVEL or "Dobra",
+        "EMAIL_CONTACTO": email or "o endereço de contacto indicado no contrato",
+    }
+    texto = (config.STATIC_DIR / nome).read_text(encoding="utf-8")
+    for chave, valor in valores.items():
+        texto = texto.replace("{{" + chave + "}}", html.escape(valor))
+    return texto
+
+
+@app.get("/apresentacao", include_in_schema=False)
+def pagina_apresentacao():
+    return HTMLResponse(_pagina_publica("apresentacao.html"))
+
+
+@app.get("/privacidade", include_in_schema=False)
+def pagina_privacidade():
+    return HTMLResponse(_pagina_publica("privacidade.html"))
+
+
+@app.get("/termos", include_in_schema=False)
+def pagina_termos():
+    return HTMLResponse(_pagina_publica("termos.html"))
 
 
 @app.get("/faturas/{id_fatura}", include_in_schema=False)

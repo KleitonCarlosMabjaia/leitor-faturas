@@ -1,4 +1,4 @@
-// Leitor de Faturas - página de revisão: PDF de um lado, campos editáveis do outro
+// Dobra - página de revisão: PDF de um lado, campos editáveis do outro
 
 const idFatura = location.pathname.split("/").pop();
 
@@ -109,7 +109,7 @@ function conferir() {
 
 function preencher(f) {
   const estado = descreverEstado(f);
-  document.title = `${f.fornecedor || f.nome_original} · Leitor de Faturas`;
+  document.title = `${f.fornecedor || f.nome_original} · Dobra`;
   document.getElementById("titulo").textContent = f.fornecedor || "Fornecedor por preencher";
   document.getElementById("subtitulo").textContent = [
     f.numero_fatura && `Fatura ${f.numero_fatura}`,

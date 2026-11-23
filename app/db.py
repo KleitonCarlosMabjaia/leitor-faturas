@@ -10,7 +10,7 @@ aplica as migrações em falta: preparar_base_dados().
 
 from collections.abc import Iterator
 
-from sqlalchemy import Engine, create_engine, inspect, text
+from sqlalchemy import Engine, create_engine, event, inspect, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app import config
@@ -24,7 +24,17 @@ def criar_motor(url: str):
     if url.startswith("sqlite"):
         # O SQLite só permite usar a ligação na thread que a criou, a não ser que se
         # desative esta verificação. É seguro porque cada pedido tem a sua sessão.
-        return create_engine(url, connect_args={"check_same_thread": False})
+        motor_sqlite = create_engine(url, connect_args={"check_same_thread": False})
+
+        @event.listens_for(motor_sqlite, "connect")
+        def _pragmas(ligacao, _registo):
+            # WAL: as leituras não esperam pelas escritas; NORMAL: seguro com WAL e mais rápido
+            cursor = ligacao.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.close()
+
+        return motor_sqlite
     # PostgreSQL: pool_pre_ping testa a ligação antes de a usar, porque os serviços
     # geridos (Neon, Render) fecham ligações paradas; pool_recycle renova-as a cada 5 min.
     return create_engine(url, pool_pre_ping=True, pool_recycle=300)

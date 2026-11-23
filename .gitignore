@@ -24,3 +24,5 @@ uploads/*
 # Ferramentas de desenvolvimento
 .ruff_cache/
 test-results/
+*.db-wal
+*.db-shm

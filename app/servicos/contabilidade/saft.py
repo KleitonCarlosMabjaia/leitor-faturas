@@ -166,9 +166,9 @@ def _cabecalho(raiz: ET.Element, empresa: Empresa, de: date, ate: date, agora: d
     _sub(c, "ProductCompanyTaxID", config.SAFT_NIF_PRODUTOR or empresa.nif)
     _sub(c, "SoftwareCertificateNumber", 0)  # programa de contabilidade: não sujeito a certificação
     produtor = _texto(config.SAFT_NOME_PRODUTOR or empresa.nome, 200).replace("/", "-")
-    _sub(c, "ProductID", f"Leitor de Faturas/{produtor}")
+    _sub(c, "ProductID", f"Dobra/{produtor}")
     _sub(c, "ProductVersion", config.VERSAO_APLICACAO)
-    _sub(c, "HeaderComment", "SAF-T (PT) da contabilidade gerado pelo Leitor de Faturas")
+    _sub(c, "HeaderComment", "SAF-T (PT) da contabilidade gerado pelo Dobra")
 
 
 def _plano_de_contas(mestres: ET.Element, db: Session, empresa_id: int, contas: dict[str, Conta],

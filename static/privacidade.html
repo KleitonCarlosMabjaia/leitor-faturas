@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Política de privacidade · Dobra</title>
+  <meta name="description" content="Como o Dobra trata os dados pessoais, ao abrigo do RGPD.">
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-23.3">
+</head>
+<body class="site">
+  <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
+  <header class="site-topo">
+    <div class="site-largura site-topo-interior">
+      <a class="site-marca" href="/apresentacao" aria-label="Dobra, página inicial"><img src="/static/logo.svg" alt="" width="32" height="32"><span>Dobra</span></a>
+      <div class="site-topo-acoes"><a class="site-ligacao" href="/entrar">Entrar</a></div>
+    </div>
+  </header>
+
+  <main id="conteudo" class="legal">
+    <div class="site-largura estreito">
+      <h1>Política de privacidade</h1>
+      <p class="atualizado">Última atualização: 23 de novembro de 2026</p>
+
+      <h2>1. Quem é o responsável</h2>
+      <p>
+        O serviço Dobra é prestado por <strong>{{RESPONSAVEL}}</strong>. Para qualquer questão sobre dados pessoais,
+        contacte-nos através de <strong>{{EMAIL_CONTACTO}}</strong>.
+      </p>
+      <p>
+        Em relação aos dados que as empresas clientes introduzem na aplicação (faturas, fornecedores, trabalhadores,
+        movimentos bancários), a empresa cliente é a <strong>responsável pelo tratamento</strong> e o Dobra atua como
+        <strong>subcontratante</strong>, nos termos do artigo 28.º do Regulamento Geral sobre a Proteção de Dados (RGPD).
+      </p>
+
+      <h2>2. Que dados tratamos e porquê</h2>
+      <table>
+        <thead><tr><th scope="col">Dados</th><th scope="col">Finalidade</th><th scope="col">Fundamento</th></tr></thead>
+        <tbody>
+          <tr><td>Nome, email e palavra-passe (guardada apenas como hash Argon2) dos utilizadores</td><td>Dar acesso à conta e proteger a segurança</td><td>Execução do contrato</td></tr>
+          <tr><td>Faturas, documentos e dados contabilísticos da empresa</td><td>Prestar o serviço de leitura e contabilidade</td><td>Execução do contrato</td></tr>
+          <tr><td>Dados de trabalhadores (nome, NIF, NISS, remunerações)</td><td>Processamento de salários pedido pela empresa cliente</td><td>Instruções da empresa cliente (art. 28.º RGPD)</td></tr>
+          <tr><td>Registos técnicos de erros, sem dados pessoais nem conteúdo de faturas</td><td>Corrigir falhas e manter o serviço disponível</td><td>Interesse legítimo</td></tr>
+        </tbody>
+      </table>
+      <p>Não vendemos dados, não fazemos publicidade e não usamos os dados das empresas clientes para outros fins.</p>
+
+      <h2>3. Subcontratantes</h2>
+      <p>Para prestar o serviço recorremos a prestadores que tratam dados apenas segundo as nossas instruções:</p>
+      <ul>
+        <li><strong>Alojamento da aplicação e da base de dados</strong>, em centros de dados na União Europeia.</li>
+        <li><strong>Armazenamento dos ficheiros PDF</strong>, num serviço de armazenamento de objetos.</li>
+        <li><strong>Anthropic (inteligência artificial)</strong>, apenas quando uma fatura não pode ser lida pelo código QR, quando pede uma sugestão de classificação ou quando usa o Assistente. Os dados enviados servem só para responder a esse pedido.</li>
+        <li><strong>Registo de erros (opcional)</strong>, configurado para não receber dados pessoais, cookies, endereços IP nem o conteúdo dos pedidos.</li>
+      </ul>
+      <p>Quando um prestador trata dados fora do Espaço Económico Europeu, a transferência é feita ao abrigo das cláusulas contratuais-tipo aprovadas pela Comissão Europeia.</p>
+
+      <h2>4. Durante quanto tempo</h2>
+      <p>
+        Os dados da conta mantêm-se enquanto o contrato estiver ativo. Os documentos contabilísticos ficam disponíveis
+        enquanto a empresa cliente o desejar; no fim do contrato, entregamos uma exportação completa (Excel, CSV e SAF-T)
+        e apagamos os dados num prazo de 90 dias, salvo obrigação legal de conservação. As cópias de segurança são
+        substituídas automaticamente.
+      </p>
+
+      <h2>5. Segurança</h2>
+      <ul>
+        <li>Ligações cifradas (HTTPS com HSTS) e cookies de sessão protegidos (HttpOnly, SameSite).</li>
+        <li>Palavras-passe guardadas com Argon2, bloqueio após tentativas falhadas e limites de pedidos.</li>
+        <li>Separação dos dados por empresa em todos os pedidos à base de dados.</li>
+        <li>Política de segurança de conteúdo estrita e nenhum script de terceiros nas páginas.</li>
+        <li>Cópias de segurança diárias da base de dados.</li>
+      </ul>
+
+      <h2>6. Cookies</h2>
+      <p>
+        Usamos apenas um cookie estritamente necessário, <strong>sessao</strong>, que mantém a sessão iniciada.
+        A preferência de modo claro ou escuro fica guardada só no seu navegador. Não usamos cookies de análise nem de publicidade,
+        por isso não é necessário consentimento.
+      </p>
+
+      <h2>7. Os seus direitos</h2>
+      <p>
+        Pode pedir o acesso, a retificação, o apagamento, a limitação ou a portabilidade dos seus dados e opor-se ao seu tratamento,
+        através de {{EMAIL_CONTACTO}}. Se os dados foram introduzidos por uma empresa cliente, encaminhamos o pedido para ela.
+        Tem também o direito de apresentar reclamação à Comissão Nacional de Proteção de Dados (CNPD), em www.cnpd.pt.
+      </p>
+    </div>
+  </main>
+
+  <footer class="site-rodape">
+    <div class="site-largura rodape-interior">
+      <a class="site-marca" href="/apresentacao"><img src="/static/logo.svg" alt="" width="28" height="28"><span>Dobra</span></a>
+      <nav aria-label="Rodapé"><a href="/privacidade" aria-current="page">Privacidade</a><a href="/termos">Termos de utilização</a><a href="/entrar">Entrar</a></nav>
+      <p>© 2026 Dobra.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,4 +1,4 @@
-// Leitor de Faturas - equipa: convidar colegas, gerar links e desativar contas
+// Dobra - equipa: convidar colegas, gerar links e desativar contas
 
 const formulario = document.getElementById("convite");
 const corpo = document.getElementById("membros");

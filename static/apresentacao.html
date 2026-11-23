@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dobra · Contabilidade automática a partir das faturas</title>
+  <meta name="description" content="O Dobra lê as faturas dos fornecedores, propõe os lançamentos SNC, apura o IVA, processa salários e prepara o SAF-T. Contabilidade organizada para pequenas empresas portuguesas.">
+  <meta property="og:title" content="Dobra · Contabilidade automática a partir das faturas">
+  <meta property="og:description" content="Leitura de faturas, lançamentos SNC, IVA, bancos, salários e SAF-T numa só aplicação.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="/static/marketing/inicio.jpg">
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-23.3">
+</head>
+<body class="site">
+  <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
+
+  <header class="site-topo">
+    <div class="site-largura site-topo-interior">
+      <a class="site-marca" href="/apresentacao" aria-label="Dobra, página inicial">
+        <img src="/static/logo.svg" alt="" width="32" height="32">
+        <span>Dobra</span>
+      </a>
+      <nav class="site-menu" aria-label="Secções">
+        <a href="#funcionalidades">Funcionalidades</a>
+        <a href="#como-funciona">Como funciona</a>
+        <a href="#seguranca">Segurança</a>
+        <a href="#planos">Planos</a>
+        <a href="#perguntas">Perguntas</a>
+      </nav>
+      <div class="site-topo-acoes">
+        <a class="site-ligacao" href="/entrar">Entrar</a>
+        <a class="site-botao pequeno" href="{{URL_DEMO}}">Ver demonstração</a>
+      </div>
+    </div>
+  </header>
+
+  <main id="conteudo">
+    <!-- ---------- Destaque ---------- -->
+    <section class="heroi">
+      <div class="site-largura heroi-grelha">
+        <div class="heroi-texto">
+          <p class="selo">Feito para o SNC e para a AT</p>
+          <h1>A contabilidade da sua empresa, feita a partir das faturas.</h1>
+          <p class="heroi-sub">
+            Carregue os PDFs dos fornecedores. O Dobra lê o QR da AT, propõe o lançamento em partidas dobradas,
+            apura o IVA e mantém o balancete em dia. Só tem de confirmar.
+          </p>
+          <div class="heroi-acoes">
+            <a class="site-botao" href="{{URL_DEMO}}">Experimentar a demonstração</a>
+            <a class="site-botao secundario" href="{{CONTACTO}}">{{CONTACTO_TEXTO}}</a>
+          </div>
+          <ul class="heroi-provas" aria-label="Destaques">
+            <li>Sem instalação</li>
+            <li>Funciona no telemóvel</li>
+            <li>Exporta SAF-T (PT)</li>
+          </ul>
+        </div>
+        <figure class="moldura heroi-imagem">
+          <div class="moldura-barra" aria-hidden="true"><span></span><span></span><span></span></div>
+          <img src="/static/marketing/inicio.jpg" width="1440" height="900"
+               alt="Ecrã inicial do Dobra com faturas por contabilizar, IVA do trimestre, resultado do ano, verificações automáticas e próximos prazos fiscais">
+        </figure>
+      </div>
+    </section>
+
+    <section class="faixa" aria-label="Normas e formatos suportados">
+      <div class="site-largura faixa-lista">
+        <span>SNC · Plano de contas</span>
+        <span>QR code da AT (ATCUD)</span>
+        <span>Declaração periódica do IVA</span>
+        <span>SAF-T (PT) da contabilidade</span>
+        <span>Ficheiro de inventários da AT</span>
+        <span>RGPD</span>
+      </div>
+    </section>
+
+    <!-- ---------- Funcionalidades ---------- -->
+    <section class="bloco" id="funcionalidades">
+      <div class="site-largura">
+        <header class="bloco-cabecalho">
+          <p class="sobretitulo">Funcionalidades</p>
+          <h2>Tudo o que a contabilidade de uma pequena empresa precisa</h2>
+          <p>Das faturas de compra ao fecho do exercício, num só sítio e sempre atualizado.</p>
+        </header>
+        <div class="cartoes-funcoes">
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 3h9l3 3v15H6zM9 8h6M9 12h6M9 16h4"/></svg>
+            </span>
+            <h3>Leitura automática de faturas</h3>
+            <p>QR da AT primeiro (gratuito e exato), memória por fornecedor e IA só para o que falta, incluindo faturas digitalizadas.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h10M4 17h7M17 15l2 2 4-4"/></svg>
+            </span>
+            <h3>Lançamentos SNC num clique</h3>
+            <p>Conta de gasto e tratamento do IVA (art. 21.º do CIVA) sugeridos e memorizados por fornecedor. Lance uma ou todas de uma vez.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M19 5 5 19M7.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM16.5 18a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>
+            </span>
+            <h3>IVA pronto para declarar</h3>
+            <p>Campos da declaração periódica, IVA intracomunitário e autoliquidação, apuramento lançado e prazos sempre à vista.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5M4.5 10v8M9.5 10v8M14.5 10v8M19.5 10v8M3 20h18"/></svg>
+            </span>
+            <h3>Bancos e reconciliação</h3>
+            <p>Importe o extrato em CSV ou Excel. Cada movimento vem com sugestão: associar a um lançamento ou lançar numa conta.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21a7 7 0 0 1 14 0M16 3.5a4 4 0 0 1 0 7.5M22 21a7 7 0 0 0-4-6.3"/></svg>
+            </span>
+            <h3>Salários e obrigações</h3>
+            <p>Recibos com Segurança Social, IRS, subsídios e alimentação, pagamentos ao Estado e acréscimo de férias no fim do ano.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M6 11h12v9H6zM8 11V8a4 4 0 0 1 8 0v3"/></svg>
+            </span>
+            <h3>Fecho do exercício</h3>
+            <p>Verificações antes de fechar, estimativa de IRC, apuramento de resultados, balanço, demonstração de resultados e SAF-T.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Mostra ---------- -->
+    <section class="bloco bloco-alternado">
+      <div class="site-largura mostra">
+        <div class="mostra-texto">
+          <p class="sobretitulo">Contabilizar</p>
+          <h2>Cada fatura chega com o lançamento já proposto</h2>
+          <p>
+            O Dobra aprende com as suas escolhas. Da segunda fatura em diante, o mesmo fornecedor é classificado
+            sozinho. Seguros e rendas que cobrem vários meses são repartidos (diferimentos) com um clique.
+          </p>
+          <ul class="lista-visto">
+            <li>Débito e crédito visíveis antes de lançar</li>
+            <li>IVA dedutível, parcialmente dedutível ou não dedutível</li>
+            <li>Estorno com um clique, sem apagar o histórico</li>
+          </ul>
+        </div>
+        <figure class="moldura">
+          <div class="moldura-barra" aria-hidden="true"><span></span><span></span><span></span></div>
+          <img src="/static/marketing/por-contabilizar.jpg" width="1440" height="900" loading="lazy"
+               alt="Faturas por contabilizar com a conta SNC e o IVA sugeridos e a etiqueta de classificação memorizada">
+        </figure>
+      </div>
+      <div class="site-largura mostra invertida">
+        <div class="mostra-texto">
+          <p class="sobretitulo">Declarar</p>
+          <h2>O IVA do trimestre, campo a campo</h2>
+          <p>
+            Os valores aparecem com o número do campo da declaração periódica. Basta copiá-los para o Portal das Finanças
+            e lançar o apuramento.
+          </p>
+          <ul class="lista-visto">
+            <li>Regime mensal ou trimestral</li>
+            <li>Aquisições intracomunitárias e autoliquidação</li>
+            <li>Alertas de prazos de IVA, IRC, IRS e Segurança Social</li>
+          </ul>
+        </div>
+        <figure class="moldura escura">
+          <div class="moldura-barra" aria-hidden="true"><span></span><span></span><span></span></div>
+          <img src="/static/marketing/iva.jpg" width="1440" height="900" loading="lazy"
+               alt="Apuramento do IVA do trimestre com os campos da declaração periódica, em modo escuro">
+        </figure>
+      </div>
+    </section>
+
+    <!-- ---------- Como funciona ---------- -->
+    <section class="bloco" id="como-funciona">
+      <div class="site-largura">
+        <header class="bloco-cabecalho">
+          <p class="sobretitulo">Como funciona</p>
+          <h2>Três passos por semana, não três dias por mês</h2>
+        </header>
+        <ol class="passos">
+          <li>
+            <span class="passo-numero">1</span>
+            <h3>Carregue as faturas</h3>
+            <p>Arraste os PDFs para a aplicação. Fornecedor, NIF, datas, IVA por taxa e total são lidos em segundos.</p>
+          </li>
+          <li>
+            <span class="passo-numero">2</span>
+            <h3>Confirme as propostas</h3>
+            <p>Reveja os dados e a conta sugerida. Com fornecedores conhecidos, é um clique para todas.</p>
+          </li>
+          <li>
+            <span class="passo-numero">3</span>
+            <h3>Acompanhe e declare</h3>
+            <p>Balancete, IVA, bancos e prazos fiscais sempre em dia. No fim do ano, o fecho e o SAF-T saem prontos.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ---------- Segurança ---------- -->
+    <section class="bloco bloco-escuro" id="seguranca">
+      <div class="site-largura seguranca">
+        <div>
+          <p class="sobretitulo">Segurança e privacidade</p>
+          <h2>Os dados da sua empresa ficam só seus</h2>
+          <p>Proteções de um produto profissional, ativas desde o primeiro dia e sem configuração.</p>
+        </div>
+        <ul class="seguranca-lista">
+          <li><strong>Dados separados por empresa.</strong> Cada pedido é filtrado pela empresa de quem o faz: nenhum cliente vê os dados de outro.</li>
+          <li><strong>Acesso por convite.</strong> Sem registo aberto. Palavras-passe guardadas com Argon2 e bloqueio após tentativas falhadas.</li>
+          <li><strong>Ligações cifradas.</strong> HTTPS obrigatório (HSTS), cookies de sessão protegidos e política de segurança de conteúdo estrita.</li>
+          <li><strong>Cópias de segurança diárias.</strong> A base de dados é copiada todos os dias e pode ser restaurada.</li>
+          <li><strong>Sem rastreadores.</strong> Sem publicidade nem análise de terceiros; tipos de letra e bibliotecas servidos pela própria aplicação.</li>
+          <li><strong>Os seus dados, quando quiser.</strong> Exportação de faturas para Excel e CSV e da contabilidade em SAF-T.</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ---------- Planos ---------- -->
+    <section class="bloco" id="planos">
+      <div class="site-largura">
+        <header class="bloco-cabecalho">
+          <p class="sobretitulo">Planos</p>
+          <h2>Um preço simples, sem surpresas</h2>
+          <p>Todos os planos incluem atualizações, cópias de segurança e apoio por email. IVA à taxa legal em vigor.</p>
+        </header>
+        <div class="planos">
+          <article class="plano">
+            <h3>Essencial</h3>
+            <p class="plano-para">Para quem só quer as compras organizadas</p>
+            <p class="plano-preco"><strong>19 €</strong><span>/mês</span></p>
+            <ul class="lista-visto">
+              <li>Leitura de faturas (QR e IA)</li>
+              <li>Análise de compras e faturas por pagar</li>
+              <li>Exportação para Excel e CSV</li>
+              <li>2 utilizadores</li>
+            </ul>
+            <a class="site-botao secundario largo" href="{{CONTACTO}}">Escolher Essencial</a>
+          </article>
+          <article class="plano destaque">
+            <p class="plano-etiqueta">Mais escolhido</p>
+            <h3>Contabilidade</h3>
+            <p class="plano-para">A contabilidade completa da empresa</p>
+            <p class="plano-preco"><strong>49 €</strong><span>/mês</span></p>
+            <ul class="lista-visto">
+              <li>Tudo do Essencial</li>
+              <li>Lançamentos SNC, balancete e extratos</li>
+              <li>IVA, bancos, vendas e SAF-T</li>
+              <li>Salários, ativos fixos e inventários</li>
+              <li>Fecho do exercício e Assistente IA</li>
+              <li>5 utilizadores</li>
+            </ul>
+            <a class="site-botao largo" href="{{CONTACTO}}">Escolher Contabilidade</a>
+          </article>
+          <article class="plano">
+            <h3>Gabinete</h3>
+            <p class="plano-para">Para contabilistas com vários clientes</p>
+            <p class="plano-preco"><strong>Sob consulta</strong></p>
+            <ul class="lista-visto">
+              <li>Tudo do plano Contabilidade</li>
+              <li>Uma conta separada para cada cliente</li>
+              <li>Utilizadores ilimitados</li>
+              <li>Apoio prioritário e migração de dados</li>
+            </ul>
+            <a class="site-botao secundario largo" href="{{CONTACTO}}">Falar connosco</a>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Perguntas ---------- -->
+    <section class="bloco bloco-alternado" id="perguntas">
+      <div class="site-largura estreito">
+        <header class="bloco-cabecalho">
+          <p class="sobretitulo">Perguntas frequentes</p>
+          <h2>Antes de começar</h2>
+        </header>
+        <div class="perguntas">
+          <details>
+            <summary>Preciso de instalar alguma coisa?</summary>
+            <p>Não. O Dobra funciona no navegador, no computador, no tablet e no telemóvel.</p>
+          </details>
+          <details>
+            <summary>Substitui o meu contabilista certificado?</summary>
+            <p>Não. O Dobra organiza e automatiza o trabalho, mas as declarações continuam a ser da responsabilidade de um contabilista certificado. Muitos gabinetes usam-no precisamente para receber a informação dos clientes já organizada.</p>
+          </details>
+          <details>
+            <summary>E se a leitura de uma fatura estiver errada?</summary>
+            <p>Nenhuma fatura entra na contabilidade sem ser confirmada. O PDF aparece ao lado dos campos, que pode corrigir, e as faturas com dados duvidosos vêm assinaladas.</p>
+          </details>
+          <details>
+            <summary>Posso importar o que já tenho?</summary>
+            <p>Sim: saldos de abertura a partir de um balancete em Excel ou CSV, vendas a partir do SAF-T de faturação e movimentos a partir do extrato do banco.</p>
+          </details>
+          <details>
+            <summary>Os meus dados podem sair do Dobra?</summary>
+            <p>Sempre que quiser: faturas em Excel e CSV, lançamentos e balancete em Excel e a contabilidade completa em SAF-T (PT).</p>
+          </details>
+          <details>
+            <summary>Como funciona a inteligência artificial?</summary>
+            <p>É usada só quando o QR da AT não chega: para ler faturas sem QR, sugerir contas para fornecedores novos e responder no Assistente. Os dados enviados servem apenas para responder ao pedido.</p>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ---------- Chamada final ---------- -->
+    <section class="chamada">
+      <div class="site-largura chamada-interior">
+        <h2>Veja o Dobra a funcionar com dados de exemplo</h2>
+        <p>Uma empresa de demonstração completa: faturas, bancos, salários, IVA e balanço. Sem registo.</p>
+        <div class="heroi-acoes">
+          <a class="site-botao claro" href="{{URL_DEMO}}">Abrir a demonstração</a>
+          <a class="site-botao contorno" href="{{CONTACTO}}">{{CONTACTO_TEXTO}}</a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-rodape">
+    <div class="site-largura rodape-interior">
+      <a class="site-marca" href="/apresentacao"><img src="/static/logo.svg" alt="" width="28" height="28"><span>Dobra</span></a>
+      <nav aria-label="Rodapé">
+        <a href="/privacidade">Privacidade</a>
+        <a href="/termos">Termos de utilização</a>
+        <a href="/entrar">Entrar</a>
+      </nav>
+      <p>© <span id="ano">2026</span> Dobra. Contabilidade para pequenas empresas portuguesas.</p>
+    </div>
+  </footer>
+</body>
+</html>

@@ -1,4 +1,4 @@
-// Leitor de Faturas - contabilidade (SNC): resumo, faturas por contabilizar, diário, balancete,
+// Dobra - contabilidade (SNC): resumo, faturas por contabilizar, diário, balancete,
 // extratos, IVA, resultados, fornecedores, obrigações fiscais, plano de contas e assistente com IA.
 //
 // O DOM é montado com h() e textContent (nunca innerHTML com dados): nomes de fornecedores,
@@ -225,12 +225,12 @@ function irPara(destino) {
 async function mostrar(nome, forcar = false) {
   if (!SECOES[nome]) nome = "resumo";
   atual = nome;
-  for (const botaoSep of document.querySelectorAll("#separadores [role=tab]")) {
-    const sim = botaoSep.dataset.sec === nome;
-    botaoSep.setAttribute("aria-selected", String(sim));
-    botaoSep.tabIndex = sim ? 0 : -1;
-  }
-  for (const secao of document.querySelectorAll("[role=tabpanel]")) secao.hidden = secao.id !== `sec-${nome}`;
+  // Título da página e do separador do navegador conforme a área escolhida na barra lateral
+  const titulo = tituloDaArea(nome === "resumo" ? "resumo" : nome) || "Contabilidade";
+  document.getElementById("titulo-secao").textContent = titulo;
+  document.getElementById("migalhas").textContent = grupoDaArea(nome) || "";
+  document.title = `${titulo} · ${NOME_PRODUTO}`;
+  for (const secao of document.querySelectorAll("main > section[id^=sec-]")) secao.hidden = secao.id !== `sec-${nome}`;
   document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos", "fecho", "salarios", "periodizacao", "balanco"].includes(nome);
 
   if (carregadas.has(nome) && !forcar) return;
@@ -258,24 +258,7 @@ function lerHash() {
 }
 
 function iniciarSeparadores() {
-  const lista = document.getElementById("separadores");
-  lista.addEventListener("click", (e) => {
-    const b = e.target.closest("[role=tab]");
-    if (b) location.hash = b.dataset.sec;
-  });
-  // Setas esquerda/direita entre separadores (padrão ARIA de tabs)
-  lista.addEventListener("keydown", (e) => {
-    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
-    const botoes = [...lista.querySelectorAll("[role=tab]")];
-    let i = botoes.indexOf(document.activeElement);
-    if (e.key === "ArrowRight") i = (i + 1) % botoes.length;
-    else if (e.key === "ArrowLeft") i = (i - 1 + botoes.length) % botoes.length;
-    else if (e.key === "Home") i = 0;
-    else i = botoes.length - 1;
-    botoes[i].focus();
-    location.hash = botoes[i].dataset.sec;
-    e.preventDefault();
-  });
+  // A navegação entre secções é feita pela barra lateral (ligações #secao)
   window.addEventListener("hashchange", lerHash);
 }
 
@@ -351,7 +334,7 @@ async function carregarResumo(secao) {
 }
 
 function atualizarContador(n) {
-  document.getElementById("n-por-contabilizar").textContent = n ? String(n) : "";
+  for (const el of document.querySelectorAll('[data-contador="por_contabilizar"]')) el.textContent = n ? String(n) : "";
 }
 
 // ---------- Por contabilizar ----------

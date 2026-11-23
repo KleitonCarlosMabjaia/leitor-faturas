@@ -16,6 +16,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import config
@@ -25,7 +26,7 @@ from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
 from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
 from app.servicos import armazenamento, exportacao, limites, processamento, repositorio
-from app.servicos.contabilidade import lancamentos
+from app.servicos.contabilidade import lancamentos, verificacoes
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
 logger = logging.getLogger(__name__)
@@ -123,6 +124,20 @@ def listar_faturas(
     return repositorio.listar_faturas(
         db, utilizador.empresa_id, fornecedor_id=fornecedor_id, mes=mes, estado=estado
     )
+
+
+# Contadores da barra lateral (pedido leve, feito em todas as páginas). Antes de "/{id_fatura}".
+@router.get("/contadores")
+def contadores(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    por_rever = db.scalar(
+        select(func.count()).select_from(Fatura).where(
+            Fatura.empresa_id == utilizador.empresa_id, Fatura.estado == ESTADO_POR_REVER
+        )
+    )
+    return {
+        "por_rever": por_rever or 0,
+        "por_contabilizar": len(verificacoes.faturas_por_contabilizar(db, utilizador.empresa_id)),
+    }
 
 
 # Tem de vir antes de "/{id_fatura}", senão "exportar" seria lido como um id

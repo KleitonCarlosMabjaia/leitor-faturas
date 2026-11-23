@@ -51,6 +51,10 @@ services:
         sync: false
       - key: SENTRY_DSN             # opcional
         sync: false
+      - key: EMPRESA_RESPONSAVEL    # nome legal de quem presta o serviço (privacidade e termos)
+        sync: false
+      - key: EMAIL_COMERCIAL        # destino dos botões "Pedir uma proposta"
+        sync: false
 
   # Cópia de segurança diária às 03:00 (UTC). Guarda em copias/ no bucket e mantém as últimas 30.
   - type: cron

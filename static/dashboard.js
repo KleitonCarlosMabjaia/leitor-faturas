@@ -1,4 +1,4 @@
-// Leitor de Faturas - dashboard: indicadores, gráficos (Chart.js) e faturas por pagar
+// Dobra - dashboard: indicadores, gráficos (Chart.js) e faturas por pagar
 
 const seletorMes = document.getElementById("mes");
 const nomesMeses = new Intl.DateTimeFormat("pt-PT", { month: "long", year: "numeric" });
