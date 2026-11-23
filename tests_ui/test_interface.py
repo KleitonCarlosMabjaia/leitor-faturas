@@ -312,6 +312,29 @@ def test_processar_salarios_do_mes(page: Page):
     expect(page.get_by_text(re.compile("Pagamento lançado"))).to_be_visible()
 
 
+def test_ficha_com_tabelas_de_retencao_de_irs(page: Page):
+    page.goto("/contabilidade#salarios")
+    linha = page.locator("#sec-salarios tr", has_text="João Pereira").first
+    expect(linha).to_contain_text("Tabela I")
+    linha.get_by_role("button", name="Editar").click()
+    expect(page.locator("#func-irs-situacao")).to_be_visible()
+    expect(page.locator("#func-irs")).to_be_hidden()
+    expect(page.locator("#func-irs-conjuge")).to_be_hidden()
+    page.locator("#func-irs-situacao").select_option("casado_unico")
+    expect(page.locator("#func-irs-conjuge")).to_be_visible()
+    page.locator("#func-irs-dependentes").fill("2")
+    page.get_by_role("button", name="Guardar").click()
+    expect(page.get_by_text("Ficha atualizada.")).to_be_visible()
+    expect(page.locator("#sec-salarios tr", has_text="João Pereira").first).to_contain_text("Tabela III · 2 dep.")
+    # Taxa manual (por exemplo, residentes nas regiões autónomas)
+    page.locator("#sec-salarios tr", has_text="João Pereira").first.get_by_role("button", name="Editar").click()
+    page.locator("#func-irs-modo").select_option("manual")
+    expect(page.locator("#func-irs-situacao")).to_be_hidden()
+    page.locator("#func-irs").fill("7")
+    page.get_by_role("button", name="Guardar").click()
+    expect(page.locator("#sec-salarios tr", has_text="João Pereira").first).to_contain_text("7% (manual)")
+
+
 def test_acrescimo_e_balanco(page: Page):
     page.goto("/contabilidade#periodizacao")
     expect(page.get_by_role("heading", name="Diferimentos", exact=True)).to_be_visible()

@@ -463,7 +463,8 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     empresa.niss = "20012345678"
     for nome, tipo, base, alimentacao, irs, nascimento, niss in PESSOAL_DEMO:
         salarios.registar(db, empresa, nome=nome, tipo=tipo, data_admissao=abertura, salario_base=base,
-                          subsidio_alimentacao=alimentacao, alimentacao_cartao=tipo == "pessoal", taxa_irs=irs,
+                          subsidio_alimentacao=alimentacao, alimentacao_cartao=tipo == "pessoal",
+                          irs_situacao=irs[0], irs_dependentes=irs[1],
                           data_nascimento=nascimento, niss=niss, nif=gerar_nif(rng, "2"))
     # Seguro multirriscos anual pago na abertura e repartido pelos 12 meses
     lancar("BAN", abertura + timedelta(days=9), "Seguro multirriscos anual",
@@ -523,7 +524,7 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
 
         # Salários: processamento, pagamento ao pessoal e entrega ao Estado até dia 20 do mês seguinte
         if fim_mes <= hoje:
-            processamento = salarios.processar(db, empresa, ano, mes, salarios.opcoes_do_mes(mes))
+            processamento = salarios.processar(db, empresa, ano, mes, salarios.opcoes_do_mes(mes, ano))
             salarios.pagar(db, empresa, processamento, "salarios", fim_mes)
             prazo = salarios.prazo_pagamento(ano, mes, "irs")
             if prazo <= hoje:
@@ -565,10 +566,11 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
 
 
 PESSOAL_DEMO = [
-    # (nome, tipo, vencimento base, subsídio de alimentação por dia, taxa de retenção de IRS, nascimento, NISS)
-    ("Maria Fernandes (cozinheira)", "pessoal", 1150.0, 8.0, 9.5, date(1984, 3, 12), "12345678901"),
-    ("João Pereira (empregado de mesa)", "pessoal", 920.0, 8.0, 4.0, date(1996, 9, 30), "12345678902"),
-    ("Carla Sousa (gerente)", "orgaos_sociais", 1800.0, 6.0, 13.5, date(1979, 6, 4), "12345678903"),
+    # (nome, tipo, vencimento base, subsídio de alimentação por dia, (situação IRS, dependentes), nascimento, NISS)
+    ("Maria Fernandes (cozinheira)", "pessoal", 1150.0, 8.0, ("nao_casado", 1), date(1984, 3, 12), "12345678901"),
+    ("João Pereira (empregado de mesa)", "pessoal", 920.0, 8.0, ("nao_casado", 0), date(1996, 9, 30),
+     "12345678902"),
+    ("Carla Sousa (gerente)", "orgaos_sociais", 1800.0, 6.0, ("casado_dois", 2), date(1979, 6, 4), "12345678903"),
 ]
 
 ARTIGOS_DEMO = [

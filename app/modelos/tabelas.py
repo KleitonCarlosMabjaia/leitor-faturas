@@ -586,7 +586,14 @@ class Funcionario(Base):
     subsidio_alimentacao: Mapped[float] = mapped_column(Float, default=0.0)  # por dia útil
     alimentacao_cartao: Mapped[bool] = mapped_column(default=True)
     duodecimos: Mapped[bool] = mapped_column(default=False)        # subsídios de férias e de Natal em duodécimos
-    taxa_irs: Mapped[float] = mapped_column(Float, default=0.0)     # % de retenção (tabelas da AT)
+    taxa_irs: Mapped[float] = mapped_column(Float, default=0.0)     # % de retenção manual (sem situação IRS)
+    # Retenção pelas tabelas da AT (continente): situação familiar e dependentes declarados pela pessoa.
+    # Sem situação, usa-se a taxa manual (por exemplo, residentes nos Açores ou na Madeira).
+    irs_situacao: Mapped[str | None] = mapped_column(String(15))
+    irs_dependentes: Mapped[int] = mapped_column(default=0)
+    irs_dependentes_deficiencia: Mapped[int] = mapped_column(default=0)
+    irs_deficiencia: Mapped[bool] = mapped_column(default=False)
+    irs_conjuge_deficiencia: Mapped[bool] = mapped_column(default=False)
     taxa_ss_trabalhador: Mapped[float] = mapped_column(Float, default=11.0)
     taxa_ss_entidade: Mapped[float] = mapped_column(Float, default=23.75)
     criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

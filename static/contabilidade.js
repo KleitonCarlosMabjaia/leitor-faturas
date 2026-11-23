@@ -1838,7 +1838,7 @@ async function carregarSalarios(secao) {
       h("span", { class: "ajuda", texto: ` ${f.tipo === "orgaos_sociais" ? "Órgãos sociais" : "Pessoal"} · desde ${formatarData(f.data_admissao)}${f.data_saida ? ` · saída ${formatarData(f.data_saida)}` : ""}` })),
     td(euros(f.salario_base), "num", "Vencimento base"),
     td(f.subsidio_alimentacao ? `${euros(f.subsidio_alimentacao)}/dia ${f.alimentacao_cartao ? "(cartão)" : "(numerário)"}` : "—", "", "Alimentação"),
-    td(`${f.taxa_irs.toLocaleString("pt-PT")}%`, "num", "Retenção IRS"),
+    td(f.irs_tabela ? `Tabela ${f.irs_tabela}${f.irs_dependentes ? ` · ${f.irs_dependentes} dep.` : ""}` : `${f.taxa_irs.toLocaleString("pt-PT")}% (manual)`, "num", "Retenção IRS"),
     td(`${f.taxa_ss_trabalhador.toLocaleString("pt-PT")}% / ${f.taxa_ss_entidade.toLocaleString("pt-PT")}%`, "num", "Seg. Social"),
     h("td", { class: "acoes" }, botao("Editar", () => abrirFichaFuncionario(d, f), "botao fantasma pequeno"))));
 
@@ -1967,7 +1967,11 @@ async function mostrarProcessamento(caixa, dadosSalarios) {
       if (r.subsidio_natal) detalhe.push(`sub. Natal ${euros(r.subsidio_natal)}`);
       if (r.alimentacao) detalhe.push(`alimentação ${euros(r.alimentacao)} (${r.dias} dias)`);
       if (r.outros) detalhe.push(`outros ${euros(r.outros)}`);
+      if (r.suplementar) detalhe.push(`horas extra ${euros(r.suplementar)}`);
       if (r.faltas) detalhe.push(`faltas -${euros(r.faltas)}`);
+      const irsD = r.irs_detalhe;
+      detalhe.push(irsD ? `IRS tabela ${irsD.tabela} (${r.taxa_irs.toLocaleString("pt-PT")}%)` : `IRS ${r.taxa_irs.toLocaleString("pt-PT")}% manual`);
+      if (irsD && irsD.nota) detalhe.push(irsD.nota);
       const pessoa = h("td", { class: "nome" }, h("span", { class: "titulo", texto: r.nome }), h("span", { class: "ajuda", texto: ` ${detalhe.join(" · ")}` }));
       if (editavel) pessoa.append(" ", botao("Variáveis", () => abrirVariaveis(r), "botao fantasma pequeno"));
       return h("tr", {}, pessoa, td(euros(r.iliquido), "num", "Ilíquido"), td(euros(r.ss_trabalhador), "num", "SS trabalhador"),
@@ -1986,15 +1990,19 @@ async function mostrarProcessamento(caixa, dadosSalarios) {
     desenhar(r.recibos, r.totais, true);
   };
   function abrirVariaveis(r) {
-    const atual = variaveis.get(r.funcionario_id) || { dias: r.dias, outros: r.outros, faltas: r.faltas };
+    const atual = variaveis.get(r.funcionario_id) || { dias: r.dias, outros: r.outros, faltas: r.faltas, suplementar: r.suplementar || 0 };
     const dias = h("input", { type: "number", id: "var-dias", min: "0", max: "31", step: "1", value: atual.dias });
     const outros = h("input", { type: "number", id: "var-outros", min: "0", step: "0.01", value: atual.outros });
     const faltas = h("input", { type: "number", id: "var-faltas", min: "0", step: "0.01", value: atual.faltas });
+    const suplementar = h("input", { type: "number", id: "var-suplementar", min: "0", step: "0.01", value: atual.suplementar || 0 });
     janelaTemporaria(`Variáveis de ${NOMES_MESES[mesSalarios - 1]}: ${r.nome}`, h("div", {},
-      h("p", { class: "ajuda", texto: "Outros abonos (prémios, horas extraordinárias, comissões) estão sujeitos a IRS e a Segurança Social. As faltas não remuneradas descontam na remuneração." }),
-      h("div", { class: "grelha-3" }, campoJanela("var-dias", "Dias com subsídio de alimentação", dias),
-        campoJanela("var-outros", "Outros abonos (€)", outros), campoJanela("var-faltas", "Desconto por faltas (€)", faltas))), async () => {
-      variaveis.set(r.funcionario_id, { dias: Number(dias.value) || 0, outros: Number(outros.value) || 0, faltas: Number(faltas.value) || 0 });
+      h("p", { class: "ajuda", texto: "Outros abonos (prémios, comissões) e horas extraordinárias estão sujeitos a IRS e a Segurança Social; nas horas extra, a retenção de IRS é metade da taxa do mês. As faltas não remuneradas descontam na remuneração." }),
+      h("div", { class: "grelha-2" }, campoJanela("var-dias", "Dias com subsídio de alimentação", dias),
+        campoJanela("var-faltas", "Desconto por faltas (€)", faltas)),
+      h("div", { class: "grelha-2" }, campoJanela("var-outros", "Outros abonos (€)", outros),
+        campoJanela("var-suplementar", "Trabalho suplementar (€)", suplementar))), async () => {
+      variaveis.set(r.funcionario_id, { dias: Number(dias.value) || 0, outros: Number(outros.value) || 0, faltas: Number(faltas.value) || 0,
+        suplementar: Number(suplementar.value) || 0 });
       await simular();
     }, "Aplicar");
   }
@@ -2080,7 +2088,7 @@ function abrirPagamentoSalarios(p, tipo, pg) {
 }
 
 function abrirFichaFuncionario(dados, f) {
-  const v = f || { tipo: "pessoal", alimentacao_cartao: true, duodecimos: false, taxa_irs: 0, subsidio_alimentacao: 0 };
+  const v = f || { tipo: "pessoal", alimentacao_cartao: true, duodecimos: false, taxa_irs: 0, subsidio_alimentacao: 0, irs_situacao: "nao_casado", irs_dependentes: 0, irs_dependentes_deficiencia: 0 };
   const nome = h("input", { type: "text", id: "func-nome", maxlength: "200", value: v.nome || "" });
   const tipo = h("select", { id: "func-tipo" }, h("option", { value: "pessoal" }, "Trabalhador (pessoal)"), h("option", { value: "orgaos_sociais" }, "Gerente / administrador (órgãos sociais)"));
   tipo.value = v.tipo;
@@ -2094,6 +2102,29 @@ function abrirFichaFuncionario(dados, f) {
   const cartao = h("select", { id: "func-cartao" }, h("option", { value: "1" }, "Cartão refeição"), h("option", { value: "0" }, "Numerário (no recibo)"));
   cartao.value = v.alimentacao_cartao ? "1" : "0";
   const irs = h("input", { type: "number", id: "func-irs", min: "0", max: "100", step: "0.1", value: v.taxa_irs });
+  const modoIrs = h("select", { id: "func-irs-modo" }, h("option", { value: "tabelas" }, "Tabelas da AT (continente)"), h("option", { value: "manual" }, "Taxa manual"));
+  modoIrs.value = v.irs_situacao ? "tabelas" : "manual";
+  const situacao = h("select", { id: "func-irs-situacao" }, h("option", { value: "nao_casado" }, "Não casado"),
+    h("option", { value: "casado_dois" }, "Casado, dois titulares"), h("option", { value: "casado_unico" }, "Casado, único titular"));
+  situacao.value = v.irs_situacao || "nao_casado";
+  const dependentes = h("input", { type: "number", id: "func-irs-dependentes", min: "0", max: "20", step: "1", value: v.irs_dependentes || 0 });
+  const depDeficiencia = h("input", { type: "number", id: "func-irs-dep-def", min: "0", max: "20", step: "1", value: v.irs_dependentes_deficiencia || 0 });
+  const deficiencia = h("input", { type: "checkbox", id: "func-irs-deficiencia", checked: Boolean(v.irs_deficiencia) });
+  const conjugeDef = h("input", { type: "checkbox", id: "func-irs-conjuge", checked: Boolean(v.irs_conjuge_deficiencia) });
+  const blocoTabelas = h("div", {},
+    h("div", { class: "grelha-3" }, campoJanela("func-irs-situacao", "Situação familiar", situacao), campoJanela("func-irs-dependentes", "Dependentes", dependentes),
+      campoJanela("func-irs-dep-def", "Dependentes com incapacidade ≥ 60%", depDeficiencia)),
+    h("label", { class: "ajuda caixa-opcao" }, deficiencia, "Pessoa com deficiência (incapacidade ≥ 60%)"),
+    h("label", { class: "ajuda caixa-opcao", id: "func-irs-conjuge-caixa" }, conjugeDef, "Cônjuge com incapacidade ≥ 60% e sem rendimentos de trabalho ou pensões"));
+  const blocoManual = h("div", { class: "grelha-3" }, campoJanela("func-irs", "Taxa de retenção de IRS (%)", irs));
+  const atualizarIrs = () => {
+    blocoTabelas.hidden = modoIrs.value !== "tabelas";
+    blocoManual.hidden = modoIrs.value === "tabelas";
+    blocoTabelas.querySelector("#func-irs-conjuge-caixa").hidden = situacao.value !== "casado_unico";
+  };
+  modoIrs.addEventListener("change", atualizarIrs);
+  situacao.addEventListener("change", atualizarIrs);
+  atualizarIrs();
   const ssT = h("input", { type: "number", id: "func-ss-t", min: "0", max: "100", step: "0.01", value: v.taxa_ss_trabalhador ?? "", placeholder: "11" });
   const ssE = h("input", { type: "number", id: "func-ss-e", min: "0", max: "100", step: "0.01", value: v.taxa_ss_entidade ?? "", placeholder: "Por omissão" });
   const duodecimos = h("input", { type: "checkbox", id: "func-duodecimos", checked: v.duodecimos });
@@ -2103,10 +2134,11 @@ function abrirFichaFuncionario(dados, f) {
     h("div", { class: "grelha-3" }, campoJanela("func-saida", "Saída (se saiu)", saida)),
     h("div", { class: "grelha-3" }, campoJanela("func-base", "Vencimento base mensal (€)", base), campoJanela("func-alimentacao", "Subsídio de alimentação por dia (€)", alimentacao),
       campoJanela("func-cartao", "Pago em", cartao)),
-    h("div", { class: "grelha-3" }, campoJanela("func-irs", "Taxa de retenção de IRS (%)", irs), campoJanela("func-ss-t", "SS do trabalhador (%)", ssT),
+    h("div", { class: "grelha-3" }, campoJanela("func-irs-modo", "Retenção de IRS", modoIrs), campoJanela("func-ss-t", "SS do trabalhador (%)", ssT),
       campoJanela("func-ss-e", "SS da entidade (%)", ssE)),
+    blocoTabelas, blocoManual,
     h("label", { class: "ajuda caixa-opcao" }, duodecimos, "Subsídios de férias e de Natal pagos em duodécimos"),
-    h("p", { class: "ajuda", texto: `Taxas da Segurança Social por omissão: ${dados.taxas_ss.pessoal.trabalhador}% e ${dados.taxas_ss.pessoal.entidade}% (pessoal), ${dados.taxas_ss.orgaos_sociais.trabalhador}% e ${dados.taxas_ss.orgaos_sociais.entidade}% (órgãos sociais). A taxa de retenção de IRS sai das tabelas da AT para o vencimento, a situação familiar e os dependentes.` })), async () => {
+    h("p", { class: "ajuda", texto: `Taxas da Segurança Social por omissão: ${dados.taxas_ss.pessoal.trabalhador}% e ${dados.taxas_ss.pessoal.entidade}% (pessoal), ${dados.taxas_ss.orgaos_sociais.trabalhador}% e ${dados.taxas_ss.orgaos_sociais.entidade}% (órgãos sociais). Com as tabelas da AT, a retenção de IRS calcula-se em cada mês pela situação declarada pela pessoa (Despacho 233-A/2026); os unidos de facto seguem as tabelas dos casados; para residentes nos Açores ou na Madeira, use a taxa manual.` })), async () => {
     if (!nome.value.trim() || base.value === "") throw new Error("Indique o nome e o vencimento base.");
     const corpo = {
       nome: nome.value.trim(), tipo: tipo.value, nif: nif.value.trim() || null, niss: niss.value.trim() || null,
@@ -2114,6 +2146,9 @@ function abrirFichaFuncionario(dados, f) {
       salario_base: Number(base.value),
       subsidio_alimentacao: Number(alimentacao.value) || 0, alimentacao_cartao: cartao.value === "1", duodecimos: duodecimos.checked,
       taxa_irs: Number(irs.value) || 0, taxa_ss_trabalhador: ssT.value === "" ? null : Number(ssT.value),
+      irs_situacao: modoIrs.value === "tabelas" ? situacao.value : null,
+      irs_dependentes: Number(dependentes.value) || 0, irs_dependentes_deficiencia: Number(depDeficiencia.value) || 0,
+      irs_deficiencia: deficiencia.checked, irs_conjuge_deficiencia: situacao.value === "casado_unico" && conjugeDef.checked,
       taxa_ss_entidade: ssE.value === "" ? null : Number(ssE.value),
     };
     if (f) await enviar(`/api/contabilidade/salarios/funcionarios/${f.id}`, corpo, "PUT");

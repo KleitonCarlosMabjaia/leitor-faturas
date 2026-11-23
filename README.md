@@ -44,6 +44,12 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
   Avisa a semana em que o saldo fica negativo.
 - **Orçamento:** valores mensais por rubrica (vendas, compras e CMVMC, FSE, pessoal, outros), que podem partir do real do ano anterior com uma variação. A comparação com o real usa os lançamentos e mostra o desvio e a percentagem de execução.
 
+**Retenção de IRS** (Salários › ficha da pessoa)
+- Tabelas de retenção na fonte de 2026 para o continente (Despacho n.º 233-A/2026, tabelas I a VII do trabalho dependente), escolhidas pela situação familiar, dependentes e deficiência. A fórmula oficial é a remuneração × a taxa marginal, menos a parcela a abater e a parcela por dependente, com as majorações por incapacidade e menos 1 ponto percentual com 3 ou mais dependentes.
+- Os subsídios de férias e de Natal têm retenção autónoma. Nos duodécimos aplica-se a taxa do subsídio inteiro. O trabalho suplementar retém a metade da taxa do mês. O detalhe de cada parte fica no recibo.
+- Em novembro de 2026 a retenção é de 50% (Despacho n.º 12523-A/2026), exceto acima do penúltimo escalão.
+- Sem situação familiar (por exemplo, residentes nos Açores ou na Madeira), usa-se a taxa indicada à mão.
+
 **Declarações de remunerações** (Salários › Declarações)
 - **Segurança Social:** ficheiro da declaração de remunerações no formato oficial das "Normas de preenchimento" (modelo RC4008, versão 01, registos R0/R1/R2/R3 de 118 caracteres), gerado a partir do processamento do mês, com um bloco por taxa contributiva. Exige o NISS da empresa (Obrigações fiscais › Configuração) e o NISS e a data de nascimento de cada pessoa.
 - **AT, DMR:** mapa por trabalhador (NIF, rendimento da categoria A, IRS retido e contribuições obrigatórias), também em CSV, para preencher no Portal das Finanças. O ficheiro XML da DMR e o da declaração periódica do IVA não são gerados, porque a AT não publica os esquemas de forma que se possam validar aqui.

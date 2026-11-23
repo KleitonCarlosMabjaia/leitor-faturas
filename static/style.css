@@ -2078,3 +2078,4 @@ tr.inativo td { color: var(--tinta-fraca); }
 .tabela-orcamento td.rubrica { min-width: 14rem; white-space: normal; }
 .declaracoes-grelha { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 640px) { .barras { gap: 0.1875rem; } .barras-coluna:nth-child(even) .barras-rotulo { visibility: hidden; } .barras-rotulo { font-size: 0.625rem; } }
+#janela-temporaria [hidden] { display: none !important; }

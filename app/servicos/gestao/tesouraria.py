@@ -70,7 +70,7 @@ def _salarios(db: Session, empresa_id: int, hoje: date, limite: date) -> list[di
             t = salarios.totais(p.recibos)
         else:
             try:
-                t = salarios.totais(salarios.calcular(db, empresa_id, ano, mes, salarios.opcoes_do_mes(mes)))
+                t = salarios.totais(salarios.calcular(db, empresa_id, ano, mes, salarios.opcoes_do_mes(mes, ano)))
             except salarios.ErroSalarios:
                 t = None
         if t and t["iliquido"]:

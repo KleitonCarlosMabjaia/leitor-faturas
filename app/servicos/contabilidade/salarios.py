@@ -17,8 +17,9 @@ Lançamento do mês (diário de operações diversas, origem "salarios"):
 Pagamentos (origem "salarios_pagamento"): salários (D 231x), Segurança Social até dia 20
 (D 245) e IRS retido até dia 20 (D 2421), contra caixa ou bancos.
 
-A taxa de retenção de IRS de cada pessoa é indicada pelo utilizador, a partir das tabelas de
-retenção na fonte em vigor (dependem do vencimento, da situação familiar e dos dependentes).
+Retenção de IRS: com a situação familiar e os dependentes na ficha, calcula-se pelas tabelas de
+retenção na fonte da AT para o continente (retencao_irs: remuneração mensal, subsídios à parte e
+trabalho suplementar a metade da taxa); sem eles, aplica-se a taxa indicada à mão.
 As taxas e limites por omissão estão aqui e não espalhados pelo código.
 
 As funções não fazem commit: quem as chama decide quando gravar.
@@ -40,7 +41,7 @@ from app.modelos.tabelas import (
     ProcessamentoSalarial,
 )
 from app.servicos import validacao
-from app.servicos.contabilidade import lancamentos, periodizacao
+from app.servicos.contabilidade import lancamentos, periodizacao, retencao_irs
 from app.servicos.contabilidade.lancamentos import LinhaNova
 
 # Limites diários de isenção do subsídio de alimentação em 2026 (confirmar no Orçamento do Estado)
@@ -65,8 +66,8 @@ DESCRICOES_PAGAMENTO = {
     "seguranca_social": "Pagamento à Segurança Social",
     "irs": "Pagamento do IRS retido",
 }
-AVISO = ("A taxa de retenção de IRS de cada pessoa vem das tabelas de retenção na fonte em vigor (situação "
-         "familiar, dependentes e vencimento). A declaração mensal de remunerações (AT) e a declaração de "
+AVISO = ("A retenção de IRS calcula-se pelas tabelas da AT para o continente quando a ficha tem a situação "
+         "familiar; sem ela, usa-se a taxa indicada à mão. A declaração mensal de remunerações (AT) e a declaração de "
          "remunerações da Segurança Social entregam-se nos respetivos portais com os valores deste mapa.")
 NOMES_MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro",
                "outubro", "novembro", "dezembro"]
@@ -94,14 +95,18 @@ def registar(db: Session, empresa: Empresa, *, nome: str, data_admissao: date, s
              tipo: str = FUNCIONARIO_PESSOAL, nif: str | None = None, niss: str | None = None,
              subsidio_alimentacao: float = 0.0, alimentacao_cartao: bool = True, duodecimos: bool = False,
              taxa_irs: float = 0.0, taxa_ss_trabalhador: float | None = None,
-             taxa_ss_entidade: float | None = None, data_nascimento: date | None = None) -> Funcionario:
+             taxa_ss_entidade: float | None = None, data_nascimento: date | None = None,
+             irs_situacao: str | None = None, irs_dependentes: int = 0, irs_dependentes_deficiencia: int = 0,
+             irs_deficiencia: bool = False, irs_conjuge_deficiencia: bool = False) -> Funcionario:
     f = Funcionario(empresa_id=empresa.id, numero=(db.scalar(select(func.max(Funcionario.numero)).where(
         Funcionario.empresa_id == empresa.id)) or 0) + 1)
     db.add(f)
     alterar(f, nome=nome, data_admissao=data_admissao, salario_base=salario_base, tipo=tipo, nif=nif, niss=niss,
             subsidio_alimentacao=subsidio_alimentacao, alimentacao_cartao=alimentacao_cartao, duodecimos=duodecimos,
             taxa_irs=taxa_irs, taxa_ss_trabalhador=taxa_ss_trabalhador, taxa_ss_entidade=taxa_ss_entidade,
-            data_nascimento=data_nascimento)
+            data_nascimento=data_nascimento, irs_situacao=irs_situacao, irs_dependentes=irs_dependentes,
+            irs_dependentes_deficiencia=irs_dependentes_deficiencia, irs_deficiencia=irs_deficiencia,
+            irs_conjuge_deficiencia=irs_conjuge_deficiencia)
     db.flush()
     return f
 
@@ -109,7 +114,9 @@ def registar(db: Session, empresa: Empresa, *, nome: str, data_admissao: date, s
 def alterar(f: Funcionario, *, nome: str, data_admissao: date, salario_base: float, tipo: str, nif: str | None,
             niss: str | None, subsidio_alimentacao: float, alimentacao_cartao: bool, duodecimos: bool,
             taxa_irs: float, taxa_ss_trabalhador: float | None, taxa_ss_entidade: float | None,
-            data_saida: date | None = None, data_nascimento: date | None = None) -> None:
+            data_saida: date | None = None, data_nascimento: date | None = None,
+            irs_situacao: str | None = None, irs_dependentes: int = 0, irs_dependentes_deficiencia: int = 0,
+            irs_deficiencia: bool = False, irs_conjuge_deficiencia: bool = False) -> None:
     if tipo not in CONTAS:
         raise ErroSalarios("Tipo desconhecido: pessoal ou órgãos sociais.")
     if not nome.strip():
@@ -129,6 +136,11 @@ def alterar(f: Funcionario, *, nome: str, data_admissao: date, salario_base: flo
         raise ErroSalarios("A data de saída é anterior à de admissão.")
     if data_nascimento and not date(1900, 1, 1) <= data_nascimento <= data_admissao:
         raise ErroSalarios("A data de nascimento não é válida.")
+    irs_situacao = irs_situacao or None
+    if irs_situacao and irs_situacao not in retencao_irs.SITUACOES:
+        raise ErroSalarios("Situação familiar desconhecida para a retenção de IRS.")
+    if not 0 <= irs_dependentes <= 20 or not 0 <= irs_dependentes_deficiencia <= irs_dependentes:
+        raise ErroSalarios("Os dependentes com deficiência não podem ser mais do que os dependentes.")
     omissao_trab, omissao_ent = TAXAS_SS[tipo]
     f.nome, f.tipo, f.nif, f.niss = nome.strip()[:200], tipo, nif, niss
     f.data_admissao, f.data_saida, f.data_nascimento = data_admissao, data_saida, data_nascimento
@@ -136,6 +148,20 @@ def alterar(f: Funcionario, *, nome: str, data_admissao: date, salario_base: flo
     f.alimentacao_cartao, f.duodecimos, f.taxa_irs = alimentacao_cartao, duodecimos, round(taxa_irs, 2)
     f.taxa_ss_trabalhador = omissao_trab if taxa_ss_trabalhador is None else round(taxa_ss_trabalhador, 2)
     f.taxa_ss_entidade = omissao_ent if taxa_ss_entidade is None else round(taxa_ss_entidade, 2)
+    f.irs_situacao, f.irs_dependentes, f.irs_dependentes_deficiencia = irs_situacao, irs_dependentes, \
+        irs_dependentes_deficiencia
+    f.irs_deficiencia = irs_deficiencia
+    f.irs_conjuge_deficiencia = irs_conjuge_deficiencia and irs_situacao == retencao_irs.CASADO_UNICO
+
+
+def perfil_irs(f: Funcionario) -> retencao_irs.Perfil | None:
+    """Perfil para as tabelas de retenção, ou None quando a ficha usa a taxa manual."""
+    if not f.irs_situacao:
+        return None
+    return retencao_irs.Perfil(situacao=f.irs_situacao, dependentes=f.irs_dependentes or 0,
+                               dependentes_deficiencia=f.irs_dependentes_deficiencia or 0,
+                               deficiencia=bool(f.irs_deficiencia),
+                               conjuge_deficiencia=bool(f.irs_conjuge_deficiencia))
 
 
 def funcionario_dict(f: Funcionario) -> dict:
@@ -146,7 +172,16 @@ def funcionario_dict(f: Funcionario) -> dict:
         "subsidio_alimentacao": f.subsidio_alimentacao, "alimentacao_cartao": f.alimentacao_cartao,
         "duodecimos": f.duodecimos, "taxa_irs": f.taxa_irs, "taxa_ss_trabalhador": f.taxa_ss_trabalhador,
         "taxa_ss_entidade": f.taxa_ss_entidade, "ativo": f.data_saida is None or f.data_saida >= date.today(),
+        "irs_situacao": f.irs_situacao, "irs_dependentes": f.irs_dependentes or 0,
+        "irs_dependentes_deficiencia": f.irs_dependentes_deficiencia or 0,
+        "irs_deficiencia": bool(f.irs_deficiencia), "irs_conjuge_deficiencia": bool(f.irs_conjuge_deficiencia),
+        "irs_tabela": _tabela_atual(f),
     }
+
+
+def _tabela_atual(f: Funcionario) -> str | None:
+    perfil = perfil_irs(f)
+    return retencao_irs.tabela_aplicavel(perfil, date.today().year).numero if perfil else None
 
 
 def ativos_no_mes(db: Session, empresa_id: int, ano: int, mes: int) -> list[Funcionario]:
@@ -163,8 +198,9 @@ def ativos_no_mes(db: Session, empresa_id: int, ano: int, mes: int) -> list[Func
 class Variaveis:
     """O que muda de mês para mês numa pessoa."""
     dias: int = DIAS_UTEIS          # dias com direito a subsídio de alimentação
-    outros: float = 0.0             # prémios, horas extraordinárias... (sujeitos a IRS e SS)
+    outros: float = 0.0             # prémios, comissões... (sujeitos a IRS e SS)
     faltas: float = 0.0             # desconto por faltas não remuneradas
+    suplementar: float = 0.0        # trabalho suplementar (horas extra): IRS a metade da taxa do mês
 
 
 @dataclass
@@ -174,6 +210,8 @@ class Opcoes:
     limite_numerario: float = LIMITE_ALIMENTACAO_NUMERARIO
     limite_cartao: float = LIMITE_ALIMENTACAO_CARTAO
     variaveis: dict[int, Variaveis] = field(default_factory=dict)
+    ano: int | None = None          # mês do pagamento, para as tabelas de retenção de IRS em vigor
+    mes: int | None = None
 
 
 def recibo(f: Funcionario, opcoes: Opcoes, var: Variaveis | None = None) -> dict:
@@ -191,18 +229,30 @@ def recibo(f: Funcionario, opcoes: Opcoes, var: Variaveis | None = None) -> dict
     alimentacao_sujeita = _r(alimentacao - alimentacao_isenta)
     faltas = _r(max(var.faltas, 0))
     outros = _r(max(var.outros, 0))
-    sujeita = _r(base + ferias + natal + outros + alimentacao_sujeita - faltas)
-    if sujeita < 0:
+    suplementar = _r(max(var.suplementar, 0))
+    sujeita = _r(base + ferias + natal + outros + suplementar + alimentacao_sujeita - faltas)
+    if sujeita < 0 or base + outros + alimentacao_sujeita - faltas < 0:
         raise ErroSalarios(f"O desconto por faltas de {f.nome} é maior do que a remuneração.")
     ss_trabalhador = _r(sujeita * f.taxa_ss_trabalhador / 100)
     ss_entidade = _r(sujeita * f.taxa_ss_entidade / 100)
-    irs = _r(sujeita * f.taxa_irs / 100)
-    iliquido = _r(base + ferias + natal + outros + alimentacao - faltas)
+    perfil = perfil_irs(f)
+    detalhe_irs = None
+    if perfil:
+        hoje = date.today()
+        detalhe_irs = retencao_irs.retencao_mes(
+            perfil, opcoes.ano or hoje.year, opcoes.mes or hoje.month,
+            mensal=_r(base + outros + alimentacao_sujeita - faltas), subsidio_ferias=ferias, subsidio_natal=natal,
+            duodecimos=f.duodecimos, base_subsidio=base, suplementar=suplementar)
+        irs, taxa_irs = detalhe_irs["valor"], detalhe_irs["taxa_efetiva"]
+    else:
+        irs, taxa_irs = _r(sujeita * f.taxa_irs / 100), f.taxa_irs
+    iliquido = _r(base + ferias + natal + outros + suplementar + alimentacao - faltas)
     return {
         "funcionario_id": f.id, "numero": f.numero, "nome": f.nome, "nif": f.nif, "niss": f.niss, "tipo": f.tipo,
-        "base": base, "subsidio_ferias": ferias, "subsidio_natal": natal, "outros": outros, "faltas": faltas,
+        "base": base, "subsidio_ferias": ferias, "subsidio_natal": natal, "outros": outros,
+        "suplementar": suplementar, "faltas": faltas,
         "dias": dias, "alimentacao": alimentacao, "alimentacao_isenta": alimentacao_isenta,
-        "remuneracao_sujeita": sujeita, "taxa_irs": f.taxa_irs, "irs": irs,
+        "remuneracao_sujeita": sujeita, "taxa_irs": taxa_irs, "irs": irs, "irs_detalhe": detalhe_irs,
         "taxa_ss_trabalhador": f.taxa_ss_trabalhador, "ss_trabalhador": ss_trabalhador,
         "taxa_ss_entidade": f.taxa_ss_entidade, "ss_entidade": ss_entidade,
         "iliquido": iliquido, "liquido": _r(iliquido - ss_trabalhador - irs),
@@ -210,21 +260,24 @@ def recibo(f: Funcionario, opcoes: Opcoes, var: Variaveis | None = None) -> dict
     }
 
 
-def opcoes_do_mes(mes: int, **kwargs) -> Opcoes:
+def opcoes_do_mes(mes: int, ano: int | None = None, **kwargs) -> Opcoes:
     """Por omissão, o subsídio de férias vai em junho e o de Natal em novembro."""
     kwargs.setdefault("subsidio_ferias", mes == MES_SUBSIDIO_FERIAS)
     kwargs.setdefault("subsidio_natal", mes == MES_SUBSIDIO_NATAL)
-    return Opcoes(**kwargs)
+    return Opcoes(ano=ano or date.today().year, mes=mes, **kwargs)
 
 
 def calcular(db: Session, empresa_id: int, ano: int, mes: int, opcoes: Opcoes) -> list[dict]:
+    if opcoes.ano is None or opcoes.mes is None:
+        opcoes.ano, opcoes.mes = ano, mes
     return [recibo(f, opcoes, opcoes.variaveis.get(f.id)) for f in ativos_no_mes(db, empresa_id, ano, mes)]
 
 
 def totais(recibos: list[dict]) -> dict:
-    chaves = ("base", "subsidio_ferias", "subsidio_natal", "outros", "faltas", "alimentacao", "remuneracao_sujeita",
-              "irs", "ss_trabalhador", "ss_entidade", "iliquido", "liquido", "custo_total")
-    t = {k: _r(sum(r[k] for r in recibos)) for k in chaves}
+    chaves = ("base", "subsidio_ferias", "subsidio_natal", "outros", "suplementar", "faltas", "alimentacao",
+              "remuneracao_sujeita", "irs", "ss_trabalhador", "ss_entidade", "iliquido", "liquido", "custo_total")
+    # .get: os recibos gravados antes do trabalho suplementar não têm essa chave
+    t = {k: _r(sum(r.get(k, 0) for r in recibos)) for k in chaves}
     t["seguranca_social"] = _r(t["ss_trabalhador"] + t["ss_entidade"])
     return t
 

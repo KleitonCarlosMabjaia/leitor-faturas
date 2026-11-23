@@ -1621,6 +1621,11 @@ class FuncionarioEntrada(BaseModel):
     taxa_irs: float = Field(0, ge=0, le=100)
     taxa_ss_trabalhador: float | None = Field(None, ge=0, le=100)
     taxa_ss_entidade: float | None = Field(None, ge=0, le=100)
+    irs_situacao: Literal["nao_casado", "casado_dois", "casado_unico"] | None = None
+    irs_dependentes: int = Field(0, ge=0, le=20)
+    irs_dependentes_deficiencia: int = Field(0, ge=0, le=20)
+    irs_deficiencia: bool = False
+    irs_conjuge_deficiencia: bool = False
 
 
 def _funcionario(db: Session, utilizador: Utilizador, funcionario_id: int) -> Funcionario:
@@ -1699,6 +1704,7 @@ class VariaveisEntrada(BaseModel):
     dias: int = Field(salarios.DIAS_UTEIS, ge=0, le=31)
     outros: float = Field(0, ge=0)
     faltas: float = Field(0, ge=0)
+    suplementar: float = Field(0, ge=0)
 
 
 class ProcessamentoEntrada(BaseModel):
@@ -1715,8 +1721,9 @@ def _opcoes(entrada: ProcessamentoEntrada) -> salarios.Opcoes:
         extra["subsidio_ferias"] = entrada.subsidio_ferias
     if entrada.subsidio_natal is not None:
         extra["subsidio_natal"] = entrada.subsidio_natal
-    variaveis = {v.funcionario_id: salarios.Variaveis(v.dias, v.outros, v.faltas) for v in entrada.variaveis}
-    return salarios.opcoes_do_mes(entrada.mes, variaveis=variaveis, **extra)
+    variaveis = {v.funcionario_id: salarios.Variaveis(v.dias, v.outros, v.faltas, v.suplementar)
+                 for v in entrada.variaveis}
+    return salarios.opcoes_do_mes(entrada.mes, entrada.ano, variaveis=variaveis, **extra)
 
 
 @router.get("/salarios/ferias")
@@ -1798,7 +1805,7 @@ def processamento_do_mes(ano: int, mes: int, db: Session = Depends(get_db),
     p = salarios.obter(db, empresa.id, ano, mes)
     if salarios.processado(db, p):
         return salarios.processamento_dict(db, p)
-    opcoes = salarios.opcoes_do_mes(mes)
+    opcoes = salarios.opcoes_do_mes(mes, ano)
     try:
         recibos = salarios.calcular(db, empresa.id, ano, mes, opcoes)
     except salarios.ErroSalarios as erro:

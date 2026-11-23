@@ -7,7 +7,7 @@
 // - Pedidos que alteram dados nunca passam pela cache.
 // - Ao terminar a sessão, a página pede para apagar as páginas e os dados guardados.
 
-const VERSAO = "2026-11-23.15";
+const VERSAO = "2026-11-23.16";
 const ESTATICOS = `dobra-estaticos-${VERSAO}`;
 const PAGINAS = "dobra-paginas";
 const DADOS = "dobra-dados";
