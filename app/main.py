@@ -87,7 +87,7 @@ for modulo in (auth, conta, empresas, faturas, fornecedores, dashboard, contabil
 
 PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/conta", "/subscricao", "/registar", "/entrar",
                 "/definir-palavra-passe",
-                "/apresentacao", "/privacidade", "/termos"}
+                "/apresentacao", "/privacidade", "/termos", "/offline"}
 
 # Política de segurança de conteúdo: só scripts, estilos, tipos de letra e imagens da própria
 # aplicação. Um script injetado (XSS) não corre nem consegue enviar dados para outro site.
@@ -322,6 +322,23 @@ def pagina_entrar(utilizador: Utilizador | None = Depends(utilizador_opcional)):
 @app.get("/definir-palavra-passe", include_in_schema=False)
 def pagina_definir_palavra_passe():
     return _pagina("definir-palavra-passe.html")
+
+
+@app.get("/sw.js", include_in_schema=False)
+def service_worker():
+    """O service worker é servido na raiz para poder controlar todas as páginas da aplicação."""
+    return FileResponse(config.STATIC_DIR / "sw.js", media_type="text/javascript",
+                        headers={"Cache-Control": "no-cache", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+def manifesto():
+    return FileResponse(config.STATIC_DIR / "manifest.webmanifest", media_type="application/manifest+json")
+
+
+@app.get("/offline", include_in_schema=False)
+def pagina_offline():
+    return _pagina("offline.html")
 
 
 @app.get("/api/saude")

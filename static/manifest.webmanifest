@@ -1,0 +1,78 @@
+{
+  "name": "Dobra · Contabilidade",
+  "short_name": "Dobra",
+  "description": "Contabilidade da empresa a partir das faturas: leitura automática, lançamentos SNC, IVA, bancos e salários.",
+  "lang": "pt-PT",
+  "dir": "ltr",
+  "id": "/",
+  "start_url": "/?origem=app",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": [
+    "window-controls-overlay",
+    "standalone"
+  ],
+  "orientation": "any",
+  "background_color": "#0E1C24",
+  "theme_color": "#0E1C24",
+  "categories": [
+    "business",
+    "finance",
+    "productivity"
+  ],
+  "icons": [
+    {
+      "src": "/static/icones/icone-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icones/icone-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/icones/icone-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Carregar faturas",
+      "short_name": "Faturas",
+      "url": "/?origem=atalho",
+      "icons": [
+        {
+          "src": "/static/icones/icone-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Por contabilizar",
+      "short_name": "Contabilizar",
+      "url": "/contabilidade#por-contabilizar",
+      "icons": [
+        {
+          "src": "/static/icones/icone-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "IVA",
+      "short_name": "IVA",
+      "url": "/contabilidade#iva",
+      "icons": [
+        {
+          "src": "/static/icones/icone-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

@@ -194,6 +194,9 @@ const ICONES = {
   venda: "M3 12.5V4h8.5L21 13.5 13.5 21zM7.5 8h.01",
   caixa: "M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9",
   menu: "M4 6h16M4 12h16M4 18h16",
+  camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+  instalar: "M12 3v12M7 10l5 5 5-5M5 21h14",
+  semRede: "M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01M3 3l18 18",
   telemovel: "M7 3h10a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2",
   computador: "M3 5h18v11H3zM8 20h8M12 16v4",
   impressora: "M6 9V3h12v6M6 18H4v-7h16v7h-2M8 14h8v7H8z",
@@ -392,7 +395,14 @@ window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () 
 
 // Igual ao fetch, mas se a sessão tiver terminado (401) envia para a página de login
 async function api(url, opcoes) {
-  const resposta = await fetch(url, opcoes);
+  let resposta;
+  try {
+    resposta = await fetch(url, opcoes);
+  } catch {
+    throw new Error(navigator.onLine ? "Não foi possível contactar o servidor. Tente de novo."
+      : "Sem ligação à Internet. Pode consultar o que já tinha aberto; as alterações esperam pela rede.");
+  }
+  if (resposta.headers.get("X-Dobra-Sem-Rede")) avisarSemRede(true);
   if (resposta.status === 401) {
     location.href = `/entrar?voltar=${encodeURIComponent(location.pathname)}`;
     throw new Error("A sua sessão terminou.");
@@ -950,6 +960,7 @@ async function iniciarConta() {
     }
   });
   zona.querySelector("button.conta-sair").addEventListener("click", async () => {
+    navigator.serviceWorker?.controller?.postMessage("limpar-dados");
     await fetch("/api/auth/sair", { method: "POST" });
     location.href = "/entrar";
   });
@@ -985,7 +996,51 @@ function avisarLiveServer() {
   });
 }
 
+// ---------- App instalável (PWA) e funcionamento sem rede ----------
+
+function avisarSemRede(sim) {
+  let faixa = document.getElementById("faixa-sem-rede");
+  if (!sim) {
+    faixa?.remove();
+    return;
+  }
+  if (faixa || !document.body) return;
+  faixa = h("div", { class: "faixa-sem-rede", id: "faixa-sem-rede", role: "status" }, icone("semRede"),
+    h("span", { texto: "Sem ligação à Internet. Está a ver os últimos dados guardados neste dispositivo." }));
+  document.body.prepend(faixa);
+}
+
+let pedidoInstalacao = null;
+
+function iniciarApp() {
+  if ("serviceWorker" in navigator && location.protocol !== "file:") {
+    navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+  }
+  window.addEventListener("offline", () => avisarSemRede(true));
+  window.addEventListener("online", () => {
+    avisarSemRede(false);
+    notificar("Ligação restabelecida.", "ok");
+  });
+  if (!navigator.onLine) avisarSemRede(true);
+  // Botão "Instalar a app" quando o navegador o permite (Chrome, Edge, Android)
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    pedidoInstalacao = e;
+    const extra = document.querySelector(".lateral-extra");
+    if (extra && !document.getElementById("instalar-app")) {
+      extra.appendChild(h("button", { type: "button", class: "lateral-instalar", id: "instalar-app", onclick: async () => {
+        pedidoInstalacao.prompt();
+        await pedidoInstalacao.userChoice;
+        pedidoInstalacao = null;
+        document.getElementById("instalar-app")?.remove();
+      } }, icone("instalar"), h("span", { class: "lateral-texto", texto: "Instalar a app" })));
+    }
+  });
+  window.addEventListener("appinstalled", () => document.getElementById("instalar-app")?.remove());
+}
+
 document.addEventListener("DOMContentLoaded", () => {
+  iniciarApp();
   avisarLiveServer();
   montarBarra();
   preencherIcones();

@@ -392,3 +392,42 @@ def test_subscricao_mostra_o_plano_e_os_planos(page: Page):
     expect(page.get_by_role("button", name="Plano atual")).to_be_disabled()
     expect(page.get_by_text("Os pagamentos online ainda não estão ativos")).to_be_visible()
     page.locator("#conta-botao").or_(page.locator(".selo-demo")).first.wait_for()
+
+
+# ---------- App instalável e sem rede ----------
+
+def test_service_worker_e_funcionamento_sem_rede(page: Page, context):
+    page.goto("/contabilidade#balancete")
+    expect(page.get_by_role("heading", name="Balancete analítico")).to_be_visible()
+    # O service worker fica ativo e passa a controlar a página
+    # (wait_for_function avalia texto como código, o que a política de segurança da página bloqueia)
+    for _ in range(60):
+        if page.evaluate("() => !!(navigator.serviceWorker && navigator.serviceWorker.controller)"):
+            break
+        page.wait_for_timeout(250)
+    else:
+        raise AssertionError("O service worker não ficou a controlar a página")
+    assert page.locator('link[rel="manifest"]').count() == 1
+    page.reload()
+    expect(page.get_by_role("heading", name="Balancete analítico")).to_be_visible()
+
+    # Sem rede: a página e os dados já vistos continuam disponíveis, com o aviso no topo
+    context.set_offline(True)
+    page.reload()
+    expect(page.get_by_role("heading", name="Balancete analítico")).to_be_visible(timeout=15000)
+    expect(page.get_by_text("Sem ligação à Internet")).to_be_visible()
+    # Uma página nunca aberta neste dispositivo mostra a página "Sem ligação"
+    page.goto("/conta")
+    expect(page.get_by_role("heading", name="Sem ligação à Internet")).to_be_visible()
+    context.set_offline(False)
+
+
+def test_botao_da_camera_no_telemovel(browser, base_url):
+    contexto = browser.new_context(base_url=base_url, viewport={"width": 390, "height": 844},
+                                   has_touch=True, is_mobile=True)
+    pagina = contexto.new_page()
+    pagina.goto("/")
+    botao = pagina.get_by_text("Fotografar fatura")
+    expect(botao).to_be_visible()
+    assert pagina.locator("#camera").get_attribute("capture") == "environment"
+    contexto.close()

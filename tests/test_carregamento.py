@@ -106,7 +106,7 @@ def test_duplicado_pelo_atcud(cliente, monkeypatch):
 def test_rejeita_ficheiro_que_nao_e_pdf(cliente):
     resposta = enviar(cliente, b"isto nao e um pdf", nome="fatura.txt")
     assert resposta.status_code == 400
-    assert resposta.json()["detail"] == "Só são aceites ficheiros PDF."
+    assert resposta.json()["detail"] == "Só são aceites PDFs ou fotografias (JPEG, PNG ou WebP)."
 
 
 def test_rejeita_pdf_falso(cliente):

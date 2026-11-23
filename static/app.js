@@ -249,6 +249,74 @@ function itemFila(ficheiro) {
   };
 }
 
+// ---------- Fotografias e envio sem rede ----------
+
+// Fotografias grandes do telemóvel são reduzidas antes de enviar (menos dados e envio mais rápido)
+async function prepararFicheiro(ficheiro) {
+  if (!ficheiro.type.startsWith("image/") || (ficheiro.size < 1.5 * 1024 * 1024 && ficheiro.type !== "image/heic")) return ficheiro;
+  try {
+    const imagem = await createImageBitmap(ficheiro, { imageOrientation: "from-image" });
+    const escala = Math.min(1, 2400 / Math.max(imagem.width, imagem.height));
+    const tela = document.createElement("canvas");
+    tela.width = Math.round(imagem.width * escala);
+    tela.height = Math.round(imagem.height * escala);
+    tela.getContext("2d").drawImage(imagem, 0, 0, tela.width, tela.height);
+    const blob = await new Promise((r) => tela.toBlob(r, "image/jpeg", 0.85));
+    return new File([blob], ficheiro.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch {
+    return ficheiro; // o servidor ainda tenta converter
+  }
+}
+
+// Fila guardada no próprio dispositivo (IndexedDB): faturas carregadas sem rede são enviadas
+// assim que a ligação voltar, mesmo que a página tenha sido fechada entretanto.
+function abrirFila() {
+  return new Promise((resolver, rejeitar) => {
+    const pedido = indexedDB.open("dobra-fila", 1);
+    pedido.onupgradeneeded = () => pedido.result.createObjectStore("ficheiros", { keyPath: "id", autoIncrement: true });
+    pedido.onsuccess = () => resolver(pedido.result);
+    pedido.onerror = () => rejeitar(pedido.error);
+  });
+}
+
+async function operacaoFila(modo, acao) {
+  const bd = await abrirFila();
+  return new Promise((resolver, rejeitar) => {
+    const transacao = bd.transaction("ficheiros", modo);
+    const pedido = acao(transacao.objectStore("ficheiros"));
+    transacao.oncomplete = () => resolver(pedido?.result);
+    transacao.onerror = () => rejeitar(transacao.error);
+  });
+}
+
+const guardarNaFila = (ficheiro) => operacaoFila("readwrite", (s) => s.add({ nome: ficheiro.name, tipo: ficheiro.type, dados: ficheiro }));
+const ficheirosNaFila = () => operacaoFila("readonly", (s) => s.getAll());
+const tirarDaFila = (id) => operacaoFila("readwrite", (s) => s.delete(id));
+
+async function mostrarFilaOffline() {
+  const aviso = document.getElementById("fila-offline");
+  try {
+    const n = (await ficheirosNaFila()).length;
+    aviso.hidden = !n;
+    aviso.textContent = n ? `${n} fatura${n === 1 ? "" : "s"} à espera de rede: ${n === 1 ? "é enviada" : "são enviadas"} quando a ligação voltar.` : "";
+  } catch {
+    aviso.hidden = true;
+  }
+}
+
+async function enviarFilaOffline() {
+  if (!navigator.onLine) return;
+  let pendentes;
+  try {
+    pendentes = await ficheirosNaFila();
+  } catch {
+    return;
+  }
+  if (!pendentes.length) return;
+  const ficheiros = pendentes.map((p) => Object.assign(new File([p.dados], p.nome, { type: p.tipo }), { idFila: p.id }));
+  await enviarFicheiros(ficheiros);
+}
+
 async function enviarFicheiros(ficheiros) {
   const lista = Array.from(ficheiros);
   if (lista.length === 0) return;
@@ -264,9 +332,12 @@ async function enviarFicheiros(ficheiros) {
     const item = itens[indice];
     item.aLer();
     const dados = new FormData();
-    dados.append("ficheiro", ficheiro);
+    const preparado = await prepararFicheiro(ficheiro);
+    dados.append("ficheiro", preparado, preparado.name);
     try {
       const resposta = await api("/api/faturas", { method: "POST", body: dados });
+      // Chegou ao servidor (aceite ou recusada): sai da fila do dispositivo
+      if (ficheiro.idFila) await tirarDaFila(ficheiro.idFila).catch(() => {});
       if (resposta.status === 409) {
         item.terminar("aviso", "alerta", "Repetida", await lerErro(resposta, "Esta fatura já existe."));
         problemas += 1;
@@ -289,13 +360,28 @@ async function enviarFicheiros(ficheiros) {
         item.terminar("aviso", "alerta", "Guardada, por ler", f.erro || "", f.id);
       }
     } catch {
-      item.terminar("erro", "erro", "Sem ligação", "Não foi possível contactar o servidor.");
+      if (!ficheiro.idFila) {
+        try {
+          await guardarNaFila(preparado);
+          item.terminar("aviso", "relogio", "Na fila", "Sem ligação: é enviada quando a rede voltar.");
+        } catch {
+          item.terminar("erro", "erro", "Sem ligação", "Não foi possível contactar o servidor.");
+        }
+      } else {
+        item.terminar("aviso", "relogio", "Na fila", "Ainda sem ligação.");
+      }
       problemas += 1;
     }
   }
 
   zona.removeAttribute("aria-busy");
   inputFicheiro.value = "";
+  document.getElementById("camera").value = "";
+  await mostrarFilaOffline();
+  if (!navigator.onLine) {
+    notificar("Sem ligação à Internet: as faturas ficaram guardadas neste dispositivo e são enviadas quando a rede voltar.", "aviso");
+    return;
+  }
 
   if (problemas === 0) {
     notificar(lidas === 1 ? "Fatura lida. Reveja-a e confirme." : `${lidas} faturas lidas.`, "ok",
@@ -403,6 +489,11 @@ for (const th of document.querySelectorAll("th[data-campo]")) {
 
 // Escolher ficheiros pelo botão
 inputFicheiro.addEventListener("change", () => enviarFicheiros(inputFicheiro.files));
+// Fotografar com a câmara (telemóvel): cada foto é uma fatura
+document.getElementById("camera").addEventListener("change", (e) => enviarFicheiros(e.target.files));
+// Faturas que ficaram na fila sem rede: enviar quando a ligação voltar (ou ao abrir a página)
+window.addEventListener("online", enviarFilaOffline);
+mostrarFilaOffline().then(enviarFilaOffline);
 
 // Arrastar e largar
 ["dragenter", "dragover"].forEach((evento) =>

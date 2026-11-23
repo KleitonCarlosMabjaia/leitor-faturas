@@ -25,7 +25,7 @@ from app.dependencias import utilizador_atual
 from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
 from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
-from app.servicos import armazenamento, exportacao, limites, processamento, repositorio
+from app.servicos import armazenamento, exportacao, imagens, limites, processamento, repositorio
 from app.servicos.contabilidade import lancamentos, verificacoes
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
@@ -67,8 +67,10 @@ def carregar_fatura(
 ):
     """Recebe um PDF, guarda-o e extrai os dados."""
     limites.verificar(limites.envios, f"utilizador-{utilizador.id}")
-    if not ficheiro.filename or not ficheiro.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Só são aceites ficheiros PDF.")
+    nome = (ficheiro.filename or "").strip()
+    extensao = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
+    if extensao not in ("pdf", "jpg", "jpeg", "png", "webp"):
+        raise HTTPException(status_code=400, detail="Só são aceites PDFs ou fotografias (JPEG, PNG ou WebP).")
 
     conteudo = ficheiro.file.read()
 
@@ -76,6 +78,16 @@ def carregar_fatura(
         raise HTTPException(status_code=400, detail="O ficheiro está vazio.")
     if len(conteudo) > config.TAMANHO_MAXIMO:
         raise HTTPException(status_code=413, detail="O ficheiro tem mais de 10 MB.")
+    if extensao != "pdf":
+        # Fotografia tirada com a câmara: passa a PDF e segue o processo normal
+        if not imagens.parece_imagem(conteudo):
+            raise HTTPException(status_code=400, detail="O ficheiro não é uma imagem válida.")
+        try:
+            conteudo = imagens.para_pdf(conteudo)
+        except imagens.ImagemInvalida as erro:
+            raise HTTPException(status_code=400, detail=str(erro))
+        nome = nome.rsplit(".", 1)[0] + ".pdf"
+        ficheiro.filename = nome
     if not conteudo.startswith(b"%PDF"):
         raise HTTPException(status_code=400, detail="O ficheiro não é um PDF válido.")
 

@@ -5,9 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Faturas de fornecedores · Dobra</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
-  <script src="/static/tema.js?v=2026-11-23.10"></script>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#0E1C24">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Dobra">
+  <link rel="apple-touch-icon" href="/static/icones/apple-touch-icon.png">
+  <script src="/static/tema.js?v=2026-11-23.11"></script>
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.10">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.11">
 </head>
 <body data-pagina="faturas">
   <header id="barra"></header>
@@ -30,14 +35,19 @@
     <section aria-labelledby="titulo-carregar">
       <h2 id="titulo-carregar" class="visualmente-oculto">Carregar faturas</h2>
       <label class="zona-envio" id="zona" for="ficheiro">
-        <input type="file" id="ficheiro" accept="application/pdf,.pdf" multiple title="">
+        <input type="file" id="ficheiro" accept="application/pdf,.pdf,image/jpeg,image/png,image/webp" multiple title="">
         <span class="zona-envio-icone"><span data-icone="upload"></span></span>
         <span>
           <span class="zona-envio-titulo">Arraste faturas para aqui</span>
-          <span class="zona-envio-texto">ou <u>escolha ficheiros</u> no computador. PDF até 10 MB, vários de uma vez.</span>
+          <span class="zona-envio-texto">ou <u>escolha ficheiros</u>. PDF ou fotografia até 10 MB, vários de uma vez.</span>
         </span>
         <span class="botao" aria-hidden="true"><span data-icone="mais"></span>Carregar PDF</span>
       </label>
+      <div class="acoes-camera">
+        <label class="botao secundario botao-camera" for="camera"><span data-icone="camera"></span>Fotografar fatura</label>
+        <input type="file" id="camera" accept="image/*" capture="environment" class="visualmente-oculto" tabindex="-1">
+        <span class="ajuda" id="fila-offline" hidden></span>
+      </div>
       <ul class="fila" id="fila" aria-label="Ficheiros carregados"></ul>
     </section>
 
@@ -96,7 +106,7 @@
     </section>
   </main>
 
-  <script src="/static/comum.js?v=2026-11-23.10"></script>
-  <script src="/static/app.js?v=2026-11-23.10"></script>
+  <script src="/static/comum.js?v=2026-11-23.11"></script>
+  <script src="/static/app.js?v=2026-11-23.11"></script>
 </body>
 </html>
