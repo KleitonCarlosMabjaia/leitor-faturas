@@ -1878,3 +1878,15 @@ a.conta-sair { color: var(--tinta); text-decoration: none; }
 .factos dt { color: var(--tinta-fraca); }
 .factos dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
 @media (max-width: 40rem) { .factos { grid-template-columns: minmax(0, 1fr); gap: 0 0; } .factos dd { margin-bottom: 0.5rem; } }
+
+/* ---------- Centros de custo ---------- */
+.seletor-centro { min-height: 2rem !important; padding: 0.125rem 0.5rem !important; font-size: 0.8125rem; max-width: 14rem; }
+.tabela-centros .celula-barra { width: 28%; }
+.barra-centro { display: block; height: 0.4rem; border-radius: 999px; margin: 0.125rem 0; }
+.barra-centro.rendimentos { background: var(--ok); }
+.barra-centro.gastos { background: var(--erro); opacity: 0.75; }
+.tabela-centros .negativo strong { color: var(--erro); }
+.tabela-centros tr.sem-centro td.nome { color: var(--tinta-fraca); }
+.lista-centros { display: grid; gap: 0.25rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.lista-centros li { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; padding: 0.5rem 0; border-top: 1px solid var(--linha); }
+.lista-centros li > span:first-child { flex: 1; min-width: 12rem; }

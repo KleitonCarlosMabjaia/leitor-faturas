@@ -31,6 +31,7 @@ from app.modelos.tabelas import (
     PAPEL_ADMIN,
     AcessoEmpresa,
     AtivoFixo,
+    CentroCusto,
     Conta,
     DepreciacaoAtivo,
     Diferimento,
@@ -355,8 +356,27 @@ def criar_dados_demo(db: Session, empresa_id: int | None = None, quantidade: int
         db.flush()  # para o fornecedor criado ficar visível nas próximas faturas
 
     criar_contabilidade_demo(db, empresa_id, min(datas), hoje)
+    criar_centros_demo(db, empresa_id)
     db.commit()
     return quantidade
+
+
+def criar_centros_demo(db: Session, empresa_id: int) -> None:
+    """Contabilidade analítica de exemplo: o restaurante separa a sala do take-away."""
+    sala = CentroCusto(empresa_id=empresa_id, codigo="SALA", nome="Restaurante (sala)")
+    take = CentroCusto(empresa_id=empresa_id, codigo="TAKE", nome="Take-away e entregas")
+    db.add_all([sala, take])
+    db.flush()
+    linhas = db.scalars(
+        select(LinhaLancamento).join(Lancamento).join(Conta, Conta.id == LinhaLancamento.conta_id)
+        .where(Lancamento.empresa_id == empresa_id,
+               Lancamento.origem.not_in(("fecho", "aplicacao", "abertura", "estorno")))
+        .order_by(LinhaLancamento.id)
+    )
+    for n, linha in enumerate(linhas):
+        if linha.conta.codigo.startswith(("6", "7", "31")):
+            # Cerca de 3/4 para a sala e 1/4 para o take-away
+            linha.centro_custo_id = take.id if n % 4 == 0 else sala.id
 
 
 def _fim_do_mes(ano: int, mes: int) -> date:
@@ -667,6 +687,7 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(Funcionario).where(Funcionario.empresa_id == empresa.id))
     db.execute(delete(Diferimento).where(Diferimento.empresa_id == empresa.id))
     db.execute(delete(RegistoAtividade).where(RegistoAtividade.empresa_id == empresa.id))
+    db.execute(delete(CentroCusto).where(CentroCusto.empresa_id == empresa.id))
     db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))
     db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))

@@ -147,6 +147,7 @@ const SECOES = {
   balanco: carregarBalanco,
   fecho: carregarFecho,
   lancamentos: carregarLancamentos,
+  centros: carregarCentros,
   balancete: carregarBalancete,
   extrato: carregarExtrato,
   iva: carregarIVA,
@@ -326,20 +327,45 @@ function atualizarContador(n) {
 
 // ---------- Por contabilizar ----------
 
+// Centros de custo ativos (carregados com os lançamentos); vazio = sem contabilidade analítica
+let centrosCusto = [];
+
+function seletorCentro(l) {
+  const sel = h("select", { class: "seletor-centro", "aria-label": `Centro de custo da conta ${l.conta}` },
+    h("option", { value: "" }, "—"),
+    centrosCusto.filter((c) => c.ativo || c.id === l.centro_id).map((c) => h("option", { value: String(c.id) }, `${c.codigo} · ${c.nome}`)));
+  sel.value = l.centro_id ? String(l.centro_id) : "";
+  sel.addEventListener("change", async () => {
+    try {
+      await enviar(`/api/contabilidade/linhas/${l.id}/centro`, { centro_id: sel.value ? Number(sel.value) : null }, "PATCH");
+      l.centro_id = sel.value ? Number(sel.value) : null;
+      invalidar("centros");
+      notificar("Centro de custo atribuído.", "ok");
+    } catch (erro) {
+      sel.value = l.centro_id ? String(l.centro_id) : "";
+      notificar(erro.message, "erro");
+    }
+  });
+  return sel;
+}
+
 function tabelaLinhas(linhas, comDescricao = true) {
   const totalD = linhas.reduce((s, l) => s + l.debito, 0);
   const totalC = linhas.reduce((s, l) => s + l.credito, 0);
+  const comCentros = centrosCusto.length > 0 && linhas.some((l) => l.id && l.analitica);
   return h("div", { class: "tabela-caixa" }, h("table", { class: "tabela razao" },
     h("thead", {}, h("tr", {},
       h("th", { scope: "col", texto: "Conta" }), h("th", { scope: "col", texto: "Descrição" }),
+      comCentros ? h("th", { scope: "col", texto: "Centro de custo" }) : null,
       h("th", { scope: "col", class: "num", texto: "Débito" }), h("th", { scope: "col", class: "num", texto: "Crédito" }))),
     h("tbody", {}, linhas.map((l) => h("tr", {},
       h("td", { class: "conta-codigo" }, h("a", { href: `#extrato:${l.conta}`, texto: l.conta })),
       // Nas subcontas de fornecedor a descrição é o próprio nome: não se repete
       td(comDescricao && l.descricao && l.descricao !== l.nome ? `${l.nome} · ${l.descricao}` : l.nome,
         l.credito ? "credito" : ""),
+      comCentros ? h("td", {}, l.id && l.analitica ? seletorCentro(l) : null) : null,
       td(eurosOuVazio(l.debito), "num"), td(eurosOuVazio(l.credito), "num")))),
-    h("tfoot", {}, h("tr", {}, td(""), td("Total"), td(euros(totalD), "num"), td(euros(totalC), "num")))));
+    h("tfoot", {}, h("tr", {}, td(""), td("Total"), comCentros ? td("") : null, td(euros(totalD), "num"), td(euros(totalC), "num")))));
 }
 
 function etiquetaOrigem(origem, confianca) {
@@ -617,6 +643,7 @@ function cartaoLancamento(la, aoMudar) {
 
 async function carregarLancamentos(secao) {
   await obterContas();
+  centrosCusto = await obter("/api/contabilidade/centros").catch(() => []);
   const filtroDiario = h("select", { id: "filtro-diario" },
     h("option", { value: "" }, "Todos os diários"),
     ...Object.entries({ COM: "Compras", VEN: "Vendas", BAN: "Bancos", CX: "Caixa", OD: "Operações diversas" })
@@ -2230,6 +2257,73 @@ async function carregarBalanco(secao) {
 }
 
 // ---------- Saldos de abertura ----------
+
+// ---------- Centros de custo (contabilidade analítica) ----------
+
+async function carregarCentros(secao) {
+  const [lista, rel] = await Promise.all([obter("/api/contabilidade/centros"), obter(`/api/contabilidade/centros/relatorio?${qsPeriodo()}`)]);
+  centrosCusto = lista;
+  const codigo = h("input", { id: "centro-codigo", maxlength: "20", placeholder: "Ex.: LOJA1", required: true });
+  const nome = h("input", { id: "centro-nome", maxlength: "120", placeholder: "Ex.: Loja do Porto", required: true });
+  const criarBotao = h("button", { type: "submit", class: "botao" }, icone("mais"), "Criar centro");
+  const form = h("form", { class: "filtros-linha" },
+    h("div", { class: "campo" }, h("label", { for: "centro-codigo", texto: "Código" }), codigo),
+    h("div", { class: "campo" }, h("label", { for: "centro-nome", texto: "Nome" }), nome), criarBotao);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    ocupado(criarBotao, true);
+    try {
+      const c = await enviar("/api/contabilidade/centros", { codigo: codigo.value, nome: nome.value });
+      notificar(`Centro ${c.codigo} criado. Atribua-o às linhas de gastos e rendimentos nos lançamentos ou ao contabilizar faturas.`, "ok");
+      await mostrar("centros", true);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(criarBotao, false);
+    }
+  });
+
+  const maior = Math.max(1, ...rel.centros.map((c) => Math.max(c.gastos, c.rendimentos)));
+  const linhas = rel.centros.map((c) => h("tr", { class: c.codigo ? "" : "sem-centro" },
+    h("td", { class: "nome" }, c.codigo ? h("span", {}, h("strong", { texto: c.codigo }), ` · ${c.nome}`) : h("em", { texto: c.nome })),
+    td(euros(c.rendimentos), "num", "Rendimentos"), td(euros(c.gastos), "num", "Gastos"),
+    h("td", { class: `num ${c.resultado < 0 ? "negativo" : ""}`, "data-rotulo": "Resultado" }, h("strong", { texto: euros(c.resultado) })),
+    h("td", { class: "celula-barra", "aria-hidden": "true" },
+      h("span", { class: "barra-centro rendimentos", style: `width:${Math.round((c.rendimentos / maior) * 100)}%` }),
+      h("span", { class: "barra-centro gastos", style: `width:${Math.round((c.gastos / maior) * 100)}%` }))));
+  const relatorio = rel.centros.length
+    ? h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva tabela-centros" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Centro" }), h("th", { scope: "col", class: "num", texto: "Rendimentos" }),
+        h("th", { scope: "col", class: "num", texto: "Gastos" }), h("th", { scope: "col", class: "num", texto: "Resultado" }),
+        h("th", { scope: "col" }, h("span", { class: "visualmente-oculto", texto: "Gráfico" })))),
+      h("tbody", {}, linhas),
+      h("tfoot", {}, h("tr", {}, td("Total"), td(euros(rel.total.rendimentos), "num"),
+        td(euros(rel.total.gastos), "num"), td(euros(rel.total.resultado), "num"), td("")))))
+    : vazio("alvo", "Ainda sem movimentos no período", "Crie os centros e atribua-os às linhas de gastos e rendimentos.");
+
+  const gestao = lista.length ? h("ul", { class: "lista-centros" }, lista.map((c) => h("li", {},
+    h("span", {}, h("strong", { texto: c.codigo }), ` · ${c.nome}`),
+    c.ativo ? criarEtiqueta("Ativo", "ok") : criarEtiqueta("Desativado", "neutro"),
+    botao(c.ativo ? "Desativar" : "Reativar", async () => {
+      try {
+        await enviar(`/api/contabilidade/centros/${c.id}`, { ativo: !c.ativo }, "PATCH");
+        await mostrar("centros", true);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+      }
+    }, "botao fantasma pequeno")))) : null;
+
+  preencher(secao,
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, h("div", {},
+        h("h2", { texto: "Resultado por centro de custo" }),
+        h("p", { class: "subtitulo", texto: `${formatarData(rel.de)} a ${formatarData(rel.ate)} · gastos (classe 6 e compras) e rendimentos (classe 7) de cada loja, obra, departamento ou projeto.` }))),
+      relatorio),
+    h("section", { class: "cartao" },
+      h("div", { class: "cartao-cabecalho" }, h("div", {},
+        h("h2", { texto: "Centros de custo" }),
+        h("p", { class: "subtitulo", texto: "A atribuição é informação de gestão: não altera a contabilidade geral e pode ser feita depois, nos lançamentos." }))),
+      form, gestao));
+}
 
 // Migração a partir de outro programa (Primavera, PHC, Sage, TOConline...) pelo SAF-T da contabilidade
 function cartaoMigracao() {

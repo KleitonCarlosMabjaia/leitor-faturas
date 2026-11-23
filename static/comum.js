@@ -194,6 +194,7 @@ const ICONES = {
   venda: "M3 12.5V4h8.5L21 13.5 13.5 21zM7.5 8h.01",
   caixa: "M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9",
   menu: "M4 6h16M4 12h16M4 18h16",
+  alvo: "M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 16a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM12 12h.01",
   camera: "M4 8h3l2-3h6l2 3h3v11H4zM12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
   instalar: "M12 3v12M7 10l5 5 5-5M5 21h14",
   semRede: "M2 8.5a15 15 0 0 1 20 0M5 12a10 10 0 0 1 14 0M8.5 15.5a5 5 0 0 1 7 0M12 19h.01M3 3l18 18",
@@ -443,6 +444,7 @@ const NAVEGACAO = [
     { chave: "balancete", href: `${CONTAB}balancete`, texto: "Balancete", icone: "balanca" },
     { chave: "extrato", href: `${CONTAB}extrato`, texto: "Extratos de conta", icone: "ficheiro" },
     { chave: "periodizacao", href: `${CONTAB}periodizacao`, texto: "Acréscimos e diferimentos", icone: "relogio" },
+    { chave: "centros", href: `${CONTAB}centros`, texto: "Centros de custo", icone: "alvo" },
     { chave: "plano", href: `${CONTAB}plano`, texto: "Plano de contas", icone: "arvore" },
   ] },
   { titulo: "Relatórios e fiscal", itens: [

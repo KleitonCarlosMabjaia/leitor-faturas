@@ -44,6 +44,7 @@ from app.servicos.contabilidade import (
     assistente,
     ativos,
     banco,
+    centros,
     classificacao,
     extratos,
     fecho,
@@ -124,8 +125,9 @@ def lancamento_dict(la: Lancamento) -> dict:
         "criado_em": la.criado_em,
         "total": round(sum(ln.debito for ln in la.linhas), 2),
         "linhas": [{
-            "conta": ln.conta.codigo, "nome": ln.conta.nome, "debito": ln.debito, "credito": ln.credito,
+            "id": ln.id, "conta": ln.conta.codigo, "nome": ln.conta.nome, "debito": ln.debito, "credito": ln.credito,
             "descricao": ln.descricao, "tipo_iva": ln.tipo_iva, "taxa_iva": ln.taxa_iva,
+            "centro_id": ln.centro_custo_id, "analitica": centros.analitica(ln.conta.codigo),
         } for ln in la.linhas],
     }
 
@@ -161,6 +163,74 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
 
 
 # ---------- Resumo ----------
+
+# ---------- Centros de custo (contabilidade analítica) ----------
+
+class NovoCentro(BaseModel):
+    codigo: str = Field(min_length=1, max_length=20)
+    nome: str = Field(min_length=1, max_length=120)
+
+
+class AlteracaoCentro(BaseModel):
+    nome: str | None = Field(None, min_length=1, max_length=120)
+    ativo: bool | None = None
+
+
+class AtribuicaoCentro(BaseModel):
+    centro_id: int | None = None
+
+
+def _centro_dict(c) -> dict:
+    return {"id": c.id, "codigo": c.codigo, "nome": c.nome, "ativo": c.ativo}
+
+
+@router.get("/centros")
+def listar_centros(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    return [_centro_dict(c) for c in centros.listar(db, utilizador.empresa_id)]
+
+
+@router.post("/centros", status_code=201)
+def criar_centro(dados: NovoCentro, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    try:
+        centro = centros.criar(db, utilizador.empresa_id, dados.codigo, dados.nome)
+    except centros.ErroCentro as erro:
+        raise HTTPException(status_code=400, detail=str(erro))
+    db.commit()
+    return _centro_dict(centro)
+
+
+@router.patch("/centros/{centro_id}")
+def alterar_centro(centro_id: int, dados: AlteracaoCentro, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    centro = centros.obter(db, utilizador.empresa_id, centro_id)
+    if centro is None:
+        raise HTTPException(status_code=404, detail="Centro de custo não encontrado.")
+    if dados.nome:
+        centro.nome = dados.nome.strip()
+    if dados.ativo is not None:
+        centro.ativo = dados.ativo
+    db.commit()
+    return _centro_dict(centro)
+
+
+@router.get("/centros/relatorio")
+def relatorio_centros(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    de, ate = _periodo(de, ate)
+    return centros.relatorio(db, utilizador.empresa_id, de, ate)
+
+
+@router.patch("/linhas/{linha_id}/centro")
+def atribuir_centro(linha_id: int, dados: AtribuicaoCentro, db: Session = Depends(get_db),
+                    utilizador: Utilizador = Depends(utilizador_atual)):
+    """Atribui (ou retira) o centro de custo de uma linha já lançada: não altera a contabilidade geral."""
+    try:
+        linha = centros.atribuir(db, utilizador.empresa_id, linha_id, dados.centro_id)
+    except centros.ErroCentro as erro:
+        raise HTTPException(status_code=400, detail=str(erro))
+    db.commit()
+    return {"id": linha.id, "centro_id": linha.centro_custo_id}
+
 
 @router.post("/importar-saft")
 def importar_saft(
@@ -304,6 +374,7 @@ class Contabilizacao(BaseModel):
     regime_iva: RegimeIVA | None = None
     taxa_autoliquidacao: float = Field(23.0, gt=0, le=100)
     diferimento: Diferir | None = None  # confirmado pelo utilizador: reparte o gasto pelos meses
+    centro_custo_id: int | None = None   # contabilidade analítica (opcional)
 
 
 def _diferir_fatura(db: Session, empresa: Empresa, fatura: Fatura, compra: Lancamento, dados: Diferir,
@@ -334,6 +405,10 @@ def contabilizar(
         )
         if escolha.diferimento:
             _diferir_fatura(db, empresa, fatura, lancamento, escolha.diferimento, utilizador.id)
+        if escolha.centro_custo_id is not None:
+            if centros.obter(db, empresa.id, escolha.centro_custo_id) is None:
+                raise lancamentos.ErroContabilistico("Centro de custo não encontrado.")
+            centros.atribuir_ao_lancamento(lancamento, escolha.centro_custo_id)
     except (lancamentos.ErroContabilistico, periodizacao.ErroPeriodizacao) as erro:
         db.rollback()
         raise _erro(erro)

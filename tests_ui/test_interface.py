@@ -154,7 +154,7 @@ def test_dashboard_mostra_indicadores_e_graficos(page: Page):
 CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "resumo", "por-contabilizar", "lancamentos", "balancete", "extrato", "iva", "resultados", "fornecedores",
     "obrigacoes", "plano", "assistente", "bancos", "vendas", "inventarios", "ativos", "fecho", "salarios",
-    "periodizacao", "balanco")]
+    "periodizacao", "balanco", "centros")]
 
 
 @pytest.mark.parametrize("caminho", ["/", "/dashboard", "/conta", "/subscricao", "REVISAO", *CONTABILIDADE])
@@ -442,3 +442,14 @@ def test_migrar_de_outro_programa_mostra_a_previa(page: Page, tmp_path):
     page.locator("#migracao-ficheiro").set_input_files(str(falso))
     page.get_by_role("button", name="Analisar o ficheiro").click()
     expect(page.get_by_text("Este SAF-T é de faturação")).to_be_visible()
+
+
+def test_centros_de_custo_na_demonstracao(page: Page):
+    page.goto("/contabilidade#centros")
+    expect(page.get_by_role("heading", name="Resultado por centro de custo")).to_be_visible()
+    tabela = page.locator(".tabela-centros")
+    expect(tabela).to_contain_text("SALA")
+    expect(tabela).to_contain_text("TAKE")
+    # Nos lançamentos, as linhas de gastos e rendimentos têm o seletor do centro
+    page.goto("/contabilidade#lancamentos")
+    expect(page.locator(".seletor-centro").first).to_be_attached()

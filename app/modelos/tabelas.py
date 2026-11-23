@@ -314,6 +314,23 @@ class LinhaLancamento(Base):
     # Para o apuramento do IVA: base | iva | iva_nd (IVA não dedutível levado a gasto)
     tipo_iva: Mapped[str | None] = mapped_column(String(8))
     taxa_iva: Mapped[float | None] = mapped_column(Float)
+    # Contabilidade analítica: a que centro de custo pertence este gasto ou rendimento (opcional)
+    centro_custo_id: Mapped[int | None] = mapped_column(ForeignKey("centros_custo.id", ondelete="SET NULL"), index=True)
+    centro_custo: Mapped["CentroCusto | None"] = relationship()
+
+
+class CentroCusto(Base):
+    """Centro de custo (loja, obra, departamento, projeto...) para a contabilidade analítica."""
+
+    __tablename__ = "centros_custo"
+    __table_args__ = (UniqueConstraint("empresa_id", "codigo", name="uq_centro_empresa_codigo"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    codigo: Mapped[str] = mapped_column(String(20))
+    nome: Mapped[str] = mapped_column(String(120))
+    ativo: Mapped[bool] = mapped_column(default=True)
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
 
 class RegraFornecedor(Base):
