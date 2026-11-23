@@ -10,51 +10,8 @@ const euros = (v) => formatarValor(v ?? 0, "EUR");
 const eurosOuVazio = (v) => (v ? euros(v) : "");
 const formatoMesCurto = new Intl.DateTimeFormat("pt-PT", { month: "short" });
 
-function h(tag, props = {}, ...filhos) {
-  const el = document.createElement(tag);
-  for (const [chave, valor] of Object.entries(props || {})) {
-    if (valor === null || valor === undefined || valor === false) continue;
-    if (chave === "class") el.className = valor;
-    else if (chave === "texto") el.textContent = valor;
-    else if (chave.startsWith("on")) el.addEventListener(chave.slice(2), valor);
-    else if (chave === "dataset") Object.assign(el.dataset, valor);
-    else el.setAttribute(chave, valor === true ? "" : valor);
-  }
-  for (const filho of filhos.flat()) {
-    if (filho === null || filho === undefined || filho === false) continue;
-    el.append(filho instanceof Node ? filho : String(filho));
-  }
-  return el;
-}
-
-// replaceChildren nativo escreveria "null" no ecrã: os filhos vazios (condições falsas) ficam de fora
-function preencher(el, ...filhos) {
-  el.replaceChildren(...filhos.flat().filter((f) => f !== null && f !== undefined && f !== false));
-}
-
 function td(texto, classe = "", rotulo = null) {
   return h("td", { class: classe || null, "data-rotulo": rotulo }, texto ?? "");
-}
-
-function iso(data) {
-  const p = (n) => String(n).padStart(2, "0");
-  return `${data.getFullYear()}-${p(data.getMonth() + 1)}-${p(data.getDate())}`;
-}
-
-async function obter(url) {
-  const resposta = await api(url);
-  if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível carregar os dados."));
-  return resposta.json();
-}
-
-async function enviar(url, corpo, metodo = "POST") {
-  const resposta = await api(url, {
-    method: metodo,
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(corpo ?? {}),
-  });
-  if (!resposta.ok) throw new Error(await lerErro(resposta, "A operação falhou."));
-  return resposta.status === 204 ? null : resposta.json();
 }
 
 function carregando(secao) {
@@ -70,17 +27,6 @@ function erroNaSecao(secao, erro) {
       h("strong", { texto: "Não foi possível carregar" }),
       h("span", { texto: erro.message }),
       h("button", { type: "button", class: "botao secundario pequeno", onclick: () => mostrar(atual, true) }, "Tentar de novo"))));
-}
-
-function vazio(nomeIcone, titulo, texto) {
-  return h("div", { class: "vazio" },
-    h("span", { class: "vazio-icone" }, icone(nomeIcone)),
-    h("strong", { texto: titulo }),
-    texto ? h("span", { texto }) : null);
-}
-
-function botao(texto, acao, classe = "botao secundario pequeno", nomeIcone = null) {
-  return h("button", { type: "button", class: classe, onclick: acao }, nomeIcone ? icone(nomeIcone) : null, texto);
 }
 
 const ORIGENS_CLASSIFICACAO = {
@@ -230,6 +176,7 @@ async function mostrar(nome, forcar = false) {
   document.getElementById("titulo-secao").textContent = titulo;
   document.getElementById("migalhas").textContent = grupoDaArea(nome) || "";
   document.title = `${titulo} · ${NOME_PRODUTO}`;
+  document.getElementById("imprimir").hidden = nome === "assistente";
   for (const secao of document.querySelectorAll("main > section[id^=sec-]")) secao.hidden = secao.id !== `sec-${nome}`;
   document.getElementById("periodo").hidden = ["assistente", "obrigacoes", "plano", "por-contabilizar", "iva", "fornecedores", "bancos", "inventarios", "ativos", "fecho", "salarios", "periodizacao", "balanco"].includes(nome);
 
@@ -291,8 +238,48 @@ function listaPrazos(obrigacoes) {
   }));
 }
 
+// Primeiros passos de uma empresa nova: some quando está tudo feito ou quando o utilizador o esconde
+async function cartaoPrimeirosPassos() {
+  let d;
+  try {
+    d = await obter("/api/contabilidade/primeiros-passos");
+  } catch {
+    return null;
+  }
+  const chave = `primeiros-passos-escondidos-${d.empresa_id}`;
+  let escondido = false;
+  try {
+    escondido = localStorage.getItem(chave) === "1";
+  } catch {
+    // sem armazenamento: mostra sempre
+  }
+  if (d.feitos >= d.total || escondido) return null;
+  const percentagem = Math.round((d.feitos / d.total) * 100);
+  const cartao = h("section", { class: "cartao primeiros-passos", "aria-labelledby": "titulo-passos" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {},
+        h("h2", { id: "titulo-passos" }, icone("foguete"), " Primeiros passos"),
+        h("p", { class: "subtitulo", texto: `${d.feitos} de ${d.total} concluídos. Deixe a contabilidade da empresa pronta em poucos minutos.` })),
+      botao("Esconder", () => {
+        try {
+          localStorage.setItem(chave, "1");
+        } catch {
+          // ignora
+        }
+        cartao.remove();
+      }, "botao fantasma pequeno")),
+    h("div", { class: "barra-progresso", role: "progressbar", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": String(percentagem), "aria-label": "Progresso" },
+      h("span", { style: `width:${percentagem}%` })),
+    h("ol", { class: "lista-passos" }, d.passos.map((p) => h("li", { class: p.feito ? "feito" : "" },
+      h("span", { class: "passo-marca", "aria-hidden": "true" }, p.feito ? icone("check") : null),
+      h("div", {}, h("strong", { texto: p.titulo }), h("span", { class: "ajuda", texto: p.texto })),
+      p.feito ? h("span", { class: "visualmente-oculto", texto: "Concluído" })
+        : h("a", { class: "botao secundario pequeno", href: p.destino.startsWith("#") ? `/contabilidade${p.destino}` : p.destino }, "Fazer agora")))));
+  return cartao;
+}
+
 async function carregarResumo(secao) {
-  const d = await obter("/api/contabilidade/resumo");
+  const [d, passos] = await Promise.all([obter("/api/contabilidade/resumo"), cartaoPrimeirosPassos()]);
   iaDisponivel = d.ia_disponivel;
   atualizarContador(d.por_contabilizar.quantidade);
 
@@ -311,7 +298,7 @@ async function carregarResumo(secao) {
     }))
     : vazio("check", "Tudo em ordem", "Não há nada a pedir a sua atenção.");
 
-  preencher(secao, 
+  preencher(secao, passos,
     h("section", { class: "indicadores", "aria-label": "Indicadores" },
       indicador("Por contabilizar", String(pc.quantidade),
         pc.quantidade ? `faturas confirmadas · ${euros(pc.total)}` : "todas as faturas confirmadas estão lançadas", "recibo", true),
@@ -1257,38 +1244,6 @@ let pesquisaVendas = "";
 
 const TAXAS_IVA = [23, 13, 6, 0, 22, 12, 4, 16, 9];
 const CONTAS_RENDIMENTO = [["711", "Vendas de mercadorias"], ["712", "Vendas de produtos acabados"], ["721", "Prestações de serviços"]];
-
-function janelaTemporaria(titulo, conteudo, aoSubmeter, textoBotao = "Guardar") {
-  document.getElementById("janela-temporaria")?.remove();
-  const erro = h("p", { class: "erro-campo", role: "alert", hidden: true });
-  const gravar = h("button", { type: "submit", class: "botao" }, textoBotao);
-  const cancelar = h("button", { type: "button", class: "botao secundario" }, "Cancelar");
-  const form = h("form", { novalidate: true }, h("h2", { id: "janela-temporaria-titulo", texto: titulo }), conteudo, erro,
-    h("div", { class: "janela-botoes" }, cancelar, gravar));
-  const janela = h("dialog", { class: "janela larga", id: "janela-temporaria", "aria-labelledby": "janela-temporaria-titulo" }, form);
-  cancelar.addEventListener("click", () => janela.close());
-  janela.addEventListener("close", () => janela.remove());
-  form.addEventListener("submit", async (e) => {
-    e.preventDefault();
-    erro.hidden = true;
-    ocupado(gravar, true);
-    try {
-      await aoSubmeter();
-      janela.close();
-    } catch (falha) {
-      erro.hidden = false;
-      erro.replaceChildren(icone("erro"), falha.message);
-      ocupado(gravar, false);
-    }
-  });
-  document.body.append(janela);
-  janela.showModal();
-  return janela;
-}
-
-function campoJanela(id, rotulo, el, classe = "campo") {
-  return h("div", { class: classe }, h("label", { for: id, texto: rotulo }), el);
-}
 
 function abrirRegistoVenda() {
   const tipo = h("select", { id: "venda-tipo" }, [["FT", "Fatura"], ["FS", "Fatura simplificada"], ["FR", "Fatura-recibo"],

@@ -97,3 +97,21 @@ ESFORCO_IA = os.getenv("ESFORCO_IA", "low")
 EMPRESA_RESPONSAVEL = os.getenv("EMPRESA_RESPONSAVEL", "").strip()
 EMAIL_COMERCIAL = os.getenv("EMAIL_COMERCIAL", "").strip()
 URL_DEMO = os.getenv("URL_DEMO", "https://leitor-faturas-vwgk.onrender.com").strip()
+
+# Emails transacionais pelo Resend (https://resend.com). Sem estes dois valores, não se envia nada
+# e os convites continuam a ser links copiados pelo administrador.
+RESEND_API_KEY = os.getenv("RESEND_API_KEY", "").strip()
+EMAIL_REMETENTE = os.getenv("EMAIL_REMETENTE", "").strip()   # ex.: Dobra <nao-responder@o-seu-dominio.pt>
+VALIDADE_REPOSICAO_MINUTOS = 60       # link de "Esqueci-me da palavra-passe"
+DIAS_ALERTA_PRAZOS = (7, 1)           # alertas por email a 7 dias e na véspera do prazo
+
+# Subscrições e pagamentos (Stripe). Sem STRIPE_SECRET_KEY não há cobranças nem bloqueios.
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+STRIPE_PRECO_ESSENCIAL = os.getenv("STRIPE_PRECO_ESSENCIAL", "").strip()          # price_... de 19 €/mês
+STRIPE_PRECO_CONTABILIDADE = os.getenv("STRIPE_PRECO_CONTABILIDADE", "").strip()  # price_... de 49 €/mês
+STRIPE_IVA_AUTOMATICO = os.getenv("STRIPE_IVA_AUTOMATICO", "").lower() in ("1", "true", "sim")  # Stripe Tax
+DIAS_EXPERIMENTAIS = int(os.getenv("DIAS_EXPERIMENTAIS", "30"))
+DIAS_TOLERANCIA_PAGAMENTO = 7        # dias com pagamento em atraso antes do bloqueio suave
+# Registo online de empresas novas (página /registar). Desligue com REGISTO_ABERTO=0 para só convites.
+REGISTO_ABERTO = os.getenv("REGISTO_ABERTO", "1").lower() in ("1", "true", "sim")

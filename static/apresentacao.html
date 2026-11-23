@@ -11,7 +11,7 @@
   <meta property="og:image" content="/static/marketing/inicio.jpg">
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/site.css?v=2026-11-23.3">
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-23.9">
 </head>
 <body class="site">
   <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
@@ -31,7 +31,7 @@
       </nav>
       <div class="site-topo-acoes">
         <a class="site-ligacao" href="/entrar">Entrar</a>
-        <a class="site-botao pequeno" href="{{URL_DEMO}}">Ver demonstração</a>
+        <a class="site-botao pequeno" href="{{URL_REGISTO}}">Experimentar grátis</a>
       </div>
     </div>
   </header>
@@ -48,10 +48,11 @@
             apura o IVA e mantém o balancete em dia. Só tem de confirmar.
           </p>
           <div class="heroi-acoes">
-            <a class="site-botao" href="{{URL_DEMO}}">Experimentar a demonstração</a>
-            <a class="site-botao secundario" href="{{CONTACTO}}">{{CONTACTO_TEXTO}}</a>
+            <a class="site-botao" href="{{URL_REGISTO}}">Experimentar {{DIAS}} dias grátis</a>
+            <a class="site-botao secundario" href="{{URL_DEMO}}">Ver a demonstração</a>
           </div>
           <ul class="heroi-provas" aria-label="Destaques">
+            <li>Sem cartão para experimentar</li>
             <li>Sem instalação</li>
             <li>Funciona no telemóvel</li>
             <li>Exporta SAF-T (PT)</li>
@@ -212,7 +213,7 @@
         </div>
         <ul class="seguranca-lista">
           <li><strong>Dados separados por empresa.</strong> Cada pedido é filtrado pela empresa de quem o faz: nenhum cliente vê os dados de outro.</li>
-          <li><strong>Acesso por convite.</strong> Sem registo aberto. Palavras-passe guardadas com Argon2 e bloqueio após tentativas falhadas.</li>
+          <li><strong>Contas protegidas.</strong> Verificação em dois passos, palavras-passe com Argon2, bloqueio após tentativas falhadas e registo de atividade.</li>
           <li><strong>Ligações cifradas.</strong> HTTPS obrigatório (HSTS), cookies de sessão protegidos e política de segurança de conteúdo estrita.</li>
           <li><strong>Cópias de segurança diárias.</strong> A base de dados é copiada todos os dias e pode ser restaurada.</li>
           <li><strong>Sem rastreadores.</strong> Sem publicidade nem análise de terceiros; tipos de letra e bibliotecas servidos pela própria aplicação.</li>
@@ -227,7 +228,7 @@
         <header class="bloco-cabecalho">
           <p class="sobretitulo">Planos</p>
           <h2>Um preço simples, sem surpresas</h2>
-          <p>Todos os planos incluem atualizações, cópias de segurança e apoio por email. IVA à taxa legal em vigor.</p>
+          <p>{{DIAS}} dias grátis em qualquer plano, sem cartão. Atualizações e cópias de segurança incluídas. Acresce IVA.</p>
         </header>
         <div class="planos">
           <article class="plano">
@@ -240,7 +241,7 @@
               <li>Exportação para Excel e CSV</li>
               <li>2 utilizadores</li>
             </ul>
-            <a class="site-botao secundario largo" href="{{CONTACTO}}">Escolher Essencial</a>
+            <a class="site-botao secundario largo" href="{{URL_REGISTO}}?plano=essencial">Começar com o Essencial</a>
           </article>
           <article class="plano destaque">
             <p class="plano-etiqueta">Mais escolhido</p>
@@ -255,7 +256,7 @@
               <li>Fecho do exercício e Assistente IA</li>
               <li>5 utilizadores</li>
             </ul>
-            <a class="site-botao largo" href="{{CONTACTO}}">Escolher Contabilidade</a>
+            <a class="site-botao largo" href="{{URL_REGISTO}}?plano=contabilidade">Começar com o Contabilidade</a>
           </article>
           <article class="plano">
             <h3>Gabinete</h3>
@@ -312,11 +313,11 @@
     <!-- ---------- Chamada final ---------- -->
     <section class="chamada">
       <div class="site-largura chamada-interior">
-        <h2>Veja o Dobra a funcionar com dados de exemplo</h2>
-        <p>Uma empresa de demonstração completa: faturas, bancos, salários, IVA e balanço. Sem registo.</p>
+        <h2>Comece hoje: {{DIAS}} dias grátis, sem cartão</h2>
+        <p>A conta fica pronta em menos de um minuto. Prefere ver primeiro? Abra a demonstração com dados de exemplo.</p>
         <div class="heroi-acoes">
-          <a class="site-botao claro" href="{{URL_DEMO}}">Abrir a demonstração</a>
-          <a class="site-botao contorno" href="{{CONTACTO}}">{{CONTACTO_TEXTO}}</a>
+          <a class="site-botao claro" href="{{URL_REGISTO}}">Criar a conta da empresa</a>
+          <a class="site-botao contorno" href="{{URL_DEMO}}">Abrir a demonstração</a>
         </div>
       </div>
     </section>

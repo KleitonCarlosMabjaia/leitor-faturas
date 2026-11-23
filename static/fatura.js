@@ -107,7 +107,7 @@ function conferir() {
 
 // ---------- Mostrar a fatura ----------
 
-function preencher(f) {
+function preencherFormulario(f) {
   const estado = descreverEstado(f);
   document.title = `${f.fornecedor || f.nome_original} · Dobra`;
   document.getElementById("titulo").textContent = f.fornecedor || "Fornecedor por preencher";
@@ -151,7 +151,7 @@ async function carregar() {
   try {
     const resposta = await api(`/api/faturas/${idFatura}`);
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível obter a fatura."));
-    preencher(await resposta.json());
+    preencherFormulario(await resposta.json());
     procurarProxima();
   } catch (erro) {
     document.getElementById("titulo").textContent = "Fatura não encontrada";
@@ -230,7 +230,7 @@ async function gravar(confirmar) {
       body: JSON.stringify(corpo),
     });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível guardar."));
-    preencher(await resposta.json());
+    preencherFormulario(await resposta.json());
     if (confirmar) {
       await procurarProxima();
       notificar(

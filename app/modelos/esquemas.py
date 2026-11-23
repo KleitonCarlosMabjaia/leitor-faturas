@@ -24,6 +24,7 @@ class MembroSaida(BaseModel):
     ativo: bool
     ultimo_acesso: datetime | None
     pendente: bool  # ainda não aceitou o convite
+    dois_passos: bool = False  # verificação em dois passos ligada
 
 
 class SessaoSaida(BaseModel):
@@ -34,6 +35,11 @@ class SessaoSaida(BaseModel):
     papel: str
     empresa: str
     modo_demo: bool
+    plano: str = "contabilidade"
+    funcionalidades: list[str] = ["compras", "contabilidade"]
+    faturacao_ativa: bool = False
+    dias_experimentais: int | None = None
+    aviso_subscricao: str | None = None   # motivo do bloqueio suave (só leitura)
 
 
 class FornecedorSaida(BaseModel):

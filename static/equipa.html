@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Equipa · Dobra</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
-  <script src="/static/tema.js?v=2026-11-23.3"></script>
+  <script src="/static/tema.js?v=2026-11-23.9"></script>
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.3">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.9">
 </head>
 <body data-pagina="equipa">
   <header id="barra"></header>
@@ -71,9 +71,24 @@
         </table>
       </div>
     </section>
+
+    <section class="cartao" aria-labelledby="titulo-atividade">
+      <div class="cartao-cabecalho">
+        <div>
+          <h2 id="titulo-atividade">Registo de atividade</h2>
+          <p class="subtitulo">Quem fez o quê e quando: entradas, alterações às faturas, lançamentos, fecho e equipa.</p>
+        </div>
+        <div class="campo campo-pesquisa-atividade">
+          <label class="visualmente-oculto" for="filtro-atividade">Pesquisar na atividade</label>
+          <input type="search" id="filtro-atividade" placeholder="Pesquisar pessoa ou ação">
+        </div>
+      </div>
+      <ol class="lista-atividade" id="atividade"></ol>
+      <button type="button" class="botao secundario pequeno" id="mais-atividade" hidden>Carregar mais</button>
+    </section>
   </main>
 
-  <script src="/static/comum.js?v=2026-11-23.3"></script>
-  <script src="/static/equipa.js?v=2026-11-23.3"></script>
+  <script src="/static/comum.js?v=2026-11-23.9"></script>
+  <script src="/static/equipa.js?v=2026-11-23.9"></script>
 </body>
 </html>

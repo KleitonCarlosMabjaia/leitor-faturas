@@ -248,6 +248,7 @@ A demonstração e a versão dos clientes são **serviços separados**, a partir
 | Cópia diária | Tarefa agendada do Render (`python -m app.copias criar`) | as mesmas da base de dados e do bucket |
 | Erros | Sentry (opcional) | `SENTRY_DSN` |
 | SAF-T | NIF e nome de quem produz o programa (opcional; sem eles, usam-se os da empresa) | `SAFT_NIF_PRODUTOR`, `SAFT_NOME_PRODUTOR` |
+| Emails (convites, recuperação da palavra-passe, nova sessão, alertas de prazos) | Resend, com o domínio verificado; alertas diários com `python -m app.alertas` | `RESEND_API_KEY`, `EMAIL_REMETENTE` |
 | Página de apresentação e páginas legais | Quem presta o serviço, email comercial e endereço da demonstração | `EMPRESA_RESPONSAVEL`, `EMAIL_COMERCIAL`, `URL_DEMO` |
 
 O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.

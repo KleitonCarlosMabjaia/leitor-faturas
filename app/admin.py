@@ -98,6 +98,21 @@ def mudar_estado_empresa(id_empresa: int, ativa: bool) -> int:
     return 0
 
 
+def definir_plano(empresa_id: int, plano: str, estado: str) -> int:
+    with SessaoLocal() as db:
+        empresa = db.get(Empresa, empresa_id)
+        if empresa is None:
+            print(f"Não existe a empresa {empresa_id}.")
+            return 1
+        empresa.plano = plano
+        empresa.estado_subscricao = estado
+        if estado != "em_atraso":
+            empresa.em_atraso_desde = None
+        db.commit()
+        print(f"{empresa.nome}: plano {plano}, subscrição {estado}.")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Administração do Dobra")
     comandos = parser.add_subparsers(dest="comando", required=True)
@@ -109,6 +124,11 @@ def main() -> int:
     criar.add_argument("--admin-email", required=True)
 
     comandos.add_parser("listar", help="lista empresas e utilizadores")
+
+    plano = comandos.add_parser("definir-plano", help="muda o plano e o estado da subscrição de uma empresa")
+    plano.add_argument("--id", type=int, required=True)
+    plano.add_argument("--plano", required=True, choices=["essencial", "contabilidade", "gabinete"])
+    plano.add_argument("--estado", choices=["experimental", "ativa", "em_atraso", "cancelada"], default="ativa")
 
     link = comandos.add_parser("novo-link", help="gera um novo link para definir a palavra-passe")
     link.add_argument("--email", required=True)
@@ -126,6 +146,8 @@ def main() -> int:
         return listar()
     if args.comando == "novo-link":
         return novo_link(args.email)
+    if args.comando == "definir-plano":
+        return definir_plano(args.id, args.plano, args.estado)
     return mudar_estado_empresa(args.id, ativa=args.comando == "ativar-empresa")
 
 

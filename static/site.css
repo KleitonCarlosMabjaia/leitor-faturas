@@ -261,3 +261,16 @@ a { color: var(--acento); }
   .legal tr { padding: 0.5rem 0; border-bottom: 1px solid var(--linha); }
   .legal th, .legal td { border: none; padding: 0.25rem 0; }
 }
+
+/* ---------- Página de erro (404) ---------- */
+.erro-pagina {
+  min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 1rem; padding: 2rem 1rem; text-align: center; color: #FFFFFF;
+  background: radial-gradient(50rem 25rem at 50% 0%, rgb(92 198 224 / 0.2), transparent 70%), linear-gradient(180deg, var(--escuro), var(--escuro-2));
+}
+.erro-pagina .site-marca { margin-bottom: 1.5rem; font-size: 1.5rem; }
+.erro-pagina .site-marca img { width: 2.5rem; height: 2.5rem; }
+.erro-pagina .erro-codigo { font-size: clamp(4rem, 14vw, 8rem); font-weight: 800; line-height: 1; letter-spacing: -0.05em; color: var(--acento-claro); }
+.erro-pagina h1 { font-size: clamp(1.5rem, 4vw, 2.25rem); font-weight: 750; }
+.erro-pagina p { color: var(--escuro-tinta); max-width: 30rem; }
+.erro-pagina .site-botao.contorno { color: #FFFFFF; border-color: rgb(255 255 255 / 0.28); background: transparent; }

@@ -5,9 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Entrar · Dobra</title>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
-  <script src="/static/tema.js?v=2026-11-23.3"></script>
+  <script src="/static/tema.js?v=2026-11-23.9"></script>
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.3">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.9">
 </head>
 <body>
   <main class="pagina-acesso dividida">
@@ -32,7 +32,8 @@
     <div class="acesso">
       <div class="cartao-acesso">
         <h1>Entrar</h1>
-        <p class="subtitulo">Use a conta da sua empresa.</p>
+        <p class="subtitulo">Use a conta da sua empresa.<span id="ligacao-registo" hidden> Ainda não tem conta?
+          <a href="/registar">Experimente 30 dias grátis</a></span></p>
 
         <form id="formulario" novalidate>
           <p class="mensagem-formulario" id="mensagem" role="alert"></p>
@@ -44,16 +45,38 @@
             <label for="palavra_passe">Palavra-passe</label>
             <input type="password" id="palavra_passe" name="palavra_passe" autocomplete="current-password" required>
           </div>
+          <div class="campo" id="campo-codigo" hidden>
+            <label for="codigo">Código de verificação</label>
+            <input id="codigo" name="codigo" class="campo-codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="12" aria-describedby="ajuda-codigo">
+            <p class="ajuda" id="ajuda-codigo">O código de 6 dígitos da app autenticadora, ou um código de recuperação.</p>
+          </div>
           <button type="submit" class="botao largo">Entrar</button>
+          <button type="button" class="ligacao-texto" id="esqueci" hidden>Esqueci-me da palavra-passe</button>
         </form>
-        <p class="nota-acesso">
+
+        <form id="form-recuperar" novalidate hidden>
+          <p class="mensagem-formulario" id="mensagem-recuperar" role="alert"></p>
+          <p class="ajuda">Indique o email da sua conta. Enviamos um link para definir uma nova palavra-passe, válido durante 60 minutos.</p>
+          <div class="campo">
+            <label for="email-recuperar">Email</label>
+            <input type="email" id="email-recuperar" name="email" autocomplete="username" required>
+          </div>
+          <button type="submit" class="botao largo">Enviar o link</button>
+          <button type="button" class="ligacao-texto" id="voltar-entrar">Voltar a entrar</button>
+        </form>
+        <div class="sucesso-recuperar" id="sucesso-recuperar" role="status" hidden>
+          <p><strong>Verifique o seu email.</strong></p>
+          <p class="ajuda">Se existir uma conta com esse endereço, vai receber o link dentro de alguns minutos. Veja também a pasta de spam.</p>
+          <button type="button" class="botao secundario largo" id="voltar-entrar-2">Voltar a entrar</button>
+        </div>
+        <p class="nota-acesso" id="nota-acesso">
           O acesso é feito por convite. Se se esqueceu da palavra-passe, peça um novo link ao administrador da sua empresa.
         </p>
       </div>
     </div>
   </main>
 
-  <script src="/static/comum.js?v=2026-11-23.3"></script>
-  <script src="/static/entrar.js?v=2026-11-23.3"></script>
+  <script src="/static/comum.js?v=2026-11-23.9"></script>
+  <script src="/static/entrar.js?v=2026-11-23.9"></script>
 </body>
 </html>

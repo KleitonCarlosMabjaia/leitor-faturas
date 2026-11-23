@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Criar conta · Dobra</title>
+  <meta name="description" content="Crie a conta da sua empresa no Dobra e experimente 30 dias sem custos.">
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <script src="/static/tema.js?v=2026-11-23.9"></script>
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.9">
+</head>
+<body>
+  <main class="pagina-acesso dividida">
+    <section class="acesso-montra" aria-label="Sobre o Dobra">
+      <a class="marca" href="/apresentacao">
+        <img class="marca-logo" src="/static/logo.svg" alt="">
+        <span class="marca-nome">Dobra</span>
+      </a>
+      <div class="montra-texto">
+        <h2>30 dias para experimentar tudo, sem cartão.</h2>
+        <ul class="montra-lista">
+          <li>Conta pronta em menos de um minuto</li>
+          <li>Plano de contas SNC criado automaticamente</li>
+          <li>Escolha o plano e pague só no fim do período experimental</li>
+          <li>Cancele quando quiser, com os seus dados exportáveis</li>
+        </ul>
+      </div>
+      <p class="montra-rodape">
+        <a href="/apresentacao">Conhecer o Dobra</a> · <a href="/privacidade">Privacidade</a> · <a href="/termos">Termos</a>
+      </p>
+    </section>
+
+    <div class="acesso">
+      <div class="cartao-acesso cartao-registo">
+        <h1>Criar a conta da empresa</h1>
+        <p class="subtitulo">Já tem conta? <a href="/entrar">Entrar</a></p>
+
+        <form id="formulario" novalidate>
+          <p class="mensagem-formulario" id="mensagem" role="alert"></p>
+
+          <fieldset class="escolha-plano">
+            <legend>Plano</legend>
+            <label class="opcao-plano">
+              <input type="radio" name="plano" value="essencial">
+              <span><strong>Essencial</strong> <span class="preco">19 €/mês</span>
+                <span class="ajuda">Leitura de faturas, análise de compras e exportação · 2 utilizadores</span></span>
+            </label>
+            <label class="opcao-plano">
+              <input type="radio" name="plano" value="contabilidade" checked>
+              <span><strong>Contabilidade</strong> <span class="preco">49 €/mês</span>
+                <span class="ajuda">Tudo: SNC, IVA, bancos, salários, fecho e SAF-T · 5 utilizadores</span></span>
+            </label>
+          </fieldset>
+
+          <div class="grelha-2">
+            <div class="campo">
+              <label for="empresa">Nome da empresa</label>
+              <input id="empresa" name="empresa" autocomplete="organization" required maxlength="200">
+            </div>
+            <div class="campo">
+              <label for="nif">NIF da empresa</label>
+              <input id="nif" name="nif" inputmode="numeric" autocomplete="off" required maxlength="12">
+            </div>
+          </div>
+          <div class="campo">
+            <label for="nome">O seu nome</label>
+            <input id="nome" name="nome" autocomplete="name" required maxlength="120">
+          </div>
+          <div class="campo">
+            <label for="email">Email</label>
+            <input type="email" id="email" name="email" autocomplete="email" required>
+          </div>
+          <div class="campo">
+            <label for="palavra_passe">Palavra-passe</label>
+            <input type="password" id="palavra_passe" name="palavra_passe" autocomplete="new-password" required
+                   minlength="10" aria-describedby="ajuda-pp">
+            <p class="ajuda" id="ajuda-pp">Pelo menos 10 caracteres, com letras e números.</p>
+          </div>
+          <label class="caixa-termos" for="aceito_termos">
+            <input type="checkbox" id="aceito_termos" name="aceito_termos" required>
+            <span>Li e aceito os <a href="/termos" target="_blank">termos de utilização</a> e a
+              <a href="/privacidade" target="_blank">política de privacidade</a>.</span>
+          </label>
+          <button type="submit" class="botao largo">Criar conta e começar</button>
+          <p class="ajuda centrado">30 dias grátis. Não pedimos cartão para experimentar.</p>
+        </form>
+      </div>
+    </div>
+  </main>
+
+  <script src="/static/comum.js?v=2026-11-23.9"></script>
+  <script src="/static/registar.js?v=2026-11-23.9"></script>
+</body>
+</html>

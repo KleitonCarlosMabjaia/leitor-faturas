@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session, joinedload
 
 from app import config
 from app.modelos.tabelas import Sessao, TokenAcesso, Utilizador
+from app.servicos import dois_passos
 
 _hasher = PasswordHasher()
 # Hash de uma palavra-passe qualquer, usado quando o email não existe (ver entrar())
@@ -29,6 +30,10 @@ _HASH_FALSO = _hasher.hash("palavra-passe-que-ninguem-usa")
 
 class ErroAutenticacao(Exception):
     """Erro com mensagem já pronta para mostrar ao utilizador."""
+
+
+class CodigoNecessario(ErroAutenticacao):
+    """A palavra-passe está certa, mas a conta tem verificação em dois passos: falta o código."""
 
 
 def agora() -> datetime:
@@ -56,7 +61,7 @@ def validar_palavra_passe_nova(palavra_passe: str) -> None:
 
 # ---------- Entrar ----------
 
-def entrar(db: Session, email: str, palavra_passe: str) -> Utilizador:
+def entrar(db: Session, email: str, palavra_passe: str, codigo: str | None = None) -> Utilizador:
     """Confirma as credenciais. Lança ErroAutenticacao com uma mensagem genérica se falharem."""
     erro_generico = ErroAutenticacao("Email ou palavra-passe incorretos.")
     utilizador = db.scalar(
@@ -84,6 +89,18 @@ def entrar(db: Session, email: str, palavra_passe: str) -> Utilizador:
     if not utilizador.ativo or not utilizador.empresa.ativa:
         raise ErroAutenticacao("Esta conta está desativada. Fale com o administrador da sua empresa.")
 
+    # Verificação em dois passos: um código errado conta como tentativa falhada (bloqueio incluído)
+    if utilizador.totp_ativo:
+        if not (codigo or "").strip():
+            raise CodigoNecessario("Introduza o código da sua app autenticadora.")
+        if not dois_passos.usar_codigo(utilizador, codigo):
+            utilizador.tentativas_falhadas += 1
+            if utilizador.tentativas_falhadas >= config.MAX_TENTATIVAS_LOGIN:
+                utilizador.bloqueado_ate = agora() + timedelta(minutes=config.BLOQUEIO_MINUTOS)
+                utilizador.tentativas_falhadas = 0
+            db.commit()
+            raise ErroAutenticacao("Código de verificação incorreto ou já usado.")
+
     # Se o Argon2 tiver passado a usar parâmetros mais fortes, atualiza o hash guardado
     if _hasher.check_needs_rehash(utilizador.hash_palavra_passe):
         utilizador.hash_palavra_passe = hash_palavra_passe(palavra_passe)
@@ -103,7 +120,7 @@ def _verificar(hash_guardado: str, palavra_passe: str) -> bool:
 
 # ---------- Sessões ----------
 
-def criar_sessao(db: Session, utilizador: Utilizador) -> str:
+def criar_sessao(db: Session, utilizador: Utilizador, ip: str | None = None, agente: str | None = None) -> str:
     """Cria a sessão e devolve o token (só existe em claro no cookie do navegador)."""
     token = secrets.token_urlsafe(32)
     db.add(Sessao(
@@ -111,6 +128,9 @@ def criar_sessao(db: Session, utilizador: Utilizador) -> str:
         utilizador_id=utilizador.id,
         criada_em=agora(),
         expira_em=agora() + timedelta(days=config.DURACAO_SESSAO_DIAS),
+        ip=ip,
+        agente=(agente or "")[:200] or None,
+        ultimo_uso=agora(),
     ))
     # Aproveita para limpar sessões expiradas (de qualquer utilizador)
     db.execute(delete(Sessao).where(Sessao.expira_em < agora()))
@@ -131,7 +151,54 @@ def utilizador_da_sessao(db: Session, token: str | None) -> Utilizador | None:
     # Desativar uma conta ou empresa corta o acesso logo, mesmo com sessões abertas
     if not utilizador.ativo or not utilizador.empresa.ativa:
         return None
+    # "Último uso" para a lista de sessões: no máximo uma escrita a cada 5 minutos por sessão
+    if sessao.ultimo_uso is None or agora() - sessao.ultimo_uso > timedelta(minutes=5):
+        sessao.ultimo_uso = agora()
+        db.commit()
     return utilizador
+
+
+def hash_da_sessao(token: str | None) -> str | None:
+    return _hash_token(token) if token else None
+
+
+def dispositivo_conhecido(db: Session, utilizador_id: int, agente: str | None) -> bool:
+    """Já há uma sessão aberta com este navegador? (para não avisar de "nova entrada" a cada login)"""
+    agente = (agente or "")[:200] or None
+    return db.scalar(select(Sessao.hash_token).where(
+        Sessao.utilizador_id == utilizador_id, Sessao.agente == agente, Sessao.expira_em >= agora(),
+    ).limit(1)) is not None
+
+
+def listar_sessoes(db: Session, utilizador_id: int) -> list[Sessao]:
+    return list(db.scalars(
+        select(Sessao).where(Sessao.utilizador_id == utilizador_id, Sessao.expira_em >= agora())
+        .order_by(Sessao.ultimo_uso.desc(), Sessao.criada_em.desc())
+    ))
+
+
+def terminar_outras_sessoes(db: Session, utilizador_id: int, token_atual: str | None) -> int:
+    resultado = db.execute(delete(Sessao).where(
+        Sessao.utilizador_id == utilizador_id, Sessao.hash_token != (_hash_token(token_atual) if token_atual else ""),
+    ))
+    return resultado.rowcount or 0
+
+
+def mudar_palavra_passe(db: Session, utilizador: Utilizador, atual: str, nova: str, token_atual: str | None) -> None:
+    """Pede a palavra-passe atual; depois de mudar, só a sessão deste navegador continua aberta."""
+    if not utilizador.hash_palavra_passe or not _verificar(utilizador.hash_palavra_passe, atual):
+        raise ErroAutenticacao("A palavra-passe atual não está correta.")
+    if atual == nova:
+        raise ErroAutenticacao("A nova palavra-passe tem de ser diferente da atual.")
+    validar_palavra_passe_nova(nova)
+    utilizador.hash_palavra_passe = hash_palavra_passe(nova)
+    terminar_outras_sessoes(db, utilizador.id, token_atual)
+
+
+def confirmar_palavra_passe(utilizador: Utilizador, palavra_passe: str) -> None:
+    """Para ações sensíveis (desligar a verificação em dois passos, novos códigos de recuperação)."""
+    if not utilizador.hash_palavra_passe or not _verificar(utilizador.hash_palavra_passe, palavra_passe):
+        raise ErroAutenticacao("A palavra-passe não está correta.")
 
 
 def terminar_sessao(db: Session, token: str | None) -> None:
@@ -145,7 +212,7 @@ def terminar_todas_as_sessoes(db: Session, utilizador_id: int) -> None:
 
 # ---------- Convites e reposição ----------
 
-def criar_link_acesso(db: Session, utilizador: Utilizador) -> str:
+def criar_link_acesso(db: Session, utilizador: Utilizador, minutos: int | None = None) -> str:
     """
     Cria um link de uso único para o utilizador definir a palavra-passe.
     Os links anteriores deixam de funcionar. O token vai depois do "#": essa parte
@@ -156,7 +223,7 @@ def criar_link_acesso(db: Session, utilizador: Utilizador) -> str:
     db.add(TokenAcesso(
         hash_token=_hash_token(token),
         utilizador_id=utilizador.id,
-        expira_em=agora() + timedelta(hours=config.VALIDADE_CONVITE_HORAS),
+        expira_em=agora() + (timedelta(minutes=minutos) if minutos else timedelta(hours=config.VALIDADE_CONVITE_HORAS)),
     ))
     return f"{config.URL_PUBLICO}/definir-palavra-passe#{token}"
 

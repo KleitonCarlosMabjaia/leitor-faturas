@@ -57,6 +57,95 @@ async function lerErro(resposta, predefinida) {
   return predefinida;
 }
 
+// ---------- Construção do DOM e pedidos à API (partilhados pelas páginas) ----------
+// O DOM é montado com h() e textContent (nunca innerHTML com dados vindos de fora).
+
+function h(tag, props = {}, ...filhos) {
+  const el = document.createElement(tag);
+  for (const [chave, valor] of Object.entries(props || {})) {
+    if (valor === null || valor === undefined || valor === false) continue;
+    if (chave === "class") el.className = valor;
+    else if (chave === "texto") el.textContent = valor;
+    else if (chave.startsWith("on")) el.addEventListener(chave.slice(2), valor);
+    else if (chave === "dataset") Object.assign(el.dataset, valor);
+    else el.setAttribute(chave, valor === true ? "" : valor);
+  }
+  for (const filho of filhos.flat()) {
+    if (filho === null || filho === undefined || filho === false) continue;
+    el.append(filho instanceof Node ? filho : String(filho));
+  }
+  return el;
+}
+
+// replaceChildren nativo escreveria "null" no ecrã: os filhos vazios (condições falsas) ficam de fora
+function preencher(el, ...filhos) {
+  el.replaceChildren(...filhos.flat().filter((f) => f !== null && f !== undefined && f !== false));
+}
+
+function iso(data) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${data.getFullYear()}-${p(data.getMonth() + 1)}-${p(data.getDate())}`;
+}
+
+async function obter(url) {
+  const resposta = await api(url);
+  if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível carregar os dados."));
+  return resposta.json();
+}
+
+async function enviar(url, corpo, metodo = "POST") {
+  const resposta = await api(url, {
+    method: metodo,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo ?? {}),
+  });
+  if (!resposta.ok) throw new Error(await lerErro(resposta, "A operação falhou."));
+  return resposta.status === 204 ? null : resposta.json();
+}
+
+function vazio(nomeIcone, titulo, texto) {
+  return h("div", { class: "vazio" },
+    h("span", { class: "vazio-icone" }, icone(nomeIcone)),
+    h("strong", { texto: titulo }),
+    texto ? h("span", { texto }) : null);
+}
+
+function botao(texto, acao, classe = "botao secundario pequeno", nomeIcone = null) {
+  return h("button", { type: "button", class: classe, onclick: acao }, nomeIcone ? icone(nomeIcone) : null, texto);
+}
+
+function janelaTemporaria(titulo, conteudo, aoSubmeter, textoBotao = "Guardar") {
+  document.getElementById("janela-temporaria")?.remove();
+  const erro = h("p", { class: "erro-campo", role: "alert", hidden: true });
+  const gravar = h("button", { type: "submit", class: "botao" }, textoBotao);
+  const cancelar = h("button", { type: "button", class: "botao secundario" }, "Cancelar");
+  const form = h("form", { novalidate: true }, h("h2", { id: "janela-temporaria-titulo", texto: titulo }), conteudo, erro,
+    h("div", { class: "janela-botoes" }, cancelar, gravar));
+  const janela = h("dialog", { class: "janela larga", id: "janela-temporaria", "aria-labelledby": "janela-temporaria-titulo" }, form);
+  cancelar.addEventListener("click", () => janela.close());
+  janela.addEventListener("close", () => janela.remove());
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    erro.hidden = true;
+    ocupado(gravar, true);
+    try {
+      await aoSubmeter();
+      janela.close();
+    } catch (falha) {
+      erro.hidden = false;
+      erro.replaceChildren(icone("erro"), falha.message);
+      ocupado(gravar, false);
+    }
+  });
+  document.body.append(janela);
+  janela.showModal();
+  return janela;
+}
+
+function campoJanela(id, rotulo, el, classe = "campo") {
+  return h("div", { class: classe }, h("label", { for: id, texto: rotulo }), el);
+}
+
 // ---------- Ícones (SVG desenhados à mão, sem bibliotecas) ----------
 
 const ICONES = {
@@ -105,6 +194,10 @@ const ICONES = {
   venda: "M3 12.5V4h8.5L21 13.5 13.5 21zM7.5 8h.01",
   caixa: "M3 7.5 12 3l9 4.5v9L12 21l-9-4.5zM3 7.5l9 4.5 9-4.5M12 12v9",
   menu: "M4 6h16M4 12h16M4 18h16",
+  telemovel: "M7 3h10a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1zM11 18h2",
+  computador: "M3 5h18v11H3zM8 20h8M12 16v4",
+  impressora: "M6 9V3h12v6M6 18H4v-7h16v7h-2M8 14h8v7H8z",
+  foguete: "M12 15l-3-3a15 15 0 0 1 9-9 15 15 0 0 1-9 9M9 12H4l3-4h5M12 15v5l4-3v-5",
   inicio: "M3 10.5 12 4l9 6.5M5.5 9v11h13V9M10 20v-5h4v5",
   edificio: "M4 21V5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v16M15 10h4a1 1 0 0 1 1 1v10M3 21h18M8 8h3M8 12h3M8 16h3",
 };
@@ -402,6 +495,9 @@ function montarBarra() {
       <button type="button" class="botao-icone lateral-fechar" id="lateral-fechar" aria-label="Fechar o menu"></button>
     </div>
     <div class="lateral-empresa" id="lateral-empresa" hidden></div>
+    <button type="button" class="lateral-pesquisa" id="abrir-paleta" aria-keyshortcuts="Control+K Meta+K">
+      <span data-icone="pesquisa"></span><span>Pesquisar</span><kbd>Ctrl K</kbd>
+    </button>
     <nav class="lateral-nav" aria-label="Principal"></nav>
     <div class="lateral-fundo">
       <nav class="lateral-nav lateral-extra" aria-label="Ferramentas"></nav>
@@ -458,7 +554,169 @@ function montarBarra() {
   atualizarBotaoTema();
   barra.querySelector("#botao-tema").addEventListener("click", alternarTema);
   atualizarContadores();
+  barra.querySelector("#abrir-paleta").addEventListener("click", abrirPaleta);
 }
+
+// ---------- Pesquisa global (Ctrl+K) ----------
+// Áreas da aplicação, ações rápidas e faturas (por fornecedor, número ou NIF), tudo no teclado.
+
+let faturasPaleta = null;
+
+function itensDaPaleta() {
+  const itens = [];
+  for (const g of NAVEGACAO) {
+    for (const i of g.itens) itens.push({ tipo: g.titulo || "Ir para", texto: i.titulo || i.texto, icone: i.icone, href: i.href });
+  }
+  itens.push({ tipo: "Ferramentas", texto: NAV_ASSISTENTE.texto, icone: NAV_ASSISTENTE.icone, href: NAV_ASSISTENTE.href });
+  itens.push({ tipo: "Ferramentas", texto: "A minha conta e segurança", icone: "cadeado", href: "/conta" });
+  itens.push({ tipo: "Ferramentas", texto: "Subscrição e faturas", icone: "carteira", href: "/subscricao" });
+  if (document.querySelector('.lateral-extra a[data-chave="equipa"]')) {
+    itens.push({ tipo: "Ferramentas", texto: "Equipa e registo de atividade", icone: "equipa", href: "/equipa" });
+  }
+  itens.push({ tipo: "Ações", texto: "Carregar faturas", icone: "upload", href: "/" });
+  itens.push({
+    tipo: "Ações", texto: temaEscuro() ? "Mudar para o modo claro" : "Mudar para o modo escuro",
+    icone: temaEscuro() ? "sol" : "lua", acao: alternarTema,
+  });
+  for (const f of faturasPaleta || []) {
+    itens.push({
+      tipo: "Faturas", icone: "recibo", href: `/faturas/${f.id}`,
+      texto: `${f.fornecedor || "Fornecedor por preencher"} · ${f.numero_fatura || "sem número"}`,
+      extra: `${f.nif_fornecedor || ""} ${f.data_emissao ? formatarData(f.data_emissao) : ""} ${f.total != null ? formatarValor(f.total, "EUR") : ""}`,
+    });
+  }
+  return itens;
+}
+
+// Sem acentos e em minúsculas: "lancamentos" encontra "Lançamentos"
+const normalizarPesquisa = (texto) => texto.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+function abrirPaleta() {
+  if (document.getElementById("paleta")) return;
+  const campo = h("input", {
+    type: "text", class: "paleta-campo", id: "paleta-campo", placeholder: "Pesquisar áreas, ações ou faturas…", "aria-label": "Pesquisa global",
+    role: "combobox", "aria-expanded": "true", "aria-controls": "paleta-lista", "aria-autocomplete": "list", autocomplete: "off",
+  });
+  const lista = h("ul", { class: "paleta-lista", id: "paleta-lista", role: "listbox", "aria-label": "Resultados" });
+  const janela = h("dialog", { class: "paleta", id: "paleta", "aria-label": "Pesquisa global" },
+    h("div", { class: "paleta-topo" }, icone("pesquisa"), campo, h("kbd", { texto: "Esc" })), lista,
+    h("p", { class: "paleta-rodape" }, h("kbd", { texto: "↑" }), " ", h("kbd", { texto: "↓" }), " navegar · ",
+      h("kbd", { texto: "Enter" }), " abrir"));
+  let resultados = [];
+  let ativo = 0;
+
+  const executar = (item) => {
+    janela.close();
+    if (item.acao) item.acao();
+    else if (item.href.startsWith("/contabilidade#") && location.pathname === "/contabilidade") location.hash = item.href.split("#")[1];
+    else location.href = item.href;
+  };
+  const marcar = () => {
+    lista.querySelectorAll("[role=option]").forEach((el, n) => el.setAttribute("aria-selected", String(n === ativo)));
+    const el = document.getElementById(`paleta-op-${ativo}`);
+    if (el) {
+      campo.setAttribute("aria-activedescendant", el.id);
+      el.scrollIntoView({ block: "nearest" });
+    }
+  };
+  const desenhar = () => {
+    const termos = normalizarPesquisa(campo.value.trim()).split(/\s+/).filter(Boolean);
+    resultados = itensDaPaleta()
+      .filter((i) => termos.length || i.tipo !== "Faturas")
+      .filter((i) => {
+        const alvo = normalizarPesquisa(`${i.texto} ${i.tipo} ${i.extra || ""}`);
+        return termos.every((termo) => alvo.includes(termo));
+      })
+      .slice(0, 40);
+    ativo = Math.min(ativo, Math.max(0, resultados.length - 1));
+    let grupoAnterior = null;
+    preencher(lista, resultados.length ? resultados.flatMap((item, n) => {
+      const cab = item.tipo !== grupoAnterior ? h("li", { class: "paleta-grupo", role: "presentation", texto: item.tipo }) : null;
+      grupoAnterior = item.tipo;
+      const li = h("li", {
+        class: "paleta-item", role: "option", id: `paleta-op-${n}`, "aria-selected": String(n === ativo),
+        onclick: () => executar(item),
+        onmousemove: () => {
+          if (ativo !== n) {
+            ativo = n;
+            marcar();
+          }
+        },
+      }, icone(item.icone), h("span", { class: "paleta-texto", texto: item.texto }),
+      item.extra ? h("span", { class: "paleta-extra", texto: item.extra.trim() }) : null);
+      return [cab, li];
+    }) : [h("li", { class: "paleta-vazio", texto: "Sem resultados." })]);
+    marcar();
+  };
+  campo.addEventListener("input", () => {
+    ativo = 0;
+    desenhar();
+  });
+  campo.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") ativo = Math.min(ativo + 1, resultados.length - 1);
+    else if (e.key === "ArrowUp") ativo = Math.max(ativo - 1, 0);
+    else if (e.key === "Enter" && resultados[ativo]) {
+      e.preventDefault();
+      executar(resultados[ativo]);
+      return;
+    } else return;
+    e.preventDefault();
+    marcar();
+  });
+  janela.addEventListener("click", (e) => {
+    if (e.target === janela) janela.close();
+  });
+  janela.addEventListener("close", () => janela.remove());
+  document.body.append(janela);
+  janela.showModal();
+  campo.focus();
+  desenhar();
+  // As faturas carregam-se na primeira abertura (um só pedido por página)
+  if (faturasPaleta === null) {
+    faturasPaleta = [];
+    api("/api/faturas").then((r) => (r.ok ? r.json() : [])).then((lista2) => {
+      faturasPaleta = lista2;
+      if (document.getElementById("paleta")) desenhar();
+    }).catch(() => {});
+  }
+}
+
+// ---------- Impressão ----------
+// Antes de imprimir (botão ou Ctrl+P), põe no topo da folha a empresa, o título, o período e a data.
+function prepararImpressao() {
+  const main = document.querySelector("main");
+  if (!main) return;
+  let cab = document.getElementById("cabecalho-impressao");
+  if (!cab) {
+    cab = h("div", { class: "cabecalho-impressao", id: "cabecalho-impressao", "aria-hidden": "true" });
+    main.prepend(cab);
+  }
+  const empresa = document.querySelector(".lateral-empresa-nome")?.textContent || "";
+  const titulo = document.querySelector("main h1")?.textContent || document.title;
+  const periodo = document.getElementById("periodo");
+  const de = document.getElementById("periodo-de")?.value;
+  const ate = document.getElementById("periodo-ate")?.value;
+  const textoPeriodo = periodo && !periodo.hidden && de && ate ? `Período: ${formatarData(de)} a ${formatarData(ate)}` : "";
+  const agora = new Intl.DateTimeFormat("pt-PT", { dateStyle: "short", timeStyle: "short" }).format(new Date());
+  preencher(cab,
+    h("div", { class: "impressao-marca" }, h("img", { src: "/static/logo.svg", alt: "", width: "22", height: "22" }), NOME_PRODUTO),
+    h("div", { class: "impressao-titulo" }, h("strong", { texto: empresa }), h("span", { texto: titulo })),
+    h("div", { class: "impressao-data" }, h("span", { texto: textoPeriodo }), h("span", { texto: `Impresso em ${agora}` })));
+}
+window.addEventListener("beforeprint", prepararImpressao);
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#imprimir")) {
+    prepararImpressao();
+    window.print();
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k" && document.getElementById("barra")) {
+    e.preventDefault();
+    abrirPaleta();
+  }
+});
 
 function ligacaoMenu(p) {
   const a = document.createElement("a");
@@ -476,6 +734,39 @@ function ligacaoMenu(p) {
     a.appendChild(c);
   }
   return a;
+}
+
+// O plano da empresa: áreas fora do plano ficam com cadeado e levam à página da subscrição;
+// o período experimental aparece no fundo da barra; com a subscrição em falta, um aviso no topo.
+function aplicarPlano(eu) {
+  const temContabilidade = (eu.funcionalidades || []).includes("contabilidade");
+  if (!temContabilidade) {
+    for (const a of document.querySelectorAll('.lateral-nav a[href^="/contabilidade#"]')) {
+      if (a.dataset.chave === "resumo") {
+        a.href = "/";
+        continue;
+      }
+      a.href = "/subscricao?recurso=contabilidade";
+      a.classList.add("bloqueado");
+      a.title = "Disponível no plano Contabilidade";
+      if (!a.querySelector(".lateral-cadeado")) a.appendChild(icone("cadeado", "lateral-cadeado"));
+    }
+  }
+  const fundo = document.querySelector(".lateral-fundo");
+  if (fundo && eu.dias_experimentais !== null && eu.dias_experimentais !== undefined && !document.getElementById("selo-experimental")) {
+    const dias = eu.dias_experimentais;
+    fundo.prepend(h("a", { class: "selo-experimental", id: "selo-experimental", href: "/subscricao" },
+      icone("relogio"), h("span", {
+        texto: dias < 0 ? "Período experimental terminado" : dias ? `Experimental: ${dias} dia${dias === 1 ? "" : "s"}` : "Experimental: último dia",
+      }),
+      h("span", { class: "selo-acao", texto: "Escolher plano" })));
+  }
+  const main = document.querySelector("main");
+  if (eu.aviso_subscricao && main && !document.getElementById("aviso-subscricao")) {
+    main.prepend(h("div", { class: "aviso-subscricao", id: "aviso-subscricao", role: "alert" }, icone("alerta"),
+      h("span", { texto: `${eu.aviso_subscricao} Pode consultar e exportar tudo.` }),
+      h("a", { class: "botao pequeno", href: "/subscricao" }, "Resolver agora")));
+  }
 }
 
 // Números ao lado de "Faturas de fornecedores" (por rever) e "Por contabilizar"
@@ -513,6 +804,8 @@ async function iniciarConta() {
     preencherIcones();
   }
 
+  aplicarPlano(eu);
+
   const empresa = document.getElementById("lateral-empresa");
   if (empresa && eu.empresa) {
     empresa.replaceChildren(Object.assign(document.createElement("span"), { className: "lateral-empresa-nome", textContent: eu.empresa }));
@@ -537,6 +830,8 @@ async function iniciarConta() {
         <span class="conta-email"></span>
         <span class="conta-empresa"></span>
       </div>
+      <a class="conta-sair" href="/conta"><span data-icone="cadeado"></span>A minha conta e segurança</a>
+      <a class="conta-sair" href="/subscricao"><span data-icone="carteira"></span>Subscrição e faturas</a>
       <button type="button" class="conta-sair"><span data-icone="sair"></span>Terminar sessão</button>
     </div>`;
   zona.querySelector(".avatar").textContent = iniciais(eu.nome);
@@ -564,7 +859,7 @@ async function iniciarConta() {
       botao.focus();
     }
   });
-  zona.querySelector(".conta-sair").addEventListener("click", async () => {
+  zona.querySelector("button.conta-sair").addEventListener("click", async () => {
     await fetch("/api/auth/sair", { method: "POST" });
     location.href = "/entrar";
   });

@@ -12,11 +12,12 @@ from typing import Literal
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app import config
 from app.db import get_db
-from app.dependencias import utilizador_atual
+from app.dependencias import com_contabilidade, utilizador_atual
 from app.modelos.tabelas import (
     MOVIMENTO_PENDENTE,
     PAPEL_ADMIN,
@@ -59,7 +60,7 @@ from app.servicos.contabilidade import (
     verificacoes,
 )
 
-router = APIRouter(prefix="/api/contabilidade", tags=["contabilidade"])
+router = APIRouter(prefix="/api/contabilidade", tags=["contabilidade"], dependencies=[Depends(com_contabilidade)])
 
 
 # ---------- Utilitários ----------
@@ -67,8 +68,17 @@ router = APIRouter(prefix="/api/contabilidade", tags=["contabilidade"])
 def _empresa(db: Session, utilizador: Utilizador) -> Empresa:
     """A empresa de quem faz o pedido, com o plano de contas criado (na primeira visita)."""
     empresa = db.get(Empresa, utilizador.empresa_id)
-    plano_snc.garantir_plano(db, empresa.id)
-    db.commit()
+    try:
+        plano_snc.garantir_plano(db, empresa.id)
+        db.commit()
+    except (IntegrityError, OperationalError):
+        # Dois pedidos na primeira visita (ex.: resumo e primeiros passos em paralelo) criaram o
+        # plano ao mesmo tempo. Desfaz-se esta tentativa e repete-se: o plano gravado pelo outro
+        # pedido já está lá, por isso a segunda tentativa não insere nada.
+        db.rollback()
+        empresa = db.get(Empresa, utilizador.empresa_id)
+        plano_snc.garantir_plano(db, empresa.id)
+        db.commit()
     return empresa
 
 
@@ -149,6 +159,38 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
 
 
 # ---------- Resumo ----------
+
+@router.get("/primeiros-passos")
+def primeiros_passos(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    """Lista do que falta configurar numa empresa nova (o Início mostra-a até estar tudo feito)."""
+    empresa = _empresa(db, utilizador)
+
+    def existe(modelo, *condicoes) -> bool:
+        consulta = select(func.count()).select_from(modelo).where(modelo.empresa_id == empresa.id, *condicoes)
+        return db.scalar(consulta) > 0
+
+    passos = [
+        ("empresa", "Completar os dados da empresa", "NIF e morada da sede, usados no SAF-T e nos relatórios.",
+         bool(empresa.nif and empresa.morada), "#obrigacoes"),
+        ("abertura", "Lançar os saldos de abertura", "Importe o balancete do fim do ano anterior (Excel ou CSV).",
+         existe(Lancamento, Lancamento.origem == "abertura"), "#plano"),
+        ("fatura", "Carregar a primeira fatura", "Arraste os PDFs dos fornecedores: os dados são lidos sozinhos.",
+         existe(Fatura), "/"),
+        ("contabilizar", "Contabilizar uma fatura", "Confirme a conta e o IVA propostos para cada fornecedor.",
+         existe(Lancamento, Lancamento.origem == "fatura"), "#por-contabilizar"),
+        ("banco", "Importar um extrato bancário", "CSV, Excel ou OFX do seu banco, para reconciliar os movimentos.",
+         existe(ExtratoBancario), "#bancos"),
+        ("dois-passos", "Ligar a verificação em dois passos", "Proteja a conta com um código da app autenticadora.",
+         bool(utilizador.totp_ativo), "/conta"),
+    ]
+    if config.MODO_DEMO:
+        passos = [p for p in passos if p[0] != "dois-passos"]
+    elif utilizador.papel == PAPEL_ADMIN:
+        passos.insert(5, ("equipa", "Convidar a equipa", "O contabilista e os colegas que tratam das faturas.",
+                          existe(Utilizador, Utilizador.id != utilizador.id), "/equipa"))
+    lista = [{"chave": c, "titulo": t, "texto": x, "feito": f, "destino": d} for c, t, x, f, d in passos]
+    return {"empresa_id": empresa.id, "passos": lista, "feitos": sum(p["feito"] for p in lista), "total": len(lista)}
+
 
 @router.get("/resumo")
 def resumo(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):

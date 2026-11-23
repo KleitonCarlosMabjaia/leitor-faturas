@@ -55,6 +55,10 @@ services:
         sync: false
       - key: EMAIL_COMERCIAL        # destino dos botões "Pedir uma proposta"
         sync: false
+      - key: RESEND_API_KEY         # emails transacionais (convites, recuperação, alertas); opcional
+        sync: false
+      - key: EMAIL_REMETENTE        # ex.: Dobra <nao-responder@o-seu-dominio.pt> (domínio verificado no Resend)
+        sync: false
 
   # Cópia de segurança diária às 03:00 (UTC). Guarda em copias/ no bucket e mantém as últimas 30.
   - type: cron
@@ -78,3 +82,23 @@ services:
       - key: S3_SECRET_ACCESS_KEY
         sync: false
 # Se a cópia falhar, o comando termina com erro e o Render avisa por email.
+
+  # Alertas de prazos fiscais por email, todos os dias às 08:00 (UTC): 7 dias antes e na véspera.
+  - type: cron
+    name: leitor-faturas-alertas
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    schedule: "0 8 * * *"
+    dockerCommand: python -m app.alertas
+    envVars:
+      - key: AMBIENTE
+        value: producao
+      - key: URL_BASE_DADOS
+        sync: false
+      - key: URL_PUBLICO
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_REMETENTE
+        sync: false

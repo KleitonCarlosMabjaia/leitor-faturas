@@ -157,7 +157,7 @@ CONTABILIDADE = [f"/contabilidade#{s}" for s in (
     "periodizacao", "balanco")]
 
 
-@pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", *CONTABILIDADE])
+@pytest.mark.parametrize("caminho", ["/", "/dashboard", "/conta", "/subscricao", "REVISAO", *CONTABILIDADE])
 def test_paginas_sem_erros_de_javascript(page: Page, api, erros_js, caminho):
     if caminho == "REVISAO":
         caminho = f"/faturas/{_uma_por_rever(api)['id']}"
@@ -166,7 +166,7 @@ def test_paginas_sem_erros_de_javascript(page: Page, api, erros_js, caminho):
     assert erros_js == []
 
 
-@pytest.mark.parametrize("caminho", ["/", "/dashboard", "REVISAO", "/contabilidade#resumo",
+@pytest.mark.parametrize("caminho", ["/", "/dashboard", "/conta", "/subscricao", "REVISAO", "/contabilidade#resumo",
                                      "/contabilidade#balancete", "/contabilidade#por-contabilizar",
                                      "/contabilidade#salarios", "/contabilidade#balanco"])
 def test_telemovel_sem_deslocamento_horizontal(page: Page, api, caminho):
@@ -338,3 +338,57 @@ def test_registar_pagamento_de_fatura_nos_fornecedores(page: Page):
     page.get_by_role("button", name="Registar pagamento").last.click()
     expect(page.get_by_text(re.compile("Pagamento lançado"))).to_be_visible()
     expect(linhas).to_have_count(antes - 1)
+
+
+# ---------- Pesquisa global, impressão e conta ----------
+
+def test_pesquisa_global_com_ctrl_k(page: Page, erros_js):
+    page.goto("/contabilidade#resumo")
+    page.wait_for_load_state("networkidle")
+    page.keyboard.press("Control+k")
+    campo = page.locator("#paleta-campo")
+    expect(campo).to_be_focused()
+    campo.fill("balancet")
+    expect(page.get_by_role("option", name="Balancete")).to_be_visible()
+    page.keyboard.press("Enter")
+    expect(page.get_by_role("heading", name="Balancete", level=1)).to_be_visible()
+    assert page.url.endswith("#balancete")
+    # Também encontra faturas pelo fornecedor, e o botão da barra lateral abre a mesma pesquisa
+    page.get_by_role("button", name="Pesquisar").click()
+    page.locator("#paleta-campo").fill("talho")
+    expect(page.locator(".paleta-item").first).to_contain_text("Talho")
+    page.keyboard.press("Escape")
+    expect(page.locator("#paleta-campo")).to_have_count(0)
+    assert erros_js == []
+
+
+def test_impressao_dos_relatorios(page: Page):
+    page.goto("/contabilidade#balancete")
+    expect(page.get_by_role("heading", name="Balancete analítico")).to_be_visible()
+    expect(page.get_by_role("button", name="Imprimir")).to_be_visible()
+    page.evaluate("prepararImpressao()")
+    page.emulate_media(media="print")
+    cabecalho = page.locator("#cabecalho-impressao")
+    expect(cabecalho).to_be_visible()
+    expect(cabecalho).to_contain_text("Balancete")
+    expect(cabecalho).to_contain_text("Período:")
+    expect(page.locator("#barra")).to_be_hidden()
+    expect(page.get_by_role("button", name="Imprimir")).to_be_hidden()
+
+
+def test_conta_na_demonstracao_fica_so_de_leitura(page: Page):
+    page.goto("/conta")
+    expect(page.get_by_role("heading", name="A minha conta")).to_be_visible()
+    expect(page.get_by_role("heading", name="Verificação em dois passos")).to_be_visible()
+    expect(page.get_by_role("button", name="Ligar a verificação em dois passos")).to_be_disabled()
+    expect(page.get_by_label("Alertas de prazos fiscais")).to_be_disabled()
+
+
+def test_subscricao_mostra_o_plano_e_os_planos(page: Page):
+    page.goto("/subscricao")
+    expect(page.get_by_role("heading", name="Contabilidade", level=2)).to_be_visible()
+    expect(page.locator(".plano-cartao")).to_have_count(3)
+    # Na demonstração não há pagamentos online: os botões ficam desativados e a aplicação sem limites
+    expect(page.get_by_role("button", name="Plano atual")).to_be_disabled()
+    expect(page.get_by_text("Os pagamentos online ainda não estão ativos")).to_be_visible()
+    page.locator("#conta-botao").or_(page.locator(".selo-demo")).first.wait_for()

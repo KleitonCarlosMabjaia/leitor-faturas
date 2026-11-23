@@ -117,6 +117,46 @@ def sem_ia_real(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def sem_emails_reais(monkeypatch):
+    """Os testes nunca enviam emails: sem chave por omissão e, por segurança, o envio rebenta se for chamado."""
+    from app.servicos import email
+
+    monkeypatch.setattr(config, "RESEND_API_KEY", "")
+    monkeypatch.setattr(config, "EMAIL_REMETENTE", "")
+
+    def proibido(_dados):
+        raise AssertionError("Um teste tentou enviar um email real")
+
+    monkeypatch.setattr(email, "_post", proibido)
+
+
+@pytest.fixture(autouse=True)
+def sem_stripe_real(monkeypatch):
+    """Sem faturação por omissão; e nenhum teste fala com o Stripe a sério."""
+    from app.servicos import subscricoes
+
+    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "")
+    monkeypatch.setattr(config, "STRIPE_WEBHOOK_SECRET", "")
+
+    def proibido(*_args, **_kwargs):
+        raise AssertionError("Um teste tentou falar com o Stripe")
+
+    monkeypatch.setattr(subscricoes, "_stripe", proibido)
+
+
+@pytest.fixture
+def emails(monkeypatch):
+    """Liga o envio de emails para um teste e devolve a lista do que teria sido enviado."""
+    from app.servicos import email
+
+    enviados: list[dict] = []
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_teste")
+    monkeypatch.setattr(config, "EMAIL_REMETENTE", "Dobra <nao-responder@exemplo.pt>")
+    monkeypatch.setattr(email, "_post", enviados.append)
+    return enviados
+
+
+@pytest.fixture(autouse=True)
 def limites_limpos():
     """Os contadores de pedidos são globais: cada teste começa do zero."""
     limites.limpar_todos()

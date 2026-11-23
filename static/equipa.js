@@ -68,6 +68,10 @@ function desenhar(membros) {
     if (!m.ativo) estado.appendChild(criarEtiqueta("Desativada", "erro", "erro"));
     else if (m.pendente) estado.appendChild(criarEtiqueta("Convite pendente", "info", "relogio"));
     else estado.appendChild(criarEtiqueta("Ativa", "ok", "check"));
+    if (m.dois_passos) {
+      estado.append(" ");
+      estado.appendChild(criarEtiqueta("2 passos", "info", "cadeado"));
+    }
     if (m.ultimo_acesso) {
       const acesso = document.createElement("span");
       acesso.className = "detalhe";
@@ -80,6 +84,11 @@ function desenhar(membros) {
     if (m.ativo) {
       const textoLink = m.pendente ? "Novo convite" : "Repor palavra-passe";
       acoes.appendChild(botaoTexto(textoLink, `${textoLink} para ${m.nome}`, (b) => gerarLink(m, b)));
+      acoes.append(" ");
+    }
+    if (m.dois_passos) {
+      acoes.appendChild(botaoTexto("Desligar 2 passos", `Desligar a verificação em dois passos de ${m.nome}`,
+        (b) => alterar(m, { desligar_dois_passos: true }, b)));
       acoes.append(" ");
     }
     acoes.appendChild(
@@ -104,8 +113,10 @@ async function gerarLink(m, botao) {
   try {
     const resposta = await api(`/api/equipa/${m.id}/link`, { method: "POST" });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível gerar o link."));
-    mostrarLink((await resposta.json()).link, m.nome);
-    notificar("Link gerado. Os links anteriores desta pessoa deixaram de funcionar.", "ok");
+    const dados = await resposta.json();
+    mostrarLink(dados.link, m.nome);
+    notificar(dados.email_enviado ? `Link enviado por email para ${m.email}. Os links anteriores deixaram de funcionar.`
+      : "Link gerado. Os links anteriores desta pessoa deixaram de funcionar.", "ok");
   } catch (erro) {
     notificar(erro.message, "erro");
   } finally {
@@ -114,6 +125,15 @@ async function gerarLink(m, botao) {
 }
 
 async function alterar(m, alteracao, botao) {
+  if (alteracao.desligar_dois_passos) {
+    const sim = await confirmar({
+      titulo: `Desligar a verificação em dois passos de ${m.nome}?`,
+      texto: "Use isto só se a pessoa perdeu o telemóvel e os códigos de recuperação. As sessões dela terminam e poderá voltar a ligar a verificação na sua conta.",
+      botao: "Desligar",
+      perigo: true,
+    });
+    if (!sim) return;
+  }
   if (alteracao.ativo === false) {
     const sim = await confirmar({
       titulo: `Desativar ${m.nome}?`,
@@ -131,8 +151,10 @@ async function alterar(m, alteracao, botao) {
       body: JSON.stringify(alteracao),
     });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível alterar a conta."));
-    notificar(alteracao.ativo ? `Conta de ${m.nome} reativada.` : `Conta de ${m.nome} desativada.`, "ok");
+    notificar(alteracao.desligar_dois_passos ? `Verificação em dois passos de ${m.nome} desligada.`
+      : alteracao.ativo ? `Conta de ${m.nome} reativada.` : `Conta de ${m.nome} desativada.`, "ok");
     await carregar();
+    await carregarAtividade(true);
   } catch (erro) {
     ocupado(botao, false);
     notificar(erro.message, "erro");
@@ -156,9 +178,9 @@ formulario.addEventListener("submit", async (e) => {
       body: JSON.stringify(dados),
     });
     if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível criar o convite."));
-    const { membro, link } = await resposta.json();
+    const { membro, link, email_enviado: enviado } = await resposta.json();
     mostrarLink(link, membro.nome);
-    notificar(`Convite criado para ${membro.nome}.`, "ok");
+    notificar(enviado ? `Convite enviado por email para ${membro.email}.` : `Convite criado para ${membro.nome}.`, "ok");
     formulario.reset();
     await carregar();
   } catch (erro) {
@@ -168,4 +190,38 @@ formulario.addEventListener("submit", async (e) => {
   }
 });
 
+// ---------- Registo de atividade ----------
+
+let registos = [];
+let haMais = false;
+
+async function carregarAtividade(recomecar = false) {
+  try {
+    const antes = !recomecar && registos.length ? `?antes_de=${registos.at(-1).id}` : "";
+    const novos = await obter(`/api/equipa/atividade${antes}`);
+    registos = recomecar ? novos : registos.concat(novos);
+    haMais = novos.length === 200;
+    desenharAtividade();
+  } catch (erro) {
+    notificar(erro.message, "erro");
+  }
+}
+
+function desenharAtividade() {
+  const filtro = document.getElementById("filtro-atividade").value.trim().toLowerCase();
+  const visiveis = registos.filter((r) => !filtro || `${r.quem} ${r.acao} ${r.detalhe || ""}`.toLowerCase().includes(filtro));
+  const lista = document.getElementById("atividade");
+  preencher(lista, visiveis.length ? visiveis.map((r) => h("li", { class: "registo" },
+    h("span", { class: "avatar pequeno", "aria-hidden": "true", texto: iniciais(r.quem) }),
+    h("div", { class: "registo-texto" },
+      h("span", {}, h("strong", { texto: r.quem }), ` ${r.acao.charAt(0).toLowerCase()}${r.acao.slice(1)}`),
+      h("span", { class: "detalhe", texto: [formatoAcesso.format(new Date(r.quando)), r.detalhe, r.ip].filter(Boolean).join(" · ") }))))
+    : [h("li", { class: "ajuda", texto: filtro ? "Nada corresponde à pesquisa." : "Ainda não há atividade registada." })]);
+  document.getElementById("mais-atividade").hidden = !haMais;
+}
+
+document.getElementById("filtro-atividade").addEventListener("input", desenharAtividade);
+document.getElementById("mais-atividade").addEventListener("click", () => carregarAtividade());
+
 carregar();
+carregarAtividade(true);

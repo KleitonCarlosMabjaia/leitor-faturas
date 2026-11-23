@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>A minha conta · Dobra</title>
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <script src="/static/tema.js?v=2026-11-23.9"></script>
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-23.9">
+</head>
+<body data-pagina="conta">
+  <header id="barra"></header>
+
+  <main class="conteudo estreito">
+    <div class="cabecalho-pagina">
+      <div>
+        <p class="migalhas">Ferramentas</p>
+        <h1>A minha conta</h1>
+        <p class="subtitulo" id="conta-resumo"></p>
+      </div>
+    </div>
+
+    <section class="cartao" aria-labelledby="titulo-seguranca">
+      <div class="cartao-cabecalho">
+        <div>
+          <h2 id="titulo-seguranca">Verificação em dois passos</h2>
+          <p class="subtitulo">Além da palavra-passe, pede um código da app autenticadora do telemóvel (Google Authenticator, Microsoft Authenticator, 1Password...).</p>
+        </div>
+        <span id="estado-dois-passos"></span>
+      </div>
+      <div id="dois-passos"></div>
+    </section>
+
+    <section class="cartao" aria-labelledby="titulo-palavra-passe">
+      <h2 id="titulo-palavra-passe">Palavra-passe</h2>
+      <form id="form-palavra-passe" class="grelha-3" novalidate>
+        <div class="campo">
+          <label for="pp-atual">Palavra-passe atual</label>
+          <input type="password" id="pp-atual" autocomplete="current-password" required>
+        </div>
+        <div class="campo">
+          <label for="pp-nova">Nova palavra-passe</label>
+          <input type="password" id="pp-nova" autocomplete="new-password" minlength="10" required aria-describedby="pp-ajuda">
+        </div>
+        <div class="campo campo-acao">
+          <button type="submit" class="botao">Mudar a palavra-passe</button>
+        </div>
+      </form>
+      <p class="ajuda" id="pp-ajuda">Pelo menos 10 caracteres, com letras e números. As sessões abertas noutros dispositivos são terminadas.</p>
+    </section>
+
+    <section class="cartao" aria-labelledby="titulo-notificacoes">
+      <h2 id="titulo-notificacoes">Notificações por email</h2>
+      <label class="caixa-opcao" for="alertas-email">
+        <input type="checkbox" id="alertas-email">
+        <span><strong>Alertas de prazos fiscais</strong><br>
+          <span class="ajuda">Um email 7 dias antes e na véspera de cada prazo (IVA, SAF-T, retenções, Segurança Social, IRC).</span></span>
+      </label>
+      <p class="ajuda" id="nota-email" hidden>O envio de emails ainda não está configurado no servidor: as preferências ficam guardadas para quando estiver.</p>
+      <p class="ajuda">Os avisos de segurança (entrada num dispositivo novo) são sempre enviados.</p>
+    </section>
+
+    <section class="cartao" aria-labelledby="titulo-sessoes">
+      <div class="cartao-cabecalho">
+        <div>
+          <h2 id="titulo-sessoes">Sessões abertas</h2>
+          <p class="subtitulo">Dispositivos onde a sua conta tem a sessão iniciada. Se não reconhecer algum, termine-o e mude a palavra-passe.</p>
+        </div>
+        <button type="button" class="botao secundario pequeno" id="terminar-outras">Terminar as outras sessões</button>
+      </div>
+      <ul class="lista-sessoes" id="sessoes"></ul>
+    </section>
+  </main>
+
+  <script src="/static/comum.js?v=2026-11-23.9"></script>
+  <script src="/static/conta.js?v=2026-11-23.9"></script>
+</body>
+</html>

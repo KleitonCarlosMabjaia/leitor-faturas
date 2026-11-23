@@ -47,3 +47,13 @@ def admin_atual(utilizador: Utilizador = Depends(utilizador_atual)) -> Utilizado
     if utilizador.papel != PAPEL_ADMIN:
         raise HTTPException(status_code=403, detail="Só os administradores da empresa podem fazer isto.")
     return utilizador
+
+
+def com_contabilidade(utilizador: Utilizador = Depends(utilizador_atual)) -> Utilizador:
+    """A contabilidade não faz parte do plano Essencial."""
+    from app.servicos import subscricoes
+
+    if not subscricoes.tem_funcionalidade(utilizador.empresa, subscricoes.FUNC_CONTABILIDADE):
+        raise HTTPException(status_code=403, detail="O plano Essencial não inclui a contabilidade. "
+                                                    "Mude para o plano Contabilidade na página Subscrição.")
+    return utilizador

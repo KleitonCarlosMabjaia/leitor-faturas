@@ -11,7 +11,7 @@ um tipo decimal verdadeiro, por isso aqui a diferença não existiria.
 
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Date, DateTime, Float, ForeignKey, Index, String, Text, UniqueConstraint, false, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -41,6 +41,16 @@ class Empresa(Base):
     codigo_postal: Mapped[str | None] = mapped_column(String(8))
     localidade: Mapped[str | None] = mapped_column(String(50))
 
+    # Subscrição (ver servicos/subscricoes.py). As empresas anteriores ficam no plano Contabilidade, ativas.
+    plano: Mapped[str] = mapped_column(String(20), default="contabilidade", server_default="contabilidade")
+    estado_subscricao: Mapped[str] = mapped_column(String(20), default="ativa", server_default="ativa")
+    experimental_ate: Mapped[date | None] = mapped_column(Date)
+    em_atraso_desde: Mapped[date | None] = mapped_column(Date)
+    fim_periodo: Mapped[date | None] = mapped_column(Date)
+    cancela_no_fim: Mapped[bool] = mapped_column(default=False, server_default=false())
+    stripe_cliente_id: Mapped[str | None] = mapped_column(String(64), index=True)
+    stripe_subscricao_id: Mapped[str | None] = mapped_column(String(64))
+
     utilizadores: Mapped[list["Utilizador"]] = relationship(back_populates="empresa")
 
 
@@ -63,6 +73,16 @@ class Utilizador(Base):
     tentativas_falhadas: Mapped[int] = mapped_column(default=0)
     bloqueado_ate: Mapped[datetime | None] = mapped_column(DateTime)
 
+    # Verificação em dois passos (TOTP, RFC 6238): segredo partilhado com a app autenticadora,
+    # último passo de 30 s aceite (impede reutilizar o mesmo código) e códigos de recuperação
+    # de uso único, guardados só como hash SHA-256.
+    totp_segredo: Mapped[str | None] = mapped_column(String(64))
+    totp_ativo: Mapped[bool] = mapped_column(default=False, server_default=false())
+    totp_ultimo_passo: Mapped[int | None] = mapped_column()
+    codigos_recuperacao: Mapped[list | None] = mapped_column(JSON)
+    # Alertas de prazos fiscais por email (pode desligar na página da conta)
+    alertas_email: Mapped[bool] = mapped_column(default=True, server_default=true())
+
 
 class Sessao(Base):
     """Sessão iniciada. Guarda-se só o hash do token: quem ler a base de dados não consegue entrar."""
@@ -74,6 +94,25 @@ class Sessao(Base):
     utilizador: Mapped[Utilizador] = relationship()
     criada_em: Mapped[datetime] = mapped_column(DateTime)
     expira_em: Mapped[datetime] = mapped_column(DateTime)
+    # Para a lista "sessões abertas" na página da conta
+    ip: Mapped[str | None] = mapped_column(String(45))
+    agente: Mapped[str | None] = mapped_column(String(200))
+    ultimo_uso: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+class RegistoAtividade(Base):
+    """Quem fez o quê e quando (auditoria). Só se acrescenta: nunca se altera nem apaga pela aplicação."""
+
+    __tablename__ = "registos_atividade"
+    __table_args__ = (Index("ix_registos_empresa_quando", "empresa_id", "quando"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"))
+    utilizador_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+    quando: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    acao: Mapped[str] = mapped_column(String(120))
+    detalhe: Mapped[str | None] = mapped_column(String(300))
+    ip: Mapped[str | None] = mapped_column(String(45))
 
 
 class TokenAcesso(Base):

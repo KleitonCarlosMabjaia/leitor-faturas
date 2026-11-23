@@ -21,12 +21,16 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import config
 from app.db import SessaoLocal, get_db, preparar_base_dados
 from app.dependencias import utilizador_opcional
 from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
-from app.rotas import auth, contabilidade, dashboard, equipa, faturas, fornecedores
+from app.rotas import auth, conta, contabilidade, dashboard, equipa, faturas, fornecedores, subscricao
+from app.servicos import atividade as atividade_servico
+from app.servicos import subscricoes
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
@@ -77,11 +81,12 @@ app = FastAPI(
 # Respostas comprimidas (JSON da contabilidade, JS e CSS): 4 a 8 vezes menos dados na rede
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
-for modulo in (auth, faturas, fornecedores, dashboard, contabilidade, equipa):
+for modulo in (auth, conta, faturas, fornecedores, dashboard, contabilidade, equipa, subscricao):
     app.include_router(modulo.router)
 
 
-PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/entrar", "/definir-palavra-passe",
+PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/equipa", "/conta", "/subscricao", "/registar", "/entrar",
+                "/definir-palavra-passe",
                 "/apresentacao", "/privacidade", "/termos"}
 
 # Política de segurança de conteúdo: só scripts, estilos, tipos de letra e imagens da própria
@@ -115,12 +120,55 @@ def _origem_estrangeira(request: Request) -> bool:
     return request.headers.get("sec-fetch-site") == "cross-site"
 
 
+# Rotas que continuam a funcionar com a subscrição em "só leitura" (entrar, conta, pagar, exportar)
+LIVRES_DO_BLOQUEIO = ("/api/auth/", "/api/conta/", "/api/subscricao", "/api/stripe/", "/api/registo")
+
+
+def _motivo_so_leitura(request: Request) -> str | None:
+    """Bloqueio suave: com o pagamento em falta, a empresa vê e exporta tudo, mas não altera dados."""
+    if not subscricoes.faturacao_ativa() or request.url.path.startswith(LIVRES_DO_BLOQUEIO):
+        return None
+    gerador = app.dependency_overrides.get(get_db, get_db)()
+    db = next(gerador)
+    try:
+        utilizador = utilizador_opcional(request, db)
+        return subscricoes.so_leitura(utilizador.empresa) if utilizador else None
+    finally:
+        gerador.close()
+
+
+def _registar_atividade(request: Request) -> None:
+    """Regista no registo de atividade uma alteração feita com sucesso pela API (ver servicos/atividade.py)."""
+    acao = atividade_servico.descrever(request.method, request.url.path)
+    if acao is None:
+        return
+    # A mesma origem de sessões das rotas (nos testes, a base de dados temporária)
+    gerador = app.dependency_overrides.get(get_db, get_db)()
+    db = next(gerador)
+    try:
+        utilizador = utilizador_opcional(request, db)
+        if utilizador is not None:
+            atividade_servico.registar(db, utilizador, acao, ip=request.client.host if request.client else None)
+            db.commit()
+    except Exception:  # o registo nunca pode estragar o pedido que já correu bem
+        logger.exception("Não foi possível registar a atividade de %s %s", request.method, request.url.path)
+    finally:
+        gerador.close()
+
+
 @app.middleware("http")
 async def cabecalhos_seguranca(request: Request, call_next):
     """Cabeçalhos HTTP que reduzem ataques comuns no navegador."""
     if request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/") and _origem_estrangeira(request):
         return JSONResponse(status_code=403, content={"detail": "Pedido recusado: origem não autorizada."})
+    if request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/"):
+        motivo = await run_in_threadpool(_motivo_so_leitura, request)
+        if motivo:
+            return JSONResponse(status_code=402, content={"detail": motivo, "so_leitura": True})
     resposta = await call_next(request)
+    if (request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/")
+            and resposta.status_code < 400):
+        await run_in_threadpool(_registar_atividade, request)
     cab = resposta.headers
     cab["X-Content-Type-Options"] = "nosniff"        # não "adivinhar" tipos de ficheiro
     cab["X-Frame-Options"] = "SAMEORIGIN"            # só esta app pode mostrar as páginas em iframe
@@ -145,10 +193,19 @@ async def cabecalhos_seguranca(request: Request, call_next):
     return resposta
 
 
+@app.exception_handler(StarletteHTTPException)
+async def erro_http(request: Request, erro: StarletteHTTPException):
+    """Endereços inexistentes no navegador mostram uma página com a marca; a API continua a responder em JSON."""
+    pagina = not request.url.path.startswith("/api/") and "text/html" in request.headers.get("accept", "")
+    if erro.status_code == 404 and pagina:
+        return FileResponse(config.STATIC_DIR / "404.html", status_code=404)
+    return JSONResponse({"detail": erro.detail}, status_code=erro.status_code, headers=getattr(erro, "headers", None))
+
+
 @app.exception_handler(SQLAlchemyError)
 def erro_base_dados(request: Request, erro: SQLAlchemyError):
     """Qualquer erro da base de dados chega ao utilizador como uma mensagem clara."""
-    logger.exception("Erro na base de dados em %s", request.url.path)
+    logger.error("Erro na base de dados em %s", request.url.path, exc_info=erro)
     return JSONResponse(status_code=500, content={"detail": "Erro na base de dados. Tente novamente."})
 
 
@@ -188,6 +245,9 @@ def _pagina_publica(nome: str) -> str:
         "CONTACTO_TEXTO": "Pedir uma proposta" if email else "Entrar na minha conta",
         "RESPONSAVEL": config.EMPRESA_RESPONSAVEL or "Dobra",
         "EMAIL_CONTACTO": email or "o endereço de contacto indicado no contrato",
+        "URL_REGISTO": "/registar" if config.REGISTO_ABERTO else (
+            f"mailto:{email}?subject=Dobra" if email else "/entrar"),
+        "DIAS": str(config.DIAS_EXPERIMENTAIS),
     }
     texto = (config.STATIC_DIR / nome).read_text(encoding="utf-8")
     for chave, valor in valores.items():
@@ -223,7 +283,29 @@ def pagina_dashboard(request: Request, utilizador: Utilizador | None = Depends(u
 
 @app.get("/contabilidade", include_in_schema=False)
 def pagina_contabilidade(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    # O plano Essencial não tem a contabilidade: mostra a página da subscrição com a explicação
+    if utilizador and not subscricoes.tem_funcionalidade(utilizador.empresa, subscricoes.FUNC_CONTABILIDADE):
+        return RedirectResponse("/subscricao?recurso=contabilidade", status_code=303)
     return _protegida(request, utilizador, "contabilidade.html")
+
+
+@app.get("/subscricao", include_in_schema=False)
+def pagina_subscricao(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "subscricao.html")
+
+
+@app.get("/registar", include_in_schema=False)
+def pagina_registar(utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    if utilizador:
+        return RedirectResponse("/", status_code=303)
+    if not config.REGISTO_ABERTO:
+        return RedirectResponse("/entrar", status_code=303)
+    return _pagina("registar.html")
+
+
+@app.get("/conta", include_in_schema=False)
+def pagina_conta(request: Request, utilizador: Utilizador | None = Depends(utilizador_opcional)):
+    return _protegida(request, utilizador, "conta.html")
 
 
 @app.get("/equipa", include_in_schema=False)
