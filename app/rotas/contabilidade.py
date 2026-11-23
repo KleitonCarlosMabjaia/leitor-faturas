@@ -48,6 +48,7 @@ from app.servicos.contabilidade import (
     extratos,
     fecho,
     ia,
+    importacao_saft,
     inventarios,
     iva,
     lancamentos,
@@ -160,6 +161,31 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
 
 
 # ---------- Resumo ----------
+
+@router.post("/importar-saft")
+def importar_saft(
+    ficheiro: UploadFile = File(...),
+    simular: bool = Form(True),
+    com_abertura: bool = Form(True),
+    com_movimentos: bool = Form(True),
+    db: Session = Depends(get_db),
+    utilizador: Utilizador = Depends(utilizador_atual),
+):
+    """Migração: plano de contas, saldos de abertura e lançamentos de um SAF-T (PT) de outro programa."""
+    if utilizador.papel != PAPEL_ADMIN:
+        raise HTTPException(status_code=403, detail="Só os administradores podem importar a contabilidade.")
+    empresa = _empresa(db, utilizador)
+    try:
+        resumo = importacao_saft.importar(
+            db, empresa, ficheiro.file.read(importacao_saft.TAMANHO_MAXIMO + 1), simular=simular,
+            com_abertura=com_abertura, com_movimentos=com_movimentos, utilizador_id=utilizador.id,
+        )
+    except importacao_saft.ErroImportacao as erro:
+        raise HTTPException(status_code=400, detail=str(erro))
+    if resumo["importado"]:
+        db.commit()
+    return resumo
+
 
 @router.get("/primeiros-passos")
 def primeiros_passos(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):

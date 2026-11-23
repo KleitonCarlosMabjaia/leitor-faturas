@@ -1221,6 +1221,7 @@ async function carregarPlano(secao) {
   });
 
   preencher(secao, 
+    cartaoMigracao(),
     abertura,
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" }, h("div", {},
@@ -2229,6 +2230,89 @@ async function carregarBalanco(secao) {
 }
 
 // ---------- Saldos de abertura ----------
+
+// Migração a partir de outro programa (Primavera, PHC, Sage, TOConline...) pelo SAF-T da contabilidade
+function cartaoMigracao() {
+  const ficheiro = h("input", { type: "file", id: "migracao-ficheiro", class: "visualmente-oculto", accept: ".xml,application/xml,text/xml" });
+  const nome = h("span", { class: "ajuda nome-ficheiro", texto: "Nenhum ficheiro escolhido" });
+  const comAbertura = h("input", { type: "checkbox", id: "migracao-abertura", checked: true });
+  const comMovimentos = h("input", { type: "checkbox", id: "migracao-movimentos", checked: true });
+  const resultado = h("div", { class: "resultado-migracao", "aria-live": "polite" });
+  const analisar = h("button", { type: "submit", class: "botao" }, icone("pesquisa"), "Analisar o ficheiro");
+
+  const pedir = async (simular) => {
+    const dados = new FormData();
+    dados.append("ficheiro", ficheiro.files[0]);
+    dados.append("simular", String(simular));
+    dados.append("com_abertura", String(comAbertura.checked));
+    dados.append("com_movimentos", String(comMovimentos.checked));
+    const resposta = await api("/api/contabilidade/importar-saft", { method: "POST", body: dados });
+    if (!resposta.ok) throw new Error(await lerErro(resposta, "Não foi possível ler o ficheiro."));
+    return resposta.json();
+  };
+
+  const mostrarPrevia = (r) => {
+    const factos = [
+      ["Empresa no ficheiro", `${r.empresa || "—"}${r.nif ? ` (NIF ${r.nif})` : ""}`],
+      ["Período", `${formatarData(r.inicio)} a ${formatarData(r.fim)}`],
+      ["Contas no ficheiro", `${r.contas_no_ficheiro} (${r.contas_novas} novas no Dobra)`],
+      ["Saldos de abertura", r.saldos_abertura ? `${r.saldos_abertura} contas` : "não"],
+      ["Lançamentos", `${r.lancamentos} · ${euros(r.total_debito)} a débito`],
+      ["Diários", r.diarios.join(", ") || "—"],
+    ];
+    const pode = !r.problemas.length;
+    const importar = h("button", { type: "button", class: "botao", disabled: !pode }, icone("upload"), "Importar agora");
+    importar.addEventListener("click", async () => {
+      ocupado(importar, true);
+      try {
+        const final = await pedir(false);
+        notificar(`Importação concluída: ${final.lancamentos} lançamentos e ${final.contas_novas} contas novas.`, "ok");
+        contas = null;
+        invalidarContabilidade();
+        await mostrar("plano", true);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+        ocupado(importar, false);
+      }
+    });
+    preencher(resultado,
+      h("dl", { class: "factos" }, factos.flatMap(([a, b]) => [h("dt", { texto: a }), h("dd", { texto: b })])),
+      r.problemas.length ? h("ul", { class: "lista-alertas" }, r.problemas.map((x) => h("li", { class: "alerta erro" }, icone("erro"), h("p", { texto: x })))) : null,
+      r.avisos.length ? h("ul", { class: "lista-alertas" }, r.avisos.map((x) => h("li", { class: "alerta aviso" }, icone("alerta"), h("p", { texto: x })))) : null,
+      h("div", { class: "acoes-linha" }, importar,
+        h("span", { class: "ajuda", texto: pode ? "Nada foi gravado ainda. Confirme os dados acima e importe." : "Corrija os problemas acima antes de importar." })));
+  };
+
+  ficheiro.addEventListener("change", () => {
+    nome.textContent = ficheiro.files[0]?.name || "Nenhum ficheiro escolhido";
+    resultado.replaceChildren();
+  });
+  const form = h("form", {},
+    h("div", { class: "filtros-linha" },
+      h("div", { class: "campo" }, h("span", { class: "rotulo", texto: "SAF-T (PT) da contabilidade" }),
+        h("div", { class: "escolher-ficheiro" }, h("label", { for: "migracao-ficheiro", class: "botao secundario" }, icone("ficheiro"), "Escolher ficheiro XML"), ficheiro, nome)),
+      h("label", { class: "caixa-opcao", for: "migracao-abertura" }, comAbertura, "Saldos de abertura"),
+      h("label", { class: "caixa-opcao", for: "migracao-movimentos" }, comMovimentos, "Lançamentos"),
+      analisar),
+    resultado);
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    if (!ficheiro.files.length) return ficheiro.click();
+    ocupado(analisar, true);
+    try {
+      mostrarPrevia(await pedir(true));
+    } catch (erro) {
+      notificar(erro.message, "erro");
+    } finally {
+      ocupado(analisar, false);
+    }
+  });
+  return h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" }, h("div", {},
+      h("h2", { texto: "Migrar de outro programa" }),
+      h("p", { class: "subtitulo", texto: "Primavera, PHC, Sage, TOConline ou outro: exporte o SAF-T (PT) da contabilidade e importe-o aqui. O plano de contas, os saldos de abertura e os lançamentos passam para o Dobra; primeiro vê o que vai ser importado." }))),
+    form);
+}
 
 async function cartaoAbertura() {
   const d = await obter("/api/contabilidade/abertura");

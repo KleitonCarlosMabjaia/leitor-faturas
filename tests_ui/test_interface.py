@@ -431,3 +431,14 @@ def test_botao_da_camera_no_telemovel(browser, base_url):
     expect(botao).to_be_visible()
     assert pagina.locator("#camera").get_attribute("capture") == "environment"
     contexto.close()
+
+
+def test_migrar_de_outro_programa_mostra_a_previa(page: Page, tmp_path):
+    page.goto("/contabilidade#plano")
+    expect(page.get_by_role("heading", name="Migrar de outro programa")).to_be_visible()
+    falso = tmp_path / "saft.xml"
+    falso.write_text('<?xml version="1.0"?><AuditFile><Header><TaxAccountingBasis>F</TaxAccountingBasis>'
+                     '</Header></AuditFile>', encoding="utf-8")
+    page.locator("#migracao-ficheiro").set_input_files(str(falso))
+    page.get_by_role("button", name="Analisar o ficheiro").click()
+    expect(page.get_by_text("Este SAF-T é de faturação")).to_be_visible()

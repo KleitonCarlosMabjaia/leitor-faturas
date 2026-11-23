@@ -1871,3 +1871,10 @@ a.conta-sair { color: var(--tinta); text-decoration: none; }
 /* No computador a câmara não interessa: o botão só aparece em ecrãs táteis */
 @media (hover: hover) and (pointer: fine) { .botao-camera { display: none; } }
 @media (display-mode: standalone) { .barra-movel { padding-top: env(safe-area-inset-top); } }
+
+/* ---------- Migração por SAF-T ---------- */
+.resultado-migracao:not(:empty) { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--linha); }
+.factos { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 0.375rem 1.25rem; margin: 0 0 1rem; font-size: 0.875rem; }
+.factos dt { color: var(--tinta-fraca); }
+.factos dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+@media (max-width: 40rem) { .factos { grid-template-columns: minmax(0, 1fr); gap: 0 0; } .factos dd { margin-bottom: 0.5rem; } }
