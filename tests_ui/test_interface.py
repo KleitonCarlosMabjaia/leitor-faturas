@@ -508,8 +508,23 @@ def test_declaracoes_de_remuneracoes(page: Page):
     page.get_by_role("button", name="Declarações").first.click()
     janela = page.locator("#janela-temporaria")
     expect(janela).to_contain_text("RC4008")
-    expect(janela.get_by_role("link", name="Descarregar o ficheiro")).to_be_visible()
+    expect(janela.get_by_role("link", name="Descarregar o ficheiro", exact=True)).to_be_visible()
     expect(janela).to_contain_text("declaração mensal de remunerações")
+    # Ficheiro oficial da DMR (AT), original ou de substituição
+    dmr = janela.get_by_role("link", name="Descarregar o ficheiro da DMR")
+    expect(dmr).to_have_attribute("href", re.compile(r"/dmr\.txt$"))
+    janela.get_by_label("Declaração de substituição").check()
+    expect(dmr).to_have_attribute("href", re.compile(r"substituicao=true"))
+
+
+def test_ficheiro_da_declaracao_periodica_do_iva(page: Page, erros_js):
+    page.goto("/contabilidade#iva")
+    cartao = page.locator(".declaracao-iva")
+    expect(cartao).to_contain_text("Declaração periódica do IVA")
+    with page.expect_download() as d:
+        cartao.get_by_role("link", name="Descarregar o ficheiro").click()
+    assert d.value.suggested_filename.startswith("DPIVA_") and d.value.suggested_filename.endswith(".xml")
+    assert not erros_js
 
 
 def test_ligacao_direta_ao_banco_simulado(page: Page, erros_js):

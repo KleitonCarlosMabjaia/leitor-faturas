@@ -46,6 +46,7 @@ from app.servicos.contabilidade import (
     banco,
     centros,
     classificacao,
+    declaracao_iva,
     declaracoes,
     extratos,
     fecho,
@@ -639,6 +640,46 @@ def obter_iva(de: date | None = None, ate: date | None = None, db: Session = Dep
     return {**mapa, "descricao": descricao, "apuramentos": [lancamento_dict(la) for la in apuramentos]}
 
 
+def _periodo_iva(empresa: Empresa, de: date | None, ate: date | None) -> tuple[date, date]:
+    if de is None and ate is None:
+        de, ate, _ = obrigacoes.periodo_iva(date.today(), empresa.regime_iva)
+        return de, ate
+    return _periodo(de, ate)
+
+
+@router.get("/iva/declaracao")
+def resumo_declaracao_iva(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                          utilizador: Utilizador = Depends(utilizador_atual)):
+    """Campos da declaração periódica do período (em euros) e se o ficheiro pode ser gerado."""
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo_iva(empresa, de, ate)
+    try:
+        d = declaracao_iva.calcular(db, empresa, de, ate)
+    except declaracao_iva.ErroDeclaracaoIVA as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return declaracao_iva.resumo(empresa, d)
+
+
+@router.get("/iva/declaracao.xml")
+def ficheiro_declaracao_iva(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                            utilizador: Utilizador = Depends(utilizador_atual)):
+    """Ficheiro XML da declaração periódica do IVA, para abrir e submeter no Portal das Finanças."""
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo_iva(empresa, de, ate)
+    try:
+        d = declaracao_iva.calcular(db, empresa, de, ate)
+        conteudo = declaracao_iva.gerar_xml(empresa, d)
+    except declaracao_iva.ErroDeclaracaoIVA as erro:
+        db.rollback()
+        raise HTTPException(status_code=422, detail=str(erro))
+    db.commit()
+    return Response(conteudo, media_type="application/xml",
+                    headers={"Content-Disposition":
+                             f'attachment; filename="{declaracao_iva.nome_ficheiro(empresa, d)}"'})
+
+
 class Apuramento(BaseModel):
     de: date
     ate: date
@@ -745,7 +786,9 @@ def _dados_empresa(empresa: Empresa) -> dict:
     return {
         "nome": empresa.nome, "nif": empresa.nif, "regime_iva": empresa.regime_iva,
         "fechado_ate": empresa.fechado_ate, "morada": empresa.morada, "codigo_postal": empresa.codigo_postal,
-        "localidade": empresa.localidade, "niss": empresa.niss,
+        "localidade": empresa.localidade, "niss": empresa.niss, "servico_financas": empresa.servico_financas,
+        "nif_contabilista": empresa.nif_contabilista, "nif_representante": empresa.nif_representante,
+        "regiao_sede": empresa.regiao_sede,
     }
 
 
@@ -758,6 +801,11 @@ class Configuracao(BaseModel):
     codigo_postal: str | None = Field(None, max_length=8)
     localidade: str | None = Field(None, max_length=50)
     niss: str | None = Field(None, max_length=11)
+    # Declarações à AT (declaração periódica do IVA e DMR)
+    servico_financas: str | None = Field(None, max_length=4)
+    nif_contabilista: str | None = Field(None, max_length=9)
+    nif_representante: str | None = Field(None, max_length=9)
+    regiao_sede: Literal["continente", "acores", "madeira"] | None = None
 
 
 @router.put("/configuracao")
@@ -772,13 +820,24 @@ def configurar(conf: Configuracao, db: Session = Depends(get_db), utilizador: Ut
         raise HTTPException(status_code=422, detail="O código postal tem de ter o formato 0000-000.")
     if conf.niss and not (conf.niss.strip().isdigit() and len(conf.niss.strip()) == 11):
         raise HTTPException(status_code=422, detail="O NISS da empresa tem 11 algarismos.")
+    servico = (conf.servico_financas or "").strip()
+    if servico and not (servico.isdigit() and len(servico) == 4):
+        raise HTTPException(status_code=422, detail="O código do serviço de finanças tem 4 algarismos.")
+    for campo, nome in (("nif_contabilista", "do contabilista certificado"),
+                        ("nif_representante", "do representante legal")):
+        valor = (getattr(conf, campo) or "").strip()
+        if valor and not validacao.nif_valido(valor):
+            raise HTTPException(status_code=422, detail=f"O NIF {nome} não é válido.")
     empresa = _empresa(db, utilizador)
     empresa.regime_iva = conf.regime_iva
     empresa.fechado_ate = conf.fechado_ate
-    for campo in ("nif", "morada", "codigo_postal", "localidade", "niss"):
+    for campo in ("nif", "morada", "codigo_postal", "localidade", "niss", "servico_financas", "nif_contabilista",
+                  "nif_representante"):
         valor = getattr(conf, campo)
         if valor is not None:
             setattr(empresa, campo, valor.strip() or None)
+    if conf.regiao_sede:
+        empresa.regiao_sede = conf.regiao_sede
     db.commit()
     return _dados_empresa(empresa)
 
@@ -1895,7 +1954,27 @@ def resumo_declaracoes(ano: int, mes: int, db: Session = Depends(get_db),
         ss |= {"pronto": True, "ficheiro": nome}
     except declaracoes.ErroDeclaracao as erro:
         ss = {"pronto": False, "erro": str(erro)}
+    try:
+        _, _, ficheiro = declaracoes.ficheiro_dmr(db, empresa, ano, mes)
+        dmr["ficheiro"] = ficheiro | {"pronto": True}
+    except declaracoes.ErroDeclaracao as erro:
+        dmr["ficheiro"] = {"pronto": False, "erro": str(erro)}
     return {"dmr": dmr, "seguranca_social": ss}
+
+
+@router.get("/salarios/{ano}/{mes}/dmr.txt")
+def ficheiro_dmr(ano: int, mes: int, substituicao: bool = False, db: Session = Depends(get_db),
+                 utilizador: Utilizador = Depends(utilizador_atual)):
+    """Ficheiro da DMR (AT) no formato oficial de transferência eletrónica, para o Portal das Finanças."""
+    if not (2000 <= ano <= 9999 and 1 <= mes <= 12):
+        raise HTTPException(status_code=422, detail="Mês inválido.")
+    empresa = _empresa(db, utilizador)
+    try:
+        conteudo, nome, _ = declaracoes.ficheiro_dmr(db, empresa, ano, mes, substituicao=substituicao)
+    except declaracoes.ErroDeclaracao as erro:
+        raise HTTPException(status_code=422, detail=str(erro))
+    return Response(conteudo, media_type="text/plain; charset=ascii",
+                    headers={"Content-Disposition": f'attachment; filename="{nome}"'})
 
 
 @router.get("/salarios/{ano}/{mes}/dmr.csv")

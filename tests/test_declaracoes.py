@@ -1,4 +1,4 @@
-"""Declaração de remunerações da Segurança Social (ficheiro RC4008) e mapa da DMR da AT."""
+"""Declaração de remunerações da Segurança Social (ficheiro RC4008) e DMR da AT (mapa e ficheiro oficial)."""
 
 from app.modelos.tabelas import Empresa
 from tests.conftest import criar_empresa_com_admin, entrar
@@ -11,11 +11,15 @@ def _preparar(cliente, fabrica_sessoes, empresa_id: int, com_dados: bool = True)
         e = db.get(Empresa, empresa_id)
         e.nif = "507842545"
         e.niss = "20012345678" if com_dados else None
+        e.servico_financas = "3085" if com_dados else None
+        e.nif_contabilista = "123456789"
         db.commit()
     pessoas = [
-        {"nome": "Ana Simões", "niss": "12345678901", "data_nascimento": "1990-02-01", "salario_base": 1000,
+        {"nome": "Ana Simões", "nif": "234567899", "niss": "12345678901", "data_nascimento": "1990-02-01",
+         "salario_base": 1000,
          "subsidio_alimentacao": 12, "alimentacao_cartao": False, "taxa_irs": 10, "data_admissao": "2026-01-01"},
-        {"nome": "Rui Gerente", "tipo": "orgaos_sociais", "niss": "12345678902", "data_nascimento": "1980-05-05",
+        {"nome": "Rui Gerente", "tipo": "orgaos_sociais", "nif": "245678905", "niss": "12345678902",
+         "data_nascimento": "1980-05-05",
          "salario_base": 2000, "taxa_irs": 15, "data_admissao": "2026-06-16"},
     ]
     for p in pessoas:
@@ -83,18 +87,67 @@ def test_faltam_dados(cliente, fabrica_sessoes, empresa_teste):
     assert "NISS da empresa" in r.json()["detail"] and "data de nascimento de Ana" in r.json()["detail"]
     resumo = cliente.get(f"/api/contabilidade/salarios/{ANO}/{MES}/declaracoes").json()
     assert resumo["seguranca_social"]["pronto"] is False
-    assert len(resumo["dmr"]["linhas"]) == 2
+    assert {ln["nome"] for ln in resumo["dmr"]["linhas"]} == {"Ana Simões", "Rui Gerente"}
+    assert resumo["dmr"]["ficheiro"]["pronto"] is False and "serviço de finanças" in resumo["dmr"]["ficheiro"]["erro"]
+    assert cliente.get(f"/api/contabilidade/salarios/{ANO}/{MES}/dmr.txt").status_code == 422
 
 
 def test_mapa_dmr(cliente, fabrica_sessoes, empresa_teste):
     _preparar(cliente, fabrica_sessoes, empresa_teste)
     d = cliente.get(f"/api/contabilidade/salarios/{ANO}/{MES}/declaracoes").json()
     assert d["seguranca_social"]["pronto"] is True
-    ana = next(ln for ln in d["dmr"]["linhas"] if ln["nome"] == "Ana Simões")
-    assert ana["codigo"] == "A" and ana["rendimento"] == 2128.7 and ana["retencao_irs"] == 212.87
-    assert ana["contribuicoes_obrigatorias"] == 234.16
+    ana = {ln["codigo"]: ln for ln in d["dmr"]["linhas"] if ln["nome"] == "Ana Simões"}
+    assert set(ana) == {"A", "A3", "A21"}
+    # Remuneração (base + refeição acima do limite), subsídio de férias e refeição isenta (não sujeita)
+    assert (ana["A"]["rendimento"], ana["A3"]["rendimento"], ana["A21"]["rendimento"]) == (1128.7, 1000, 135.3)
+    assert ana["A"]["retencao_irs"] + ana["A3"]["retencao_irs"] == 212.87 and ana["A21"]["retencao_irs"] == 0
+    assert round(ana["A"]["contribuicoes_obrigatorias"] + ana["A3"]["contribuicoes_obrigatorias"], 2) == 234.16
+    assert d["dmr"]["ficheiro"]["pronto"] is True
     r = cliente.get(f"/api/contabilidade/salarios/{ANO}/{MES}/dmr.csv")
-    assert r.status_code == 200 and "2128,70" in r.content.decode("utf-8-sig")
+    assert r.status_code == 200 and "1128,70" in r.content.decode("utf-8-sig")
+
+
+def test_ficheiro_dmr(cliente, fabrica_sessoes, empresa_teste):
+    _preparar(cliente, fabrica_sessoes, empresa_teste)
+    r = cliente.get(f"/api/contabilidade/salarios/{ANO}/{MES}/dmr.txt")
+    assert r.status_code == 200, r.text
+    assert 'filename="DMR-AT_507842545_202606.txt"' in r.headers["content-disposition"]
+    texto = r.content.decode("ascii")
+    assert texto.endswith("\n") and "\r" not in texto
+    linhas = texto.split("\n")[:-1]
+    assert all(len(ln) == 172 for ln in linhas)
+    tipos = [ln[:3] for ln in linhas]
+    assert tipos[:5] == ["001", "002", "003", "004", "005"] and tipos[-3:] == ["009", "099", "999"]
+    assert linhas[0][3:10] == "ASCII05"
+    assert linhas[1][3:27] == "DMR-AT507842545202606EUR"
+    h = linhas[2]
+    assert h[3:7] == "3085" and h[7:9] == "10" and h[17:26] == "123456789" and h[26:35] == "507842545"
+
+    detalhe = [ln for ln in linhas if ln[:3] == "006"]
+    assert [int(ln[3:10]) for ln in detalhe] == list(range(1, len(detalhe) + 1))
+    ana = {ln[53:56].strip(): ln for ln in detalhe if ln[10:19] == "234567899"}
+    assert set(ana) == {"A", "A3", "A21"}
+    a = ana["A"]
+    assert a[19:34] == "0" * 15 and a[34:38] == "0000"           # sem rendimentos de anos anteriores
+    assert int(a[38:53]) == 112870 and a[56:58] == "C "          # rendimento do ano e local (continente)
+    assert int(ana["A"][58:72]) + int(ana["A3"][58:72]) == 21287  # IRS retido
+    assert a[86:95] == "505305500"                               # contribuições para a Segurança Social
+    assert int(ana["A21"][38:53]) == 13530 and ana["A21"][86:95] == "0" * 9
+
+    # Resumo (quadro 4) e trailers coerentes com as linhas
+    rendimentos = sum(int(ln[38:53]) for ln in detalhe)
+    nao_sujeitos = sum(int(ln[38:53]) for ln in detalhe if ln[53:56].strip() == "A21")
+    q4a, q4b, trailer = linhas[3], linhas[4], linhas[-3]
+    assert int(q4a[3:19]) == rendimentos - nao_sujeitos and int(q4b[3:19]) == nao_sujeitos
+    assert int(q4b[79:96]) == rendimentos and int(trailer[19:36]) == rendimentos
+    assert int(trailer[36:52]) == sum(int(ln[58:72]) for ln in detalhe)
+    assert int(trailer[52:68]) == sum(int(ln[72:86]) for ln in detalhe)
+    assert int(trailer[100:107]) == len(detalhe) + 2
+    assert int(linhas[-2][3:12]) == len(detalhe) + 4 and int(linhas[-1][3:12]) == len(detalhe) + 6
+
+    # Declaração de substituição
+    sub = cliente.get(f"/api/contabilidade/salarios/{ANO}/{MES}/dmr.txt", params={"substituicao": True})
+    assert sub.content.decode("ascii").split("\n")[2][7] == "2"
 
 
 def test_mes_por_processar_e_outra_empresa(cliente, novo_cliente, fabrica_sessoes, empresa_teste):
@@ -110,3 +163,20 @@ def test_niss_da_empresa_na_configuracao(cliente):
     assert r.status_code == 422
     r = cliente.put("/api/contabilidade/configuracao", json={"regime_iva": "trimestral", "niss": "20012345678"})
     assert r.status_code == 200 and r.json()["niss"] == "20012345678"
+
+
+def test_linhas_da_dmr_com_retencao_pelas_tabelas():
+    from app.servicos.contabilidade import declaracoes
+    recibo = {
+        "base": 1500.0, "faltas": 0.0, "outros": 100.0, "suplementar": 50.0, "alimentacao": 100.0,
+        "alimentacao_isenta": 100.0, "subsidio_ferias": 0.0, "subsidio_natal": 1500.0, "irs": 400.0,
+        "ss_trabalhador": 346.5,
+        "irs_detalhe": {"partes": [{"chave": "mensal", "valor": 180.0}, {"chave": "suplementar", "valor": 5.0},
+                                   {"chave": "subsidio_natal", "valor": 215.0}]},
+    }
+    linhas = {ln["codigo"]: ln for ln in declaracoes.linhas_recibo(recibo)}
+    assert set(linhas) == {"A", "A4", "A21"}
+    assert (linhas["A"]["rendimento"], linhas["A"]["retencao_irs"]) == (165000, 18500)
+    assert (linhas["A4"]["rendimento"], linhas["A4"]["retencao_irs"]) == (150000, 21500)
+    assert linhas["A"]["contribuicoes"] + linhas["A4"]["contribuicoes"] == 34650
+    assert linhas["A21"] == {"codigo": "A21", "rendimento": 10000, "retencao_irs": 0, "contribuicoes": 0}

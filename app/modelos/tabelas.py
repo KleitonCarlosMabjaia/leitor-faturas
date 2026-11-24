@@ -35,6 +35,10 @@ ESTADO_CONFIRMADA = "confirmada"
 PAPEL_ADMIN = "admin"    # gere a equipa da empresa
 PAPEL_MEMBRO = "membro"  # carrega e revê faturas
 
+# Espaço territorial da sede (declaração periódica do IVA, local de obtenção dos rendimentos na DMR)
+REGIAO_CONTINENTE = "continente"
+REGIOES = (REGIAO_CONTINENTE, "acores", "madeira")
+
 
 # ---------- Contas ----------
 
@@ -55,6 +59,12 @@ class Empresa(Base):
     localidade: Mapped[str | None] = mapped_column(String(50))
     # Número de identificação da Segurança Social da entidade empregadora (declaração de remunerações)
     niss: Mapped[str | None] = mapped_column(String(11))
+    # Declarações à AT (ficheiros da declaração periódica do IVA e da DMR)
+    servico_financas: Mapped[str | None] = mapped_column(String(4))     # código do serviço de finanças da sede
+    nif_contabilista: Mapped[str | None] = mapped_column(String(9))     # contabilista certificado
+    nif_representante: Mapped[str | None] = mapped_column(String(9))    # representante legal
+    regiao_sede: Mapped[str] = mapped_column(String(10), default=REGIAO_CONTINENTE,
+                                             server_default=REGIAO_CONTINENTE)
 
     # Subscrição (ver servicos/subscricoes.py). As empresas anteriores ficam no plano Contabilidade, ativas.
     plano: Mapped[str] = mapped_column(String(20), default="contabilidade", server_default="contabilidade")

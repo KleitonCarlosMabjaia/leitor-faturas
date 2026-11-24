@@ -464,6 +464,8 @@ def criar_contabilidade_demo(db: Session, empresa_id: int, inicio: date, hoje: d
     lancar("OD", abertura, "Entrada de capital e saldo bancário inicial",
            [LinhaNova("121", debito=25000), LinhaNova("511", credito=25000)])
     empresa.niss = "20012345678"
+    empresa.servico_financas = "3247"
+    empresa.nif_contabilista = "123456789"   # fictício (não consome o gerador: os dados da demo não mudam)
     for nome, tipo, base, alimentacao, irs, nascimento, niss in PESSOAL_DEMO:
         salarios.registar(db, empresa, nome=nome, tipo=tipo, data_admissao=abertura, salario_base=base,
                           subsidio_alimentacao=alimentacao, alimentacao_cartao=tipo == "pessoal",

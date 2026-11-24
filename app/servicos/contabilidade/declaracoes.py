@@ -11,9 +11,17 @@ Declarações de remunerações geradas a partir do processamento de salários d
    Valores em cêntimos de euro, sem pontos nem vírgulas; texto em maiúsculas, sem acentos nem
    cedilhas; dias de trabalho com uma casa decimal (30 dias = "300").
 
-2. AT: mapa de apoio da declaração mensal de remunerações (DMR), por trabalhador, com os
-   valores a declarar no Portal das Finanças. O Dobra não gera o ficheiro da DMR porque o
-   formato técnico da AT não está publicado de forma que se possa validar aqui.
+2. AT: declaração mensal de remunerações (DMR-AT), ficheiro para envio no Portal das Finanças
+   ("Suporte informático DMR-AT", em vigor desde 2024-02-01; códigos das instruções de
+   preenchimento aprovadas pela Portaria n.º 69/2026/1). Texto ASCII com registos de
+   comprimento fixo (172 caracteres), separados por mudança de linha:
+       001 header do ficheiro, 002 header da declaração, 003 header DMR-AT,
+       004/005 resumo (quadro 4: rendimentos sujeitos, isentos, não sujeitos e totais),
+       006 uma linha por titular, tipo de rendimento e local (quadro 5),
+       009 trailer DMR-AT, 099 trailer da declaração, 999 trailer do ficheiro.
+   Valores em cêntimos, numéricos alinhados à direita com zeros. Cada recibo dá linhas com os
+   códigos A (remuneração), A3 (subsídio de férias), A4 (subsídio de Natal) e A21 (subsídio de
+   refeição, parte não sujeita), cada uma com a sua retenção de IRS e contribuições.
 """
 
 import csv
@@ -25,6 +33,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.modelos.tabelas import Empresa, Funcionario, ProcessamentoSalarial
+from app.servicos import validacao
 from app.servicos.contabilidade import salarios
 
 MODELO_SS = "RC4008"
@@ -156,27 +165,160 @@ def ficheiro_seguranca_social(db: Session, empresa: Empresa, ano: int, mes: int)
                             "total_contribuicoes": round(sum(g["contribuicoes"] for g in resumo_grupos), 2)}
 
 
-# ---------- DMR (AT): mapa de apoio ----------
+# ---------- DMR (AT) ----------
+
+COMPRIMENTO_DMR = 172
+VERSAO_DMR = "05"
+# NIPC do Instituto da Segurança Social, I.P.: entidade a favor de quem são feitas as contribuições (campo 07)
+NIPC_SEGURANCA_SOCIAL = "505305500"
+LOCAL_RENDIMENTO = {"continente": "C", "acores": "RA", "madeira": "RM"}
+CODIGOS_DMR = {
+    "A": "Trabalho dependente",
+    "A3": "Subsídio de férias",
+    "A4": "Subsídio de Natal",
+    "A21": "Subsídio de refeição (parte não sujeita)",
+}
+NAO_SUJEITOS = {"A21"}
+
+
+def _repartir(total: int, pesos: list[int]) -> list[int]:
+    """Reparte `total` cêntimos na proporção dos pesos; o arredondamento fica na maior parcela."""
+    soma = sum(pesos)
+    if not soma:
+        return [0] * len(pesos)
+    partes = [total * p // soma for p in pesos]
+    partes[pesos.index(max(pesos))] += total - sum(partes)
+    return partes
+
+
+def linhas_recibo(recibo: dict) -> list[dict]:
+    """Linhas da DMR de um recibo (cêntimos): código, rendimento, retenção de IRS e contribuições."""
+    c = _centimos
+    valores = {
+        "A": c(recibo["base"] - recibo["faltas"] + recibo["outros"] + recibo.get("suplementar", 0)
+               + recibo["alimentacao"] - recibo["alimentacao_isenta"]),
+        "A3": c(recibo["subsidio_ferias"]),
+        "A4": c(recibo["subsidio_natal"]),
+    }
+    sujeitos = [k for k, v in valores.items() if v]
+    # IRS: pela parte de cada remuneração no cálculo da retenção; sem esse detalhe, na proporção dos valores
+    partes = (recibo.get("irs_detalhe") or {}).get("partes")
+    if partes:
+        por_parte = {"mensal": "A", "suplementar": "A", "subsidio_ferias": "A3", "subsidio_natal": "A4"}
+        irs = dict.fromkeys(sujeitos, 0)
+        for p in partes:
+            codigo = por_parte.get(p["chave"], "A")
+            if codigo in irs:
+                irs[codigo] += c(p["valor"])
+            elif sujeitos:
+                irs[sujeitos[0]] += c(p["valor"])
+    else:
+        irs = dict(zip(sujeitos, _repartir(c(recibo["irs"]), [valores[k] for k in sujeitos]), strict=True))
+    contribuicoes = dict(zip(sujeitos, _repartir(c(recibo["ss_trabalhador"]), [valores[k] for k in sujeitos]),
+                             strict=True))
+    linhas = [{"codigo": k, "rendimento": valores[k], "retencao_irs": irs[k], "contribuicoes": contribuicoes[k]}
+              for k in sujeitos]
+    if recibo.get("alimentacao_isenta"):
+        linhas.append({"codigo": "A21", "rendimento": c(recibo["alimentacao_isenta"]), "retencao_irs": 0,
+                       "contribuicoes": 0})
+    return linhas
+
 
 def mapa_dmr(db: Session, empresa: Empresa, ano: int, mes: int) -> dict:
-    """Valores por trabalhador para a declaração mensal de remunerações da AT."""
+    """Valores por titular e tipo de rendimento para a declaração mensal de remunerações da AT."""
     p = _processamento(db, empresa, ano, mes)
     linhas = []
     for r in sorted(p.recibos, key=lambda x: x["numero"]):
-        linhas.append({
-            "nif": r.get("nif"), "nome": r["nome"], "tipo": r["tipo"],
-            "codigo": "A",  # rendimentos do trabalho dependente (categoria A)
-            "rendimento": r["remuneracao_sujeita"], "retencao_irs": r["irs"],
-            "contribuicoes_obrigatorias": r["ss_trabalhador"],
-        })
+        for ln in linhas_recibo(r):
+            linhas.append({
+                "nif": r.get("nif"), "nome": r["nome"], "tipo": r["tipo"], "codigo": ln["codigo"],
+                "descricao": CODIGOS_DMR[ln["codigo"]], "rendimento": ln["rendimento"] / 100,
+                "retencao_irs": ln["retencao_irs"] / 100, "contribuicoes_obrigatorias": ln["contribuicoes"] / 100,
+            })
     totais = {k: round(sum(ln[k] for ln in linhas), 2)
               for k in ("rendimento", "retencao_irs", "contribuicoes_obrigatorias")}
-    avisos = [f"{ln['nome']} não tem NIF: a DMR exige o NIF de cada trabalhador." for ln in linhas if not ln["nif"]]
+    avisos = [f"{r['nome']} não tem NIF válido: a DMR exige o NIF de cada titular."
+              for r in p.recibos if not (r.get("nif") and validacao.nif_valido(r["nif"]))]
     return {"ano": ano, "mes": mes, "nome_mes": salarios.nome_mes(ano, mes), "linhas": linhas, "totais": totais,
             "avisos": avisos,
-            "nota": "Rendimentos sujeitos a IRS (código A, trabalho dependente), retenções e contribuições "
-                    "obrigatórias do trabalhador. Confirme os códigos de rendimento nas instruções oficiais da "
-                    "DMR antes de submeter no Portal das Finanças."}
+            "nota": "Códigos A (trabalho dependente), A3 (subsídio de férias), A4 (subsídio de Natal) e A21 "
+                    "(subsídio de refeição até ao limite isento, rendimento não sujeito), com a retenção de IRS e "
+                    "as contribuições do trabalhador para a Segurança Social de cada um."}
+
+
+def _num(valor: int, tamanho: int) -> str:
+    if valor < 0:
+        raise ErroDeclaracao("A DMR gerada pelo Dobra não aceita valores negativos: corrija o processamento do mês.")
+    return _numero(valor, tamanho)
+
+
+def _nif_ou_zeros(nif: str | None) -> str:
+    return nif if nif and nif.isdigit() and len(nif) == 9 else "0" * 9
+
+
+def ficheiro_dmr(db: Session, empresa: Empresa, ano: int, mes: int, substituicao: bool = False,
+                 hoje: date | None = None) -> tuple[bytes, str, dict]:
+    """(conteúdo, nome do ficheiro, resumo) da DMR-AT do mês, no formato de transferência eletrónica."""
+    p = _processamento(db, empresa, ano, mes)
+    faltas = []
+    if not (empresa.nif and validacao.nif_valido(empresa.nif)):
+        faltas.append("o NIF da empresa")
+    if not (empresa.servico_financas and empresa.servico_financas.isdigit() and len(empresa.servico_financas) == 4):
+        faltas.append("o código do serviço de finanças (4 algarismos), em Dados da empresa")
+    for r in p.recibos:
+        if not (r.get("nif") and validacao.nif_valido(r["nif"])):
+            faltas.append(f"o NIF de {r['nome']}")
+    if faltas:
+        raise ErroDeclaracao("Para gerar o ficheiro da DMR falta: " + "; ".join(faltas) + ".")
+
+    hoje = hoje or date.today()
+    local = LOCAL_RENDIMENTO.get(empresa.regiao_sede, "C")
+    detalhe = []
+    for r in sorted(p.recibos, key=lambda x: x["numero"]):
+        for ln in linhas_recibo(r):
+            detalhe.append((r["nif"], ln))
+
+    def soma(chave: str, nao_sujeitos: bool | None = None) -> int:
+        return sum(ln[chave] for _, ln in detalhe
+                   if nao_sujeitos is None or (ln["codigo"] in NAO_SUJEITOS) == nao_sujeitos)
+
+    linhas = [
+        "001" + "ASCII" + VERSAO_DMR + hoje.strftime("%Y%m%d") + " " * 154,
+        "002" + "DMR-AT" + empresa.nif + f"{ano:04d}{mes:02d}" + "EUR" + " " * 145,
+        "003" + empresa.servico_financas + ("2" if substituicao else "1") + "0" + "0" * 8
+        + _nif_ou_zeros(empresa.nif_contabilista) + _nif_ou_zeros(empresa.nif_representante or empresa.nif)
+        + "  " + "0" * 8 + "0" * 8 + " " + " " * 118,
+    ]
+    # Quadro 4: sujeitos e isentos (004); não sujeitos e totais (005). Sem quotizações sindicais nem sobretaxa.
+    sujeitos = (soma("rendimento", False), soma("retencao_irs", False), soma("contribuicoes", False))
+    nao_sujeitos = (soma("rendimento", True), soma("retencao_irs", True), soma("contribuicoes", True))
+    totais = tuple(a + b for a, b in zip(sujeitos, nao_sujeitos, strict=True))
+    linhas.append("004" + _num(sujeitos[0], 16) + _num(sujeitos[1], 15) + _num(sujeitos[2], 15) + _num(0, 15)
+                  + _num(0, 15) + _num(0, 16) + _num(0, 15) * 4 + " " * 17)
+    linhas.append("005" + _num(nao_sujeitos[0], 16) + _num(nao_sujeitos[1], 15) + _num(nao_sujeitos[2], 15)
+                  + _num(0, 15) + _num(0, 15) + _num(totais[0], 17) + _num(totais[1], 16) + _num(totais[2], 16)
+                  + _num(0, 16) + _num(0, 16) + " " * 12)
+    for numero, (nif, ln) in enumerate(detalhe, start=1):
+        entidade = NIPC_SEGURANCA_SOCIAL if ln["contribuicoes"] else "0" * 9
+        linhas.append("006" + _num(numero, 7) + nif + _num(0, 15) + _num(0, 4) + _num(ln["rendimento"], 15)
+                      + ln["codigo"].ljust(3) + local.ljust(2) + _num(ln["retencao_irs"], 14)
+                      + _num(ln["contribuicoes"], 14) + entidade + "0" * 9 + "0" * 9 + _num(0, 14) + _num(0, 14)
+                      + " " * 31)
+    registos_dmr = 2 + len(detalhe)   # 004, 005 e 006
+    linhas.append("009" + _num(0, 16) + _num(totais[0], 17) + _num(totais[1], 16) + _num(totais[2], 16)
+                  + _num(0, 16) + _num(0, 16) + _num(registos_dmr, 7) + " " * 65)
+    # Os trailers não contam os próprios header e trailer: 099 conta 003 a 009; 999 conta 002 a 099
+    linhas.append("099" + _num(registos_dmr + 2, 9) + " " * 160)
+    linhas.append("999" + _num(registos_dmr + 4, 9) + " " * 160)
+    for ln in linhas:
+        if len(ln) != COMPRIMENTO_DMR:  # salvaguarda: nunca entregar um ficheiro mal formado
+            raise ErroDeclaracao(f"Erro interno: registo {ln[:3]} com {len(ln)} caracteres.")
+    conteudo = ("\n".join(linhas) + "\n").encode("ascii")
+    nome = f"DMR-AT_{empresa.nif}_{ano:04d}{mes:02d}.txt"
+    return conteudo, nome, {
+        "ficheiro": nome, "linhas": len(detalhe), "substituicao": substituicao,
+        "rendimentos": totais[0] / 100, "retencao_irs": totais[1] / 100, "contribuicoes": totais[2] / 100,
+    }
 
 
 def csv_dmr(mapa: dict) -> bytes:

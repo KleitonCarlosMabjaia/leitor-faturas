@@ -932,8 +932,38 @@ async function carregarExtrato(secao) {
 
 // ---------- IVA ----------
 
+// Declaração periódica: campos do modelo e ficheiro XML para abrir na aplicação da AT
+async function blocoDeclaracaoIVA(d) {
+  const qs = `de=${d.de}&ate=${d.ate}`;
+  let dp;
+  try {
+    dp = await obter(`/api/contabilidade/iva/declaracao?${qs}`);
+  } catch (erro) {
+    return h("section", { class: "cartao declaracao-iva" },
+      h("h2", { texto: "Declaração periódica do IVA" }),
+      h("p", { class: "ajuda" }, icone("alerta"), erro.message));
+  }
+  const campos = dp.campos.length
+    ? h("div", { class: "campos-dp" }, dp.campos.map((c) => h("div", { class: "campo-dp" },
+      h("span", { class: "numero", texto: c.campo }), h("span", { class: "descricao", texto: c.descricao }), h("b", { texto: euros(c.valor) }))))
+    : h("p", { class: "ajuda", texto: "Sem operações no período: o ficheiro vai com a indicação \"sem operações\"." });
+  return h("section", { class: "cartao declaracao-iva" },
+    h("div", { class: "cartao-cabecalho" }, h("div", {},
+      h("h2", { texto: "Declaração periódica do IVA" }),
+      h("p", { class: "subtitulo", texto: `Período ${dp.periodo} de ${dp.ano} · ficheiro no formato oficial da AT (XML)` }))),
+    campos,
+    ...dp.avisos.map((a) => h("p", { class: "ajuda" }, icone("livro"), a)),
+    dp.aviso_contabilista ? h("p", { class: "ajuda" }, icone("alerta"), dp.aviso_contabilista) : null,
+    dp.pronto
+      ? h("div", { class: "botoes-declaracao" },
+        h("a", { class: "botao", href: `/api/contabilidade/iva/declaracao.xml?${qs}`, download: dp.ficheiro }, icone("descarregar"), "Descarregar o ficheiro"),
+        h("p", { class: "ajuda", texto: "No Portal das Finanças: IVA › Declaração periódica › Entregar › abrir o ficheiro. Reveja os valores na aplicação da AT antes de submeter." }))
+      : h("p", { class: "erro-campo", role: "alert" }, icone("alerta"), dp.erro));
+}
+
 async function carregarIVA(secao, url = "/api/contabilidade/iva") {
   const d = await obter(url);
+  const declaracao = await blocoDeclaracaoIVA(d);
   const campos = h("div", { class: "campos-dp" }, d.dedutivel.map((c) => h("div", { class: "campo-dp" },
     h("span", { class: "numero", texto: c.campo }), h("span", { class: "descricao", texto: c.descricao }),
     h("b", { texto: euros(c.valor) }))));
@@ -992,7 +1022,8 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
       d.apuramentos.length
         ? h("div", {}, criarEtiqueta(`Apurado: ${d.apuramentos.map((a) => a.referencia).join(", ")}`, "ok", "check"))
         : botaoApurar),
-    h("p", { class: "nota-rodape", texto: "Mapa de apoio: confirme os valores antes de submeter a declaração no Portal das Finanças. As regularizações (campos 40/41) não são calculadas automaticamente. Numeração do modelo em vigor até 30/06/2027." })));
+    h("p", { class: "nota-rodape", texto: "Mapa de apoio: confirme os valores antes de submeter a declaração no Portal das Finanças. Numeração do modelo em vigor até 30/06/2027." })),
+    declaracao);
 }
 
 // ---------- Resultados ----------
@@ -1136,7 +1167,13 @@ async function carregarObrigacoes(secao) {
   const codigoPostal = campoTexto("conf-cp", empresa.codigo_postal, { maxlength: "8", pattern: "[0-9]{4}-[0-9]{3}", placeholder: "0000-000" });
   const localidade = campoTexto("conf-localidade", empresa.localidade, { maxlength: "50", placeholder: "Lisboa" });
   const nissEmpresa = campoTexto("conf-niss", empresa.niss, { inputmode: "numeric", maxlength: "11", pattern: "[0-9]{11}", placeholder: "20000000000" });
-  for (const campo of [regime, fechado, nif, morada, codigoPostal, localidade, nissEmpresa]) campo.disabled = !podeConfigurar;
+  const servicoFinancas = campoTexto("conf-sf", empresa.servico_financas, { inputmode: "numeric", maxlength: "4", pattern: "[0-9]{4}", placeholder: "3085" });
+  const nifContabilista = campoTexto("conf-nif-cc", empresa.nif_contabilista, { inputmode: "numeric", maxlength: "9", pattern: "[0-9]{9}" });
+  const nifRepresentante = campoTexto("conf-nif-rep", empresa.nif_representante, { inputmode: "numeric", maxlength: "9", pattern: "[0-9]{9}" });
+  const regiao = h("select", { id: "conf-regiao" },
+    h("option", { value: "continente" }, "Continente"), h("option", { value: "acores" }, "Açores"), h("option", { value: "madeira" }, "Madeira"));
+  regiao.value = empresa.regiao_sede || "continente";
+  for (const campo of [regime, fechado, nif, morada, codigoPostal, localidade, nissEmpresa, servicoFinancas, nifContabilista, nifRepresentante, regiao]) campo.disabled = !podeConfigurar;
   const gravar = h("button", { type: "submit", class: "botao", disabled: !podeConfigurar }, icone("cadeado"), "Guardar");
   const campo = (id, rotulo, el, classe = "campo") => h("div", { class: classe }, h("label", { for: id, texto: rotulo }), el);
   const form = h("form", {},
@@ -1148,7 +1185,12 @@ async function carregarObrigacoes(secao) {
     h("div", { class: "filtros-linha" },
       campo("conf-morada", "Morada da sede", morada, "campo largo"),
       campo("conf-cp", "Código postal", codigoPostal),
-      campo("conf-localidade", "Localidade", localidade),
+      campo("conf-localidade", "Localidade", localidade)),
+    h("div", { class: "filtros-linha" },
+      campo("conf-regiao", "Sede", regiao),
+      campo("conf-sf", "Serviço de finanças (código)", servicoFinancas),
+      campo("conf-nif-cc", "NIF do contabilista certificado", nifContabilista),
+      campo("conf-nif-rep", "NIF do representante legal", nifRepresentante),
       gravar));
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -1157,7 +1199,8 @@ async function carregarObrigacoes(secao) {
       await enviar("/api/contabilidade/configuracao", {
         regime_iva: regime.value, fechado_ate: fechado.value || null, nif: nif.value.trim(),
         morada: morada.value.trim(), codigo_postal: codigoPostal.value.trim(), localidade: localidade.value.trim(),
-        niss: nissEmpresa.value.trim(),
+        niss: nissEmpresa.value.trim(), servico_financas: servicoFinancas.value.trim(),
+        nif_contabilista: nifContabilista.value.trim(), nif_representante: nifRepresentante.value.trim(), regiao_sede: regiao.value,
       }, "PUT");
       notificar("Configuração guardada.", "ok");
       invalidar("resumo", "iva");
@@ -1961,11 +2004,26 @@ async function abrirDeclaracoes(ano, mes) {
         td(euros(dmr.totais.retencao_irs), "num"), td(euros(dmr.totais.contribuicoes_obrigatorias), "num"))))),
     ...dmr.avisos.map((a) => h("p", { class: "erro-campo" }, icone("alerta"), a)),
     h("p", { class: "ajuda", texto: dmr.nota }),
+    blocoFicheiroDMR(ano, mes, dmr.ficheiro),
     h("p", {}, h("a", { class: "botao secundario", href: `/api/contabilidade/salarios/${ano}/${mes}/dmr.csv`, download: "" },
       icone("descarregar"), "Descarregar o mapa (CSV)")));
   const janela = janelaTemporaria(`Declarações de ${dmr.nome_mes}`, h("div", { class: "declaracoes-grelha" }, blocoSS, blocoDMR),
     async () => {}, "Fechar");
   janela.querySelector(".janela-botoes .secundario").hidden = true;
+}
+
+// Ficheiro oficial da DMR (formato de transferência eletrónica da AT), original ou de substituição
+function blocoFicheiroDMR(ano, mes, ficheiro) {
+  if (!ficheiro?.pronto) return h("p", { class: "erro-campo", role: "alert" }, icone("alerta"), ficheiro?.erro || "Ficheiro indisponível.");
+  const url = `/api/contabilidade/salarios/${ano}/${mes}/dmr.txt`;
+  const ligacao = h("a", { class: "botao", href: url, download: ficheiro.ficheiro }, icone("descarregar"), "Descarregar o ficheiro da DMR");
+  const substituicao = h("input", { type: "checkbox", id: "dmr-substituicao" });
+  substituicao.addEventListener("change", () => { ligacao.href = substituicao.checked ? `${url}?substituicao=true` : url; });
+  return h("div", { class: "ficheiro-dmr" },
+    h("p", { texto: `Ficheiro ${ficheiro.ficheiro} (formato oficial da AT), com ${ficheiro.linhas} linha(s): rendimentos ${euros(ficheiro.rendimentos)}, IRS retido ${euros(ficheiro.retencao_irs)}.` }),
+    h("label", { class: "opcao", for: "dmr-substituicao" }, substituicao, " Declaração de substituição (corrige uma DMR já entregue)"),
+    h("p", {}, ligacao),
+    h("p", { class: "ajuda", texto: "Entregue no Portal das Finanças: Entregar › Declarações › DMR › Enviar ficheiro. Prazo: dia 10 do mês seguinte." }));
 }
 
 async function mostrarProcessamento(caixa, dadosSalarios) {
