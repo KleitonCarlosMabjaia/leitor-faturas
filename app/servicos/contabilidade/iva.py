@@ -138,6 +138,26 @@ CAMPOS_AUTOLIQUIDADO = {  # conta -> (campo da base, campo do imposto, descriç�
 }
 CAMPO_AUTOLIQUIDACAO_INTERNA = ("102", "Operações em que liquidou o IVA por inversão do sujeito passivo (quadro 06-A)")
 
+# Vendas sem IVA na declaração periódica, pelo código do motivo de isenção da linha (SAF-T TaxExemptionCode):
+#   7 transmissões intracomunitárias de bens e serviços prestados noutros Estados-membros
+#   8 operações isentas ou não tributadas com direito à dedução (exportações, art. 13.º e 15.º do CIVA...)
+#   9 operações isentas sem direito à dedução (art. 9.º do CIVA)
+# M40/M41 (autoliquidação pelo adquirente) contam no 7 se o cliente for de outro Estado-membro, senão no 8.
+# M99 (não sujeitas) não entram na declaração. Os outros códigos ficam por classificar, com aviso.
+CAMPO_ISENCAO = {"M16": "7", "M04": "8", "M05": "8", "M06": "8", "M07": "9"}
+CODIGOS_AUTOLIQUIDACAO = ("M40", "M41")
+CODIGOS_FORA_DA_DECLARACAO = ("M99",)
+
+
+def campo_isencao(codigo: str | None, cliente_nif: str | None) -> str | None:
+    """Campo (7, 8 ou 9) de uma venda sem IVA, ou None se o código não permite decidir."""
+    codigo = (codigo or "").upper()
+    if codigo in CODIGOS_AUTOLIQUIDACAO:
+        prefixo = (cliente_nif or "")[:2].upper()
+        return "7" if prefixo in PREFIXOS_UE else "8"
+    return CAMPO_ISENCAO.get(codigo)
+
+
 # Prefixos dos números de IVA dos outros Estados-membros (a Grécia usa EL)
 PREFIXOS_UE = {"AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "EL", "ES", "FI", "FR", "HR", "HU", "IE", "IT",
                "LT", "LU", "LV", "MT", "NL", "PL", "RO", "SE", "SI", "SK", "XI"}

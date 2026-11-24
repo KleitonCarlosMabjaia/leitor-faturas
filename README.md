@@ -53,7 +53,7 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
 **Declarações de remunerações** (Salários › Declarações)
 - **Segurança Social:** ficheiro da declaração de remunerações no formato oficial das "Normas de preenchimento" (modelo RC4008, versão 01, registos R0/R1/R2/R3 de 118 caracteres), gerado a partir do processamento do mês, com um bloco por taxa contributiva. Exige o NISS da empresa (Obrigações fiscais › Configuração) e o NISS e a data de nascimento de cada pessoa.
 - **AT, DMR:** ficheiro no formato oficial de transferência eletrónica da AT ("Suporte informático DMR-AT" em vigor desde fevereiro de 2024: texto ASCII com registos 001 a 999 de 172 caracteres, valores em cêntimos), original ou de substituição. A DMR não tem formato XML: a AT só aceita este ficheiro de texto. Cada recibo dá linhas com os códigos das instruções de 2026 (Portaria n.º 69/2026/1): A (remuneração), A3 (subsídio de férias), A4 (subsídio de Natal) e A21 (refeição não sujeita), com o IRS retido de cada um (pelo detalhe da retenção) e as contribuições para a Segurança Social (NIPC 505305500). Exige o código do serviço de finanças e o NIF de cada pessoa. Mapa também em CSV.
-- **Declaração periódica do IVA:** ficheiro XML do esquema oficial `dpiva-06.xsd` (namespace `http://www.at.gov.pt/schemas/dpiva`), validado nos testes contra o XSD da AT, para abrir na aplicação do Portal das Finanças e submeter depois de rever. Valores em cêntimos; período `MM` (mensal) ou `MMT` (trimestral); campos 1 a 6, 10 a 17, 20 a 24, 40/41, 61 (crédito do período anterior), quadro 06-A e totais 90 a 96. Os campos 7 a 9 (isentas e transmissões intracomunitárias) e o anexo das regularizações ficam para completar na aplicação da AT, com aviso.
+- **Declaração periódica do IVA:** ficheiro XML do esquema oficial `dpiva-06.xsd` (namespace `http://www.at.gov.pt/schemas/dpiva`), validado nos testes contra o XSD da AT, para abrir na aplicação do Portal das Finanças e submeter depois de rever. Valores em cêntimos; período `MM` (mensal) ou `MMT` (trimestral); campos 1 a 6, 10 a 17, 20 a 24, 40/41, 61 (crédito do período anterior), quadro 06-A e totais 90 a 96. Os campos 7 a 9 vêm das vendas sem IVA, pelo motivo de isenção de cada linha (M16 e M40/M41 a clientes de outros Estados-membros no 7; M04, M05, M06 e M40/M41 fora da UE no 8; M07 no 9; M99 fica fora); outros motivos e o anexo das regularizações ficam para completar na aplicação da AT, com aviso.
 
 **Leitura das faturas**
 - Carregamento de PDFs por arrastar e largar (até 10 MB, vários de uma vez).
@@ -490,7 +490,7 @@ leitor-faturas/
 
 ## Próximos passos
 
-- Envio dos convites por email (SMTP, Resend ou Postmark).
-- Quota de leituras por IA por empresa e registo de atividade (quem fez o quê).
+- Tabelas de retenção de IRS das regiões autónomas (Açores e Madeira).
+- Declaração recapitulativa (operações intracomunitárias) e anexo das regularizações (campos 40/41) da declaração periódica.
+- Webhooks da API pública (avisar outros programas quando há faturas ou lançamentos novos).
 - Processamento em segundo plano para lotes grandes de faturas.
-- Leitura por IA de faturas digitalizadas sem QR (envio da imagem da página).

@@ -999,6 +999,14 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
     h("div", { class: "campo-dp" }, h("span", { class: "numero", texto: c.campo_imposto }), h("span", { class: "descricao", texto: `Imposto - ${c.descricao}` }), h("b", { texto: euros(c.imposto) })),
   ]));
 
+  const NOMES_ISENTAS = { 7: "Transmissões intracomunitárias e serviços noutros Estados-membros", 8: "Isentas ou não tributadas com direito à dedução (exportações...)", 9: "Isentas sem direito à dedução (art. 9.º do CIVA)" };
+  const isentas = Object.entries(d.isentas || {}).filter(([, v]) => v);
+  const blocoIsentas = isentas.length || d.isentas_por_classificar?.length ? h("div", {},
+    h("h3", { class: "secao-titulo-pequeno", texto: "Vendas sem IVA (pelo motivo de isenção)" }),
+    h("div", { class: "campos-dp" }, isentas.map(([campo, v]) => h("div", { class: "campo-dp" },
+      h("span", { class: "numero", texto: campo }), h("span", { class: "descricao", texto: NOMES_ISENTAS[campo] }), h("b", { texto: euros(v) })))),
+    ...(d.isentas_por_classificar || []).map((x) => h("p", { class: "ajuda", style: "display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.75rem" }, icone("alerta"),
+      `Motivo ${x.codigo}: ${euros(x.base)} por classificar (indique o campo na aplicação da AT).`))) : null;
   const autoliquidado = (d.autoliquidado || []).filter((c) => c.base || c.imposto);
   const blocoAutoliquidado = autoliquidado.length || d.quadro_06a?.base ? h("div", {},
     h("h3", { class: "secao-titulo-pequeno", texto: "IVA autoliquidado pela empresa (operações intracomunitárias e inversão do sujeito passivo)" }),
@@ -1041,6 +1049,7 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
     h("h3", { class: "secao-titulo-pequeno", texto: "IVA dedutível (a favor da empresa)" }), campos,
     h("h3", { class: "secao-titulo-pequeno", texto: "IVA liquidado (a favor do Estado)" }), liquidado,
     blocoAutoliquidado,
+    blocoIsentas,
     d.iva_nao_dedutivel ? h("p", { class: "ajuda", style: "margin-top:1rem" },
       `IVA não dedutível levado a gasto no período: ${euros(d.iva_nao_dedutivel)} (art. 21.º do CIVA). Não entra na declaração.`) : null,
     h("div", { class: "resultado-iva" },

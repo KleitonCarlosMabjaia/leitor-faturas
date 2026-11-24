@@ -9,6 +9,7 @@ Os lançamentos estornados continuam a contar, tal como os seus estornos: anulam
 ao outro, e o histórico fica completo (é assim que um auditor espera encontrá-lo).
 """
 
+import re
 from collections import defaultdict
 from datetime import date
 
@@ -31,6 +32,8 @@ from app.servicos.contabilidade.iva import (
     CAMPOS_AUTOLIQUIDADO,
     CAMPOS_DEDUTIVEL,
     CAMPOS_LIQUIDADO,
+    CODIGOS_FORA_DA_DECLARACAO,
+    campo_isencao,
     escalao,
 )
 
@@ -224,6 +227,27 @@ def mapa_iva(db: Session, empresa_id: int, de: date, ate: date) -> dict:
         .where(Lancamento.empresa_id == empresa_id, Lancamento.data >= de, Lancamento.data <= ate,
                Lancamento.origem != "apuramento", LinhaLancamento.tipo_iva.is_not(None))
     ).all()
+    isentas: dict[str, float] = defaultdict(float)
+    por_classificar: dict[str, float] = defaultdict(float)
+    linhas_isentas = db.execute(
+        select(LinhaLancamento.descricao, LinhaLancamento.debito, LinhaLancamento.credito, FaturaVenda.cliente_nif)
+        .join(LinhaLancamento.conta).join(LinhaLancamento.lancamento)
+        .outerjoin(FaturaVenda, FaturaVenda.id == Lancamento.venda_id)
+        .where(Lancamento.empresa_id == empresa_id, Lancamento.data >= de, Lancamento.data <= ate,
+               Lancamento.origem != "apuramento", LinhaLancamento.tipo_iva == "base",
+               func.coalesce(LinhaLancamento.taxa_iva, 0) == 0, Conta.codigo.like("7%"))
+    ).all()
+    for descricao, debito, credito, cliente_nif in linhas_isentas:
+        achado = re.search(r"\b(M\d{2})\b", descricao or "")
+        codigo = achado.group(1) if achado else None
+        if codigo in CODIGOS_FORA_DA_DECLARACAO:
+            continue
+        campo = campo_isencao(codigo, cliente_nif)
+        if campo:
+            isentas[campo] += credito - debito
+        else:
+            por_classificar[codigo or "sem código"] += credito - debito
+
     for tipo, taxa, debito, credito, codigo in linhas:
         if tipo == "iva_nd":
             nao_dedutivel += debito - credito
@@ -257,6 +281,8 @@ def mapa_iva(db: Session, empresa_id: int, de: date, ate: date) -> dict:
     return {
         "de": de, "ate": ate,
         "dedutivel": dedutivel, "liquidado": liquidado, "autoliquidado": autoliquidado,
+        "isentas": {c: _r(isentas.get(c, 0.0)) for c in ("7", "8", "9")},
+        "isentas_por_classificar": [{"codigo": c, "base": _r(v)} for c, v in sorted(por_classificar.items()) if _r(v)],
         "quadro_06a": {"campo": CAMPO_AUTOLIQUIDACAO_INTERNA[0], "descricao": CAMPO_AUTOLIQUIDACAO_INTERNA[1],
                        "base": _r(bases_autoliquidadas.get("base_al", 0.0))},
         "total_dedutivel": total_dedutivel, "total_liquidado": total_liquidado,

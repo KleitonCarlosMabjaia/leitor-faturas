@@ -134,6 +134,7 @@ def calcular(db: Session, empresa: Empresa, de: date, ate: date) -> Declaracao:
     # As aquisições intracomunitárias de bens são todas autoliquidadas pela empresa: o total (10/11) é o 12/13
     valores["10"], valores["11"] = valores.get("12", 0.0), valores.get("13", 0.0)
     valores["102"] = valores["106"] = mapa["quadro_06a"]["base"]
+    valores.update(mapa["isentas"])
 
     avisos = []
     movimentos_regularizacoes = relatorios.movimentos_por_conta(db, empresa.id, de, ate, excluir_origem="apuramento")
@@ -161,8 +162,10 @@ def calcular(db: Session, empresa: Empresa, de: date, ate: date) -> Declaracao:
     diferenca = campos["92"] - campos["91"]
     campos["93"], campos["94"] = max(diferenca, 0), max(-diferenca, 0)
     campos["96"] = campos["94"]  # sem pedido de reembolso, o crédito transita para o período seguinte
-    avisos.append("Operações isentas e transmissões intracomunitárias (campos 7 a 9) não são calculadas: "
-                  "acrescente-as na aplicação da AT, se as houver.")
+    for p in mapa["isentas_por_classificar"]:
+        valor = f"{p['base']:.2f}".replace(".", ",")
+        avisos.append(f"Vendas sem IVA com o motivo {p['codigo']} ({valor} €) não entram nos campos 7 a 9: "
+                      "indique-as no campo certo na aplicação da AT.")
     return Declaracao(de, ate, ano, periodo, {c: v for c, v in campos.items() if v}, avisos)
 
 

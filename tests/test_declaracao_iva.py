@@ -149,3 +149,36 @@ def test_dados_da_empresa_para_as_declaracoes(cliente):
     dados = r.json()
     assert dados["servico_financas"] == "3085" and dados["nif_contabilista"] == "123456789"
     assert dados["regiao_sede"] == "acores"
+
+
+def test_vendas_sem_iva_nos_campos_7_a_9(cliente, fabrica_sessoes, empresa_teste):
+    _empresa(fabrica_sessoes, empresa_teste)
+
+    def venda(numero, nif, isencao, base, tipo="FT"):
+        r = cliente.post("/api/contabilidade/vendas", json={
+            "tipo": tipo, "numero": numero, "data": "2026-11-10", "cliente_nif": nif, "cliente_nome": "Cliente",
+            "linhas": [{"taxa": 0, "base": base, "conta": "721", "isencao": isencao}]})
+        assert r.status_code == 201, r.text
+
+    venda("A/1", "ESB12345678", "M16", 1000)        # transmissão intracomunitária: campo 7
+    venda("A/2", "DE123456789", "M40", 500)         # serviço a empresa de outro Estado-membro: campo 7
+    venda("A/3", "US12345", "M40", 300)             # serviço fora da UE: campo 8
+    venda("A/4", "234567899", "M05", 200)           # exportação: campo 8
+    venda("A/5", "234567899", "M07", 150)           # isenta do art. 9.º: campo 9
+    venda("A/6", "234567899", "M99", 80)            # não sujeita: fora da declaração
+    venda("A/7", "234567899", "M30", 70)            # outro código: aviso para classificar
+    venda("NC/1", "ESB12345678", "M16", 100, tipo="NC")
+
+    periodo = {"de": "2026-10-01", "ate": "2026-12-31"}
+    d = cliente.get("/api/contabilidade/iva/declaracao", params=periodo).json()
+    campos = {c["campo"]: c["valor"] for c in d["campos"]}
+    assert campos["7"] == 1400 and campos["8"] == 500 and campos["9"] == 150
+    assert campos["90"] == 2050
+    assert any("M30" in a and "70,00" in a for a in d["avisos"])
+    assert not any("M99" in a for a in d["avisos"])
+    raiz = validar(cliente.get("/api/contabilidade/iva/declaracao.xml", params=periodo).content)
+    apuramento = "d:rosto/d:apuramento/d:"
+    assert valor(raiz, apuramento + "btTransmissoesUEIsentas") == "140000"
+    assert valor(raiz, apuramento + "btOperacoesIsentasComDeducao") == "50000"
+    assert valor(raiz, apuramento + "btOperacoesIsentasSemDeducao") == "15000"
+    assert valor(raiz, apuramento + "temOperacoesSemLiqImposto") == "S"
