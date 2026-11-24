@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documentação da API · Dobra</title>
+  <meta name="description" content="API pública do Dobra: faturas, lançamentos, balancete e movimentos bancários para ligar outros programas.">
+  <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.2">
+</head>
+<body class="site">
+  <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
+  <header class="site-topo">
+    <div class="site-largura site-topo-interior">
+      <a class="site-marca" href="/apresentacao" aria-label="Dobra, página inicial"><img src="/static/logo.svg" alt="" width="32" height="32"><span>Dobra</span></a>
+      <div class="site-topo-acoes"><a class="site-ligacao" href="/entrar">Entrar</a></div>
+    </div>
+  </header>
+
+  <main id="conteudo" class="legal documentacao-api">
+    <div class="site-largura estreito">
+      <h1>API do Dobra</h1>
+      <p class="atualizado">Versão 1 · <a href="/api/v1/openapi.json">contrato OpenAPI (JSON)</a></p>
+
+      <h2>Para que serve</h2>
+      <p>Ligar outros programas aos dados da sua empresa no Dobra: levar as faturas e os lançamentos para um ERP ou para o Power BI, ou enviar movimentos bancários de outro agregador para a reconciliação.</p>
+
+      <h2>Autenticação</h2>
+      <p>Um administrador cria a chave na página <strong>Equipa</strong>, em <strong>API e integrações</strong>. A chave pertence a uma empresa e tem permissão <strong>só de leitura</strong> ou de <strong>leitura e escrita</strong>. Envie-a em todos os pedidos:</p>
+      <pre><code id="exemplo-curl">curl https://o-seu-endereco/api/v1/empresa \
+  -H "Authorization: Bearer dobra_..."</code></pre>
+      <ul>
+        <li>Guarde a chave como uma palavra-passe. Pode revogá-la a qualquer momento: o acesso termina logo.</li>
+        <li>Há um limite de pedidos por minuto e por chave. Acima dele a resposta é <code>429</code>, com o cabeçalho <code>Retry-After</code>.</li>
+        <li>As listas são paginadas com <code>pagina</code> e <code>por_pagina</code> (até 200). A resposta traz <code>dados</code> e <code>total</code>.</li>
+        <li>Datas em <code>AAAA-MM-DD</code>, montantes em euros. Os erros vêm sempre em JSON: <code>{"detail": "mensagem"}</code>.</li>
+      </ul>
+
+      <h2>Respostas de erro</h2>
+      <table>
+        <thead><tr><th scope="col">Código</th><th scope="col">Quando</th></tr></thead>
+        <tbody>
+          <tr><td><code>401</code></td><td>Chave em falta, inválida ou revogada.</td></tr>
+          <tr><td><code>402</code></td><td>Subscrição com pagamento em falta: a empresa só pode consultar.</td></tr>
+          <tr><td><code>403</code></td><td>A chave não tem permissão de escrita, ou o plano da empresa não inclui esses dados.</td></tr>
+          <tr><td><code>404</code></td><td>O documento não existe nesta empresa.</td></tr>
+          <tr><td><code>409</code></td><td>O pedido não respeita uma regra contabilística (ex.: conta que não é de bancos).</td></tr>
+          <tr><td><code>422</code></td><td>Dados inválidos (o campo <code>detail</code> indica qual).</td></tr>
+          <tr><td><code>429</code></td><td>Demasiados pedidos: espere os segundos indicados em <code>Retry-After</code>.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Pontos de acesso</h2>
+      <div id="rotas"><p>A carregar…</p></div>
+    </div>
+  </main>
+
+  <script src="/static/documentacao-api.js?v=2026-11-24.2"></script>
+</body>
+</html>

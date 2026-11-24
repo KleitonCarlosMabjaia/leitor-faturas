@@ -510,3 +510,22 @@ def test_declaracoes_de_remuneracoes(page: Page):
     expect(janela).to_contain_text("RC4008")
     expect(janela.get_by_role("link", name="Descarregar o ficheiro")).to_be_visible()
     expect(janela).to_contain_text("declaração mensal de remunerações")
+
+
+def test_ligacao_direta_ao_banco_simulado(page: Page, erros_js):
+    page.goto("/contabilidade#bancos")
+    cartao = page.locator("#cartao-open-banking")
+    expect(cartao).to_contain_text("Banco simulado (demonstração)")
+    cartao.get_by_role("button", name="Ligar ao banco").click()
+    expect(page.locator("#ob-banco")).to_have_value("Banco de Demonstração")
+    page.get_by_role("button", name="Continuar para o banco").click()
+    # O banco simulado devolve logo à aplicação, que sincroniza sozinha
+    expect(page.get_by_text("Conta bancária ligada.")).to_be_visible()
+    expect(page.locator("#cartao-open-banking")).to_contain_text("Ligada")
+    expect(page.locator("#cartao-open-banking")).to_contain_text("PT50 •••• 0017")
+    assert "open_banking" not in page.url
+    page.locator("#cartao-open-banking").get_by_role("button", name="Desligar").click()
+    page.locator("dialog").get_by_role("button", name="Desligar").click()
+    expect(page.get_by_text("Ligação ao banco desligada.")).to_be_visible()
+    expect(page.locator("#cartao-open-banking").get_by_role("button", name="Ligar ao banco")).to_be_visible()
+    assert not erros_js

@@ -29,6 +29,7 @@ from app.db import SessaoLocal, get_db, preparar_base_dados
 from app.dependencias import utilizador_opcional
 from app.modelos.tabelas import PAPEL_ADMIN, Utilizador
 from app.rotas import (
+    api_publica,
     auth,
     conta,
     contabilidade,
@@ -92,14 +93,15 @@ app = FastAPI(
 # Respostas comprimidas (JSON da contabilidade, JS e CSS): 4 a 8 vezes menos dados na rede
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.mount("/static", StaticFiles(directory=config.STATIC_DIR), name="static")
-for modulo in (auth, conta, empresas, faturas, fornecedores, dashboard, contabilidade, gestao, equipa, subscricao):
+for modulo in (auth, conta, empresas, faturas, fornecedores, dashboard, contabilidade, gestao, equipa, subscricao,
+               api_publica):
     app.include_router(modulo.router)
 
 
 PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/gestao",
                 "/equipa", "/conta", "/subscricao", "/registar", "/entrar",
                 "/definir-palavra-passe",
-                "/apresentacao", "/privacidade", "/termos", "/offline"}
+                "/apresentacao", "/privacidade", "/termos", "/offline", "/documentacao-api"}
 
 # Política de segurança de conteúdo: só scripts, estilos, tipos de letra e imagens da própria
 # aplicação. Um script injetado (XSS) não corre nem consegue enviar dados para outro site.
@@ -133,7 +135,8 @@ def _origem_estrangeira(request: Request) -> bool:
 
 
 # Rotas que continuam a funcionar com a subscrição em "só leitura" (entrar, conta, pagar, exportar)
-LIVRES_DO_BLOQUEIO = ("/api/auth/", "/api/conta/", "/api/subscricao", "/api/stripe/", "/api/registo", "/api/empresas")
+LIVRES_DO_BLOQUEIO = ("/api/auth/", "/api/conta/", "/api/subscricao", "/api/stripe/", "/api/registo", "/api/empresas",
+                      "/api/v1/")   # a API pública verifica o bloqueio pela empresa da chave
 
 
 def _motivo_so_leitura(request: Request) -> str | None:
@@ -171,7 +174,10 @@ def _registar_atividade(request: Request) -> None:
 @app.middleware("http")
 async def cabecalhos_seguranca(request: Request, call_next):
     """Cabeçalhos HTTP que reduzem ataques comuns no navegador."""
-    if request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/") and _origem_estrangeira(request):
+    # A API pública (/api/v1) autentica-se só pela chave no cabeçalho Authorization, nunca pelo cookie:
+    # não há risco de CSRF e pode ser chamada de outros programas e sites
+    if (request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/")
+            and not request.url.path.startswith("/api/v1/") and _origem_estrangeira(request)):
         return JSONResponse(status_code=403, content={"detail": "Pedido recusado: origem não autorizada."})
     if request.method in METODOS_QUE_ALTERAM and request.url.path.startswith("/api/"):
         motivo = await run_in_threadpool(_motivo_so_leitura, request)
@@ -280,6 +286,37 @@ def pagina_privacidade():
 @app.get("/termos", include_in_schema=False)
 def pagina_termos():
     return HTMLResponse(_pagina_publica("termos.html"))
+
+
+@app.get("/documentacao-api", include_in_schema=False)
+def pagina_documentacao_api():
+    """Documentação da API pública, gerada no navegador a partir de /api/v1/openapi.json."""
+    return _pagina("documentacao-api.html")
+
+
+@app.get("/api/v1/openapi.json", include_in_schema=False)
+def contrato_api_publica():
+    return api_publica.contrato()
+
+
+@app.get("/open-banking/retorno", include_in_schema=False)
+def retorno_open_banking(request: Request, state: str = "", code: str | None = None, error: str | None = None,
+                         utilizador: Utilizador | None = Depends(utilizador_opcional),
+                         db: Session = Depends(get_db)):
+    """O banco devolve aqui o utilizador depois de autorizar (ou recusar) o acesso às contas."""
+    from app.servicos.contabilidade import open_banking
+
+    if utilizador is None:
+        return RedirectResponse("/entrar?voltar=/contabilidade", status_code=303)
+    try:
+        lig = open_banking.concluir(db, utilizador.empresa_id, state[:100], code and code[:500], error)
+    except open_banking.ErroOpenBanking as erro:
+        db.commit()
+        return RedirectResponse(f"/contabilidade?open_banking=erro&mensagem={quote(str(erro))}#bancos",
+                                status_code=303)
+    db.commit()
+    resultado = "escolher" if lig.contas_disponiveis and not lig.conta_externa else "ligado"
+    return RedirectResponse(f"/contabilidade?open_banking={resultado}#bancos:{lig.conta_codigo}", status_code=303)
 
 
 @app.get("/faturas/{id_fatura}", include_in_schema=False)

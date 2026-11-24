@@ -18,7 +18,7 @@ from app.db import get_db
 from app.dependencias import admin_atual
 from app.modelos.esquemas import MembroSaida
 from app.modelos.tabelas import PAPEL_ADMIN, PAPEL_MEMBRO, AcessoEmpresa, Utilizador
-from app.servicos import atividade, autenticacao, email, empresas, subscricoes
+from app.servicos import atividade, autenticacao, chaves_api, email, empresas, subscricoes
 
 router = APIRouter(prefix="/api/equipa", tags=["equipa"])
 
@@ -205,3 +205,36 @@ def registo_de_atividade(
 ):
     """Últimas 200 ações da empresa (as mais recentes primeiro). antes_de: para carregar mais."""
     return atividade.listar(db, admin.empresa_id, antes_de=antes_de)
+
+
+# ---------- Chaves da API pública ----------
+
+class ChaveNova(BaseModel):
+    nome: str = Field(min_length=1, max_length=80)
+    permissao: Literal["leitura", "escrita"] = "leitura"
+
+
+@router.get("/chaves-api")
+def listar_chaves(db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    """Chaves ativas da API pública desta empresa (nunca a chave completa)."""
+    return [chaves_api.chave_dict(c) for c in chaves_api.listar(db, admin.empresa_id)]
+
+
+@router.post("/chaves-api", status_code=201)
+def criar_chave(dados: ChaveNova, db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    """Cria uma chave. A resposta traz a chave completa: é a única vez que aparece."""
+    try:
+        chave, texto = chaves_api.criar(db, admin.empresa_id, dados.nome, dados.permissao, admin.id)
+    except chaves_api.ErroChave as erro:
+        raise HTTPException(status_code=400, detail=str(erro))
+    db.commit()
+    return {**chaves_api.chave_dict(chave), "chave": texto}
+
+
+@router.delete("/chaves-api/{chave_id}", status_code=204)
+def revogar_chave(chave_id: int, db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    try:
+        chaves_api.revogar(db, admin.empresa_id, chave_id)
+    except chaves_api.ErroChave as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+    db.commit()

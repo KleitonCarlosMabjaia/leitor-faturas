@@ -59,6 +59,11 @@ services:
         sync: false
       - key: EMAIL_REMETENTE        # ex.: Dobra <nao-responder@o-seu-dominio.pt> (domínio verificado no Resend)
         sync: false
+      - key: ENABLE_BANKING_APP_ID  # open banking (opcional): ID da aplicação na Enable Banking
+        sync: false
+      - key: ENABLE_BANKING_CHAVE_PRIVADA  # chave privada RSA em PEM (com 
+ no lugar das mudanças de linha)
+        sync: false
 
   # Cópia de segurança diária às 03:00 (UTC). Guarda em copias/ no bucket e mantém as últimas 30.
   - type: cron
@@ -101,4 +106,24 @@ services:
       - key: RESEND_API_KEY
         sync: false
       - key: EMAIL_REMETENTE
+        sync: false
+
+  # Open banking: movimentos novos de todas as contas ligadas, todos os dias às 06:00 (UTC). Opcional.
+  - type: cron
+    name: leitor-faturas-bancos
+    runtime: docker
+    plan: starter
+    region: frankfurt
+    schedule: "0 6 * * *"
+    dockerCommand: python -m app.sincronizar_bancos
+    envVars:
+      - key: AMBIENTE
+        value: producao
+      - key: URL_BASE_DADOS
+        sync: false
+      - key: URL_PUBLICO
+        sync: false
+      - key: ENABLE_BANKING_APP_ID
+        sync: false
+      - key: ENABLE_BANKING_CHAVE_PRIVADA
         sync: false

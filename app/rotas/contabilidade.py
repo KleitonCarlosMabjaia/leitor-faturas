@@ -9,7 +9,7 @@ utilizador como 409 com a explicação em português.
 from datetime import date, timedelta
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, Response, UploadFile
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -55,6 +55,7 @@ from app.servicos.contabilidade import (
     iva,
     lancamentos,
     obrigacoes,
+    open_banking,
     periodizacao,
     plano_snc,
     relatorios,
@@ -1586,6 +1587,94 @@ def reconciliar_automaticamente(dados: ContaBanco, db: Session = Depends(get_db)
         raise _erro(erro)
     db.commit()
     return {**contagem, "total": sum(contagem.values())}
+
+
+# ---------- Open banking: ligação direta às contas bancárias ----------
+
+class LigacaoNova(BaseModel):
+    conta: str = Field(pattern=r"^1[23]\d+$")
+    banco: str = Field(min_length=1, max_length=120)
+    pais: str = Field("PT", pattern=r"^[A-Z]{2}$")
+
+
+class ContaDaLigacao(BaseModel):
+    uid: str = Field(min_length=1, max_length=100)
+
+
+@router.get("/open-banking")
+def estado_open_banking(conta: str | None = Query(None, pattern=r"^1[123]\d+$"), db: Session = Depends(get_db),
+                        utilizador: Utilizador = Depends(utilizador_atual)):
+    """Se a ligação direta aos bancos está disponível e as ligações da empresa (ou de uma conta)."""
+    f = open_banking.fornecedor()
+    return {"disponivel": f is not None, "simulado": f is not None and f.nome == open_banking.Simulado.nome,
+            "ligacoes": [open_banking.ligacao_dict(x) for x in open_banking.listar(db, utilizador.empresa_id, conta)]}
+
+
+@router.get("/open-banking/bancos")
+def bancos_open_banking(pais: str = Query("PT", pattern=r"^[A-Z]{2}$")):
+    try:
+        return open_banking.bancos(pais)
+    except open_banking.ErroOpenBanking as erro:
+        raise HTTPException(status_code=409, detail=str(erro))
+
+
+@router.post("/open-banking/ligacoes", status_code=201)
+def ligar_banco(dados: LigacaoNova, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    """Começa a ligação: devolve o endereço do banco onde o utilizador autoriza o acesso (só leitura)."""
+    empresa = _empresa(db, utilizador)
+    try:
+        lig, url = open_banking.iniciar(db, empresa, dados.conta, dados.banco, dados.pais, utilizador.id)
+    except (open_banking.ErroOpenBanking, lancamentos.ErroContabilistico) as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return {"id": lig.id, "url": url}
+
+
+@router.post("/open-banking/ligacoes/{ligacao_id}/conta")
+def escolher_conta_banco(ligacao_id: int, dados: ContaDaLigacao, db: Session = Depends(get_db),
+                         utilizador: Utilizador = Depends(utilizador_atual)):
+    try:
+        lig = open_banking.obter(db, utilizador.empresa_id, ligacao_id)
+        open_banking.escolher_conta(db, lig, dados.uid)
+    except open_banking.ErroOpenBanking as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return open_banking.ligacao_dict(lig)
+
+
+@router.post("/open-banking/ligacoes/{ligacao_id}/sincronizar")
+def sincronizar_banco(ligacao_id: int, request: Request, db: Session = Depends(get_db),
+                      utilizador: Utilizador = Depends(utilizador_atual)):
+    """Traz os movimentos novos do banco para a reconciliação."""
+    empresa = _empresa(db, utilizador)
+    try:
+        lig = open_banking.obter(db, empresa.id, ligacao_id)
+    except open_banking.ErroOpenBanking as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+    try:
+        r = open_banking.sincronizar(db, empresa, lig, utilizador.id, request.client.host if request.client else None)
+    except open_banking.ErroOpenBanking as erro:
+        db.commit()   # guarda o estado da ligação (expirada ou com erro), sem movimentos a meio
+        raise _erro(erro)
+    except lancamentos.ErroContabilistico as erro:
+        db.rollback()
+        raise _erro(erro)
+    db.commit()
+    return {"importados": r.importados, "lidos": r.lidos, "desde": r.desde, "ate": r.ate,
+            "ligacao": open_banking.ligacao_dict(lig)}
+
+
+@router.delete("/open-banking/ligacoes/{ligacao_id}", status_code=204)
+def desligar_banco(ligacao_id: int, db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    """Desliga a conta (e termina a autorização no banco). Os movimentos já importados ficam."""
+    try:
+        lig = open_banking.obter(db, utilizador.empresa_id, ligacao_id)
+    except open_banking.ErroOpenBanking as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+    open_banking.desligar(lig)
+    db.commit()
 
 
 @router.get("/banco/reconciliacao")

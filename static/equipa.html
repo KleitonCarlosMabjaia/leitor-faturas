@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Dobra">
   <link rel="apple-touch-icon" href="/static/icones/apple-touch-icon.png">
-  <script src="/static/tema.js?v=2026-11-24.1"></script>
+  <script src="/static/tema.js?v=2026-11-24.2"></script>
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-24.1">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-24.2">
 </head>
 <body data-pagina="equipa">
   <header id="barra"></header>
@@ -77,6 +77,37 @@
       </div>
     </section>
 
+    <section class="cartao" aria-labelledby="titulo-api">
+      <div class="cartao-cabecalho">
+        <div>
+          <h2 id="titulo-api">API e integrações</h2>
+          <p class="subtitulo">Chaves para ligar outros programas (ERP, BI, faturação, agregadores bancários) aos dados desta empresa. <a href="/documentacao-api" target="_blank" rel="noopener">Ver a documentação da API</a></p>
+        </div>
+        <button type="button" class="botao" id="nova-chave"><span data-icone="cadeado"></span>Criar chave</button>
+      </div>
+      <div class="caixa-link" id="caixa-chave" hidden>
+        <p><strong>Copie a chave agora:</strong> por segurança, não volta a ser mostrada.</p>
+        <div class="linha-link">
+          <input id="chave-criada" readonly aria-label="Chave da API criada">
+          <button type="button" class="botao secundario" id="copiar-chave"><span data-icone="copiar"></span>Copiar</button>
+        </div>
+        <p class="ajuda">Guarde-a no programa que a vai usar, como uma palavra-passe. Envie-a no cabeçalho <code>Authorization: Bearer …</code>.</p>
+      </div>
+      <div class="tabela-caixa">
+        <table class="tabela responsiva">
+          <thead>
+            <tr>
+              <th scope="col">Chave</th>
+              <th scope="col">Permissão</th>
+              <th scope="col">Último uso</th>
+              <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody id="chaves"></tbody>
+        </table>
+      </div>
+    </section>
+
     <section class="cartao" aria-labelledby="titulo-atividade">
       <div class="cartao-cabecalho">
         <div>
@@ -93,7 +124,7 @@
     </section>
   </main>
 
-  <script src="/static/comum.js?v=2026-11-24.1"></script>
-  <script src="/static/equipa.js?v=2026-11-24.1"></script>
+  <script src="/static/comum.js?v=2026-11-24.2"></script>
+  <script src="/static/equipa.js?v=2026-11-24.2"></script>
 </body>
 </html>

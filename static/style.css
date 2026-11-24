@@ -2084,3 +2084,11 @@ tr.inativo td { color: var(--tinta-fraca); }
 .proposta-escolha .campo[hidden] { display: none; }
 .proposta-escolha.com-centro { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
 @media (max-width: 900px) { .proposta-escolha.com-centro { grid-template-columns: minmax(0, 1fr); } }
+.ligacao-banco { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .75rem 1.5rem; }
+.ligacao-banco > .ajuda { margin: 0; flex: 1 1 18rem; }
+.dados-ligacao { display: grid; grid-template-columns: repeat(4, minmax(0, auto)); gap: .25rem 2rem; margin: 0; }
+.dados-ligacao dt { font-size: .75rem; color: var(--tinta-suave); }
+.dados-ligacao dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.botoes-ligacao { display: flex; flex-wrap: wrap; gap: .5rem; }
+.etiquetas { display: flex; flex-wrap: wrap; gap: .4rem; }
+@media (max-width: 900px) { .dados-ligacao { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

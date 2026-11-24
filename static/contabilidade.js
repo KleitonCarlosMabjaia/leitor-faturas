@@ -2775,13 +2775,156 @@ function linhaMapa(rotulo, valor, sinal = "", destaque = false) {
   return h("tr", { class: destaque ? "agregadora" : null }, td(rotulo), td(valor === null ? "—" : `${sinal}${euros(valor)}`, "num"));
 }
 
+// ---------- Open banking: ligação direta ao banco ----------
+
+const sincronizadasNestaVisita = new Set();
+
+function avisoRegressoDoBanco() {
+  // O banco devolve o utilizador a /contabilidade?open_banking=...#bancos:121
+  const params = new URLSearchParams(location.search);
+  const resultado = params.get("open_banking");
+  if (!resultado) return;
+  if (resultado === "ligado") notificar("Conta bancária ligada. A trazer os movimentos do banco…", "ok");
+  else if (resultado === "escolher") notificar("O banco autorizou várias contas: escolha qual liga a esta conta.", "info");
+  else notificar(params.get("mensagem") || "Não foi possível ligar ao banco.", "erro");
+  history.replaceState(null, "", `${location.pathname}${location.hash}`);
+}
+
+async function pedirLigacao(banco) {
+  const r = await enviar("/api/contabilidade/open-banking/ligacoes", { conta: contaBanco, banco });
+  location.href = r.url;   // site do banco (ou regresso imediato no banco simulado)
+}
+
+function escolherBanco() {
+  const seletor = h("select", { id: "ob-banco", required: true }, h("option", { value: "" }, "A carregar os bancos…"));
+  const janela = janelaTemporaria("Ligar ao banco", h("div", {},
+    campoJanela("ob-banco", "Banco", seletor),
+    h("p", { class: "ajuda", texto: "Vai entrar no site do seu banco para autorizar o acesso, só de leitura, aos saldos e movimentos desta conta. O Dobra nunca vê as suas credenciais nem pode fazer pagamentos." })),
+  async () => {
+    if (!seletor.value) throw new Error("Escolha o banco.");
+    await pedirLigacao(seletor.value);
+  }, "Continuar para o banco");
+  obter("/api/contabilidade/open-banking/bancos").then((bancos) => {
+    preencher(seletor, h("option", { value: "" }, "Escolha o banco"), ...bancos.map((b) => h("option", { value: b.nome }, b.nome)));
+    if (bancos.length === 1) seletor.value = bancos[0].nome;
+    seletor.focus();
+  }).catch((erro) => {
+    janela.close();
+    notificar(erro.message, "erro");
+  });
+}
+
+async function sincronizarLigacao(lig, botaoSinc, silencioso = false) {
+  if (botaoSinc) ocupado(botaoSinc, true);
+  sincronizadasNestaVisita.add(lig.id);
+  try {
+    const r = await enviar(`/api/contabilidade/open-banking/ligacoes/${lig.id}/sincronizar`, {});
+    if (r.importados || !silencioso) {
+      notificar(r.importados ? `${r.importados} movimento${r.importados === 1 ? "" : "s"} novo${r.importados === 1 ? "" : "s"} do banco.`
+        : "Sem movimentos novos no banco.", "ok");
+    }
+    if (r.importados) {
+      filtroBanco = "pendente";
+      invalidar("resumo");
+    }
+    if (r.importados || !silencioso) await mostrar("bancos", true);
+  } catch (erro) {
+    notificar(erro.message, "erro");
+    await mostrar("bancos", true);
+  }
+}
+
+function cartaoLigacaoBanco(ob) {
+  if (!ob || !ob.disponivel) return null;
+  const lig = ob.ligacoes.find((x) => x.estado !== "pendente");
+  const deposito = /^1[23]/.test(contaBanco);
+  const cabecalho = (estado) => h("div", { class: "cartao-cabecalho" },
+    h("div", {}, h("h2", { texto: "Ligação direta ao banco" }),
+      h("p", { class: "subtitulo", texto: "Open banking (PSD2): os movimentos chegam sozinhos, sem exportar extratos. Acesso só de leitura, autorizado no site do banco." })),
+    estado);
+  const etiquetaSimulado = ob.simulado ? criarEtiqueta("Banco simulado (demonstração)", "info", "banco") : null;
+
+  if (!lig) {
+    const ligar = h("button", { type: "button", class: "botao", disabled: !deposito }, icone("banco"), "Ligar ao banco");
+    ligar.addEventListener("click", escolherBanco);
+    return h("section", { class: "cartao", id: "cartao-open-banking" }, cabecalho(etiquetaSimulado),
+      h("div", { class: "ligacao-banco" },
+        h("p", { class: "ajuda", texto: deposito ? `Ligue a conta ${contaBanco} à conta correspondente no banco. A autorização dura até 180 dias e pode ser renovada.`
+          : "Escolha uma conta de depósitos à ordem (12x) para a ligar ao banco." }),
+        ligar));
+  }
+
+  if (lig.estado === "escolher") {
+    const contas = h("select", { id: "ob-conta" }, lig.contas_disponiveis.map((c) =>
+      h("option", { value: c.uid }, [c.nome, c.iban, c.moeda].filter(Boolean).join(" · "))));
+    const usar = h("button", { type: "button", class: "botao" }, icone("check"), "Ligar esta conta");
+    usar.addEventListener("click", async () => {
+      ocupado(usar, true);
+      try {
+        const escolhida = await enviar(`/api/contabilidade/open-banking/ligacoes/${lig.id}/conta`, { uid: contas.value });
+        await sincronizarLigacao(escolhida, null);
+      } catch (erro) {
+        notificar(erro.message, "erro");
+        ocupado(usar, false);
+      }
+    });
+    return h("section", { class: "cartao", id: "cartao-open-banking" }, cabecalho(criarEtiqueta("Falta escolher a conta", "aviso", "alerta")),
+      h("div", { class: "filtros-linha" }, h("div", { class: "campo largo" }, h("label", { for: "ob-conta", texto: `Conta de ${lig.banco} a ligar à conta ${contaBanco}` }), contas), usar));
+  }
+
+  const estados = {
+    ativa: criarEtiqueta("Ligada", "ok", "check"),
+    erro: criarEtiqueta("Erro na última sincronização", "erro", "erro"),
+    expirada: criarEtiqueta("Autorização expirada", "aviso", "alerta"),
+  };
+  const sincronizar = h("button", { type: "button", class: "botao", disabled: lig.estado === "expirada" }, icone("atualizar"), "Sincronizar agora");
+  sincronizar.addEventListener("click", () => sincronizarLigacao(lig, sincronizar));
+  const renovar = h("button", { type: "button", class: lig.estado === "expirada" ? "botao" : "botao secundario" }, icone("cadeado"), "Renovar autorização");
+  renovar.addEventListener("click", async () => {
+    ocupado(renovar, true);
+    try {
+      await pedirLigacao(lig.banco);
+    } catch (erro) {
+      notificar(erro.message, "erro");
+      ocupado(renovar, false);
+    }
+  });
+  const desligar = h("button", { type: "button", class: "botao fantasma" }, "Desligar");
+  desligar.addEventListener("click", async () => {
+    const ok = await confirmar({ titulo: `Desligar ${lig.banco}?`, texto: "A autorização no banco termina e os movimentos deixam de chegar sozinhos. Os que já foram importados ficam.", botao: "Desligar", perigo: true });
+    if (!ok) return;
+    const r = await api(`/api/contabilidade/open-banking/ligacoes/${lig.id}`, { method: "DELETE" });
+    if (!r.ok) return notificar(await lerErro(r, "Não foi possível desligar."), "erro");
+    notificar("Ligação ao banco desligada.", "ok");
+    mostrar("bancos", true);
+  });
+  const quando = (d) => (d ? new Date(d).toLocaleString("pt-PT", { dateStyle: "short", timeStyle: "short" }) : "nunca");
+  const cartao = h("section", { class: "cartao", id: "cartao-open-banking" },
+    cabecalho(h("div", { class: "etiquetas" }, etiquetaSimulado, estados[lig.estado] || null)),
+    h("div", { class: "ligacao-banco" },
+      h("dl", { class: "dados-ligacao" },
+        h("div", {}, h("dt", { texto: "Banco" }), h("dd", { texto: lig.banco })),
+        h("div", {}, h("dt", { texto: "Conta" }), h("dd", { texto: lig.iban || "—" })),
+        h("div", {}, h("dt", { texto: "Última sincronização" }), h("dd", { texto: quando(lig.ultima_sincronizacao) })),
+        h("div", {}, h("dt", { texto: "Autorização válida até" }), h("dd", { texto: lig.valido_ate ? formatarData(lig.valido_ate.slice(0, 10)) : "—" }))),
+      h("div", { class: "botoes-ligacao" }, sincronizar, renovar, desligar)),
+    lig.estado === "erro" && lig.ultimo_erro ? h("p", { class: "erro-campo", texto: lig.ultimo_erro }) : null);
+  // Sincroniza sozinha quando a última leitura tem mais de 12 horas (uma vez por visita)
+  if (lig.desatualizada && !sincronizadasNestaVisita.has(lig.id)) {
+    setTimeout(() => sincronizarLigacao(lig, sincronizar, true), 0);
+  }
+  return cartao;
+}
+
 async function carregarBancos(secao) {
+  avisoRegressoDoBanco();
   const [contasBanco] = await Promise.all([obter("/api/contabilidade/banco/contas"), obterContas()]);
   if (!contasBanco.some((c) => c.codigo === contaBanco)) contaBanco = contasBanco[0]?.codigo || "121";
-  const [dados, mapa, importacoes] = await Promise.all([
+  const [dados, mapa, importacoes, openBanking] = await Promise.all([
     obter(`/api/contabilidade/banco/movimentos?conta=${contaBanco}${filtroBanco ? `&estado=${filtroBanco}` : ""}`),
     obter(`/api/contabilidade/banco/reconciliacao?conta=${contaBanco}`),
     obter(`/api/contabilidade/banco/extratos?conta=${contaBanco}`),
+    obter(`/api/contabilidade/open-banking?conta=${contaBanco}`).catch(() => null),
   ]);
   const conta = contasBanco.find((c) => c.codigo === contaBanco) || { saldo: 0, por_reconciliar: 0 };
 
@@ -2893,6 +3036,7 @@ async function carregarBancos(secao) {
       indicador("Por reconciliar", String(conta.por_reconciliar), "movimentos do banco", "relogio"),
       indicador("Diferença por explicar", diferenca === null ? "—" : euros(diferenca),
         diferenca === null ? "sem saldo do banco" : Math.abs(diferenca) < 0.005 ? "tudo explicado" : "desaparece à medida que reconcilia", "balanca")),
+    cartaoLigacaoBanco(openBanking),
     h("section", { class: "cartao" },
       h("div", { class: "cartao-cabecalho" },
         h("div", {}, h("h2", { texto: "Importar extrato" }),

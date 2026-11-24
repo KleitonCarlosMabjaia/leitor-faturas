@@ -51,6 +51,7 @@ class LimitePedidos:
 
 login = LimitePedidos(*config.LIMITE_LOGIN)
 envios = LimitePedidos(*config.LIMITE_ENVIOS)
+api = LimitePedidos(*config.LIMITE_API)
 
 
 def verificar(limite: LimitePedidos, chave: str) -> None:
@@ -68,3 +69,4 @@ def verificar(limite: LimitePedidos, chave: str) -> None:
 def limpar_todos() -> None:
     login.limpar()
     envios.limpar()
+    api.limpar()

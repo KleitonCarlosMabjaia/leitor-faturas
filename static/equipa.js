@@ -228,5 +228,79 @@ function desenharAtividade() {
 document.getElementById("filtro-atividade").addEventListener("input", desenharAtividade);
 document.getElementById("mais-atividade").addEventListener("click", () => carregarAtividade());
 
+// ---------- Chaves da API pública ----------
+
+async function carregarChaves() {
+  const corpoChaves = document.getElementById("chaves");
+  let chaves;
+  try {
+    chaves = await obter("/api/equipa/chaves-api");
+  } catch (erro) {
+    return notificar(erro.message, "erro");
+  }
+  preencher(corpoChaves, ...(chaves.length ? chaves.map((c) => {
+    const revogar = botaoTexto("Revogar", `Revogar a chave ${c.nome}`, async (b) => {
+      const sim = await confirmar({
+        titulo: `Revogar a chave ${c.nome}?`,
+        texto: "O programa que a usa deixa de ter acesso imediatamente. Não é possível desfazer.",
+        botao: "Revogar", perigo: true,
+      });
+      if (!sim) return;
+      ocupado(b, true);
+      const r = await api(`/api/equipa/chaves-api/${c.id}`, { method: "DELETE" });
+      if (!r.ok) {
+        ocupado(b, false);
+        return notificar(await lerErro(r, "Não foi possível revogar a chave."), "erro");
+      }
+      notificar(`Chave ${c.nome} revogada.`, "ok");
+      carregarChaves();
+    }, "perigo");
+    return h("tr", {},
+      h("td", { class: "nome" },
+        h("div", {}, h("span", { class: "titulo", texto: c.nome }),
+          h("span", { class: "detalhe" }, h("code", { texto: `${c.prefixo}…` }), ` · criada a ${formatarData(c.criada_em.slice(0, 10))}`))),
+      h("td", { "data-rotulo": "Permissão:" }, c.permissao === "escrita"
+        ? criarEtiqueta("Leitura e escrita", "aviso", "enviar") : criarEtiqueta("Só leitura", "ok", "olho")),
+      h("td", { "data-rotulo": "Último uso:", texto: c.ultimo_uso ? formatoAcesso.format(new Date(c.ultimo_uso)) : "Nunca" }),
+      h("td", { class: "num acoes" }, revogar));
+  }) : [h("tr", {}, h("td", { colspan: "4", class: "ajuda", texto: "Ainda não há chaves. Crie uma para ligar outro programa." }))]));
+}
+
+document.getElementById("nova-chave").addEventListener("click", () => {
+  const nome = h("input", { id: "chave-nome", maxlength: "80", autocomplete: "off", placeholder: "Ex.: Power BI, ERP da loja", required: true });
+  const permissao = h("select", { id: "chave-permissao" },
+    h("option", { value: "leitura" }, "Só leitura (consultar dados)"),
+    h("option", { value: "escrita" }, "Leitura e escrita (também enviar movimentos bancários)"));
+  janelaTemporaria("Criar chave da API", h("div", {},
+    campoJanela("chave-nome", "Nome (o programa que a vai usar)", nome),
+    campoJanela("chave-permissao", "Permissão", permissao),
+    h("p", { class: "ajuda", texto: "A chave dá acesso aos dados desta empresa. Dê-a só a programas em que confia e revogue-a quando deixar de ser precisa." })),
+  async () => {
+    if (!nome.value.trim()) throw new Error("Dê um nome à chave.");
+    const criada = await enviar("/api/equipa/chaves-api", { nome: nome.value.trim(), permissao: permissao.value });
+    const campo = document.getElementById("chave-criada");
+    campo.value = criada.chave;
+    document.getElementById("caixa-chave").hidden = false;
+    campo.select();
+    notificar("Chave criada. Copie-a agora: não volta a ser mostrada.", "ok");
+    carregarChaves();
+  }, "Criar chave");
+  nome.focus();
+});
+
+document.getElementById("copiar-chave").addEventListener("click", async (e) => {
+  const b = e.currentTarget;
+  const campo = document.getElementById("chave-criada");
+  try {
+    await navigator.clipboard.writeText(campo.value);
+    b.replaceChildren(icone("check"), "Copiado");
+    setTimeout(() => b.replaceChildren(icone("copiar"), "Copiar"), 2000);
+  } catch {
+    campo.select();
+    notificar("Selecione a chave e copie com Ctrl+C.", "info");
+  }
+});
+
 carregar();
 carregarAtividade(true);
+carregarChaves();

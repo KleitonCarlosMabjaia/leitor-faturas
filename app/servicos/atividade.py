@@ -23,6 +23,7 @@ IGNORAR = (
     re.compile(r"^/api/contabilidade/assistente$"),
     re.compile(r"^/api/contabilidade/salarios/simular$"),
     re.compile(r"^/api/conta/"),
+    re.compile(r"^/api/v1/"),   # API pública: registada pela própria rota, em nome da chave
 )
 
 ACOES: list[tuple[str, str, str]] = [
@@ -63,6 +64,12 @@ ACOES: list[tuple[str, str, str]] = [
     ("POST", r"^/api/contabilidade/banco/movimentos/(?P<id>\d+)/desfazer$", "Desfez a reconciliação do movimento {id}"),
     ("POST", r"^/api/contabilidade/banco/reconciliar-automaticamente$", "Reconciliou o banco automaticamente"),
     ("DELETE", r"^/api/contabilidade/banco/extratos/(?P<id>\d+)$", "Apagou o extrato {id}"),
+    ("POST", r"^/api/contabilidade/open-banking/ligacoes$", "Pediu a ligação direta a um banco"),
+    ("POST", r"^/api/contabilidade/open-banking/ligacoes/(?P<id>\d+)/conta$",
+     "Escolheu a conta da ligação bancária {id}"),
+    ("POST", r"^/api/contabilidade/open-banking/ligacoes/(?P<id>\d+)/sincronizar$",
+     "Sincronizou os movimentos do banco (ligação {id})"),
+    ("DELETE", r"^/api/contabilidade/open-banking/ligacoes/(?P<id>\d+)$", "Desligou a ligação bancária {id}"),
     ("POST", r"^/api/contabilidade/salarios/funcionarios$", "Registou uma pessoa no pessoal"),
     ("PUT", r"^/api/contabilidade/salarios/funcionarios/(?P<id>\d+)$", "Alterou a ficha da pessoa {id}"),
     ("DELETE", r"^/api/contabilidade/salarios/funcionarios/(?P<id>\d+)$", "Apagou a ficha da pessoa {id}"),
@@ -87,6 +94,8 @@ ACOES: list[tuple[str, str, str]] = [
     ("POST", r"^/api/equipa$", "Convidou um colega"),
     ("POST", r"^/api/equipa/(?P<id>\d+)/link$", "Gerou um novo link de acesso para o utilizador {id}"),
     ("PATCH", r"^/api/equipa/(?P<id>\d+)$", "Alterou o acesso do utilizador {id}"),
+    ("POST", r"^/api/equipa/chaves-api$", "Criou uma chave da API"),
+    ("DELETE", r"^/api/equipa/chaves-api/(?P<id>\d+)$", "Revogou a chave da API {id}"),
 ]
 _ACOES = [(m, re.compile(p), d) for m, p, d in ACOES]
 

@@ -712,3 +712,65 @@ class LinhaOrcamento(Base):
     ano: Mapped[int] = mapped_column()
     rubrica: Mapped[str] = mapped_column(String(30))
     valores: Mapped[list] = mapped_column(JSON)   # 12 valores, de janeiro a dezembro
+
+
+# ---------- Integrações: API pública e open banking ----------
+
+PERMISSAO_LEITURA = "leitura"
+PERMISSAO_ESCRITA = "escrita"
+
+
+class ChaveApi(Base):
+    """
+    Chave da API pública (/api/v1) de uma empresa, para ligar outros programas. Guarda-se só o
+    hash SHA-256: a chave completa é mostrada uma única vez, quando é criada.
+    """
+
+    __tablename__ = "chaves_api"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    nome: Mapped[str] = mapped_column(String(80))
+    prefixo: Mapped[str] = mapped_column(String(20))            # início da chave, para a reconhecer na lista
+    hash_chave: Mapped[str] = mapped_column(String(64), unique=True)
+    permissao: Mapped[str] = mapped_column(String(10), default=PERMISSAO_LEITURA)
+    criada_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+    criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    ultimo_uso: Mapped[datetime | None] = mapped_column(DateTime)
+    revogada_em: Mapped[datetime | None] = mapped_column(DateTime)
+
+
+LIGACAO_PENDENTE = "pendente"            # à espera da autorização no site do banco
+LIGACAO_ESCOLHER_CONTA = "escolher"      # autorizada, com várias contas: falta escolher uma
+LIGACAO_ATIVA = "ativa"
+LIGACAO_EXPIRADA = "expirada"            # o consentimento PSD2 terminou: é preciso renovar
+LIGACAO_REVOGADA = "revogada"
+LIGACAO_ERRO = "erro"
+
+
+class LigacaoBancaria(Base):
+    """
+    Ligação direta a uma conta bancária (open banking, PSD2): os movimentos chegam sozinhos à
+    reconciliação bancária, sem exportar extratos. Uma ligação por conta SNC (12x).
+    """
+
+    __tablename__ = "ligacoes_bancarias"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    conta_codigo: Mapped[str] = mapped_column(String(20))
+    fornecedor: Mapped[str] = mapped_column(String(20))         # enablebanking | simulado
+    banco: Mapped[str] = mapped_column(String(120))
+    pais: Mapped[str] = mapped_column(String(2), default="PT")
+    estado: Mapped[str] = mapped_column(String(10), default=LIGACAO_PENDENTE)
+    # Parâmetro "state" do OAuth: liga o regresso do banco a este pedido (uso único)
+    estado_oauth: Mapped[str | None] = mapped_column(String(64), unique=True)
+    sessao_externa: Mapped[str | None] = mapped_column(String(100))
+    conta_externa: Mapped[str | None] = mapped_column(String(100))
+    iban: Mapped[str | None] = mapped_column(String(40))
+    contas_disponiveis: Mapped[list | None] = mapped_column(JSON)   # [{uid, iban, nome, moeda}]
+    valido_ate: Mapped[datetime | None] = mapped_column(DateTime)   # fim do consentimento no banco
+    ultima_sincronizacao: Mapped[datetime | None] = mapped_column(DateTime)
+    ultimo_erro: Mapped[str | None] = mapped_column(String(300))
+    criada_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+    criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)

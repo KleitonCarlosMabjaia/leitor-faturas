@@ -97,6 +97,8 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
 - **IVA autoliquidado**: serviços de fornecedores de outros Estados-membros (sugerido pelo número de IVA estrangeiro), aquisições intracomunitárias de bens e inversão do sujeito passivo (construção civil), com os campos 12/13, 16/17 e o quadro 06-A no mapa da declaração periódica.
 - **Comunicação do inventário à AT**: ficheiro CSV da Portaria n.º 2/2015 gerado a partir da contagem.
 - **Reconciliação bancária com importação de extratos** em CSV, Excel ou OFX, como os bancos os exportam: colunas, separadores, codificação, números ("1.234,56") e datas reconhecidos sozinhos, e a IA identifica as colunas de formatos desconhecidos. Reimportar o mesmo extrato não duplica movimentos. Para cada movimento há sugestões: **associar** a um lançamento com o mesmo valor e data próxima, **pagar a fatura** em aberto com esse total (o pagamento fica com a data do banco) ou **lançar** numa conta (comissões, Imposto do Selo, Segurança Social...), com a escolha **memorizada** para o mesmo tipo de movimento nos meses seguintes. A **reconciliação automática** só aplica o que não tem dúvidas, e o **mapa de reconciliação** explica a diferença entre o saldo do banco e o da contabilidade.
+- **Ligação direta ao banco (open banking, PSD2)** pela [Enable Banking](https://enablebanking.com), que agrega os bancos portugueses e europeus: o utilizador escolhe o banco, autoriza no site do próprio banco o acesso **só de leitura** (até 180 dias, renovável) e os movimentos chegam sozinhos à reconciliação bancária: ao abrir a página Bancos, se a última leitura tiver mais de 12 horas, e todos os dias com `python -m app.sincronizar_bancos`. Não há duplicados: os movimentos repetidos são ignorados, e a primeira leitura continua a partir do último extrato importado por ficheiro. Quando o banco não envia o saldo, este é deduzido do último extrato. Consentimento expirado, cancelado no banco ou com várias contas autorizadas (escolhe-se uma) têm o seu próprio estado. Na demonstração há um **banco simulado**.
+- **API pública REST** (`/api/v1`) para ligar outros programas (ERP, BI, agregadores bancários): chaves por empresa criadas pelos administradores na página Equipa (guardadas só como hash, só de leitura ou também de escrita, revogáveis), limite de pedidos por chave, listas paginadas de faturas de compra, vendas, plano de contas, lançamentos, balancete e movimentos bancários, e envio de movimentos bancários sem duplicados. Documentação em `/documentacao-api` e contrato OpenAPI em `/api/v1/openapi.json`, publicados também em produção.
 - **SAF-T (PT) da contabilidade** (versão 1.04_01, Portaria n.º 302/2016): plano de contas com saldos de abertura e de fecho, categorias GR/GA/GM e **códigos da taxonomia S**, fornecedores e todos os lançamentos do exercício. Antes de gerar, a aplicação diz o que falta (NIF, morada, contas sem taxonomia). O ficheiro é validado nos testes contra o **XSD oficial da AT**.
 - **Calendário fiscal** (IVA mensal ou trimestral, SAF-T, DMR, retenções, Segurança Social, Modelo 22, IES, pagamentos por conta) com os prazos **ajustados a fins de semana e feriados**, incluindo a Páscoa e o Corpo de Deus.
 - **Assistente com IA:** responde a perguntas ("quanto IVA vou pagar?", "a quem devo e há quanto tempo?") consultando o balancete, os extratos e o IVA através de ferramentas só de leitura, e **propõe lançamentos** que só ficam gravados depois de o utilizador carregar em "Lançar".
@@ -281,6 +283,7 @@ A demonstração e a versão dos clientes são **serviços separados**, a partir
 | SAF-T | NIF e nome de quem produz o programa (opcional; sem eles, usam-se os da empresa) | `SAFT_NIF_PRODUTOR`, `SAFT_NOME_PRODUTOR` |
 | Emails (convites, recuperação da palavra-passe, nova sessão, alertas de prazos) | Resend, com o domínio verificado; alertas diários com `python -m app.alertas` | `RESEND_API_KEY`, `EMAIL_REMETENTE` |
 | Página de apresentação e páginas legais | Quem presta o serviço, email comercial e endereço da demonstração | `EMPRESA_RESPONSAVEL`, `EMAIL_COMERCIAL`, `URL_DEMO` |
+| Open banking (opcional) | Enable Banking (aplicação de produção, com o regresso `URL_PUBLICO/open-banking/retorno`); sincronização diária com `python -m app.sincronizar_bancos` | `ENABLE_BANKING_APP_ID`, `ENABLE_BANKING_CHAVE_PRIVADA` |
 
 O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.
 
@@ -312,6 +315,8 @@ alembic upgrade head                                # ou simplesmente arrancar a
 Um teste confirma que as migrações e os modelos não divergem.
 
 ## API
+
+A **API pública** para outros programas está em `/api/v1`, com chave (`Authorization: Bearer dobra_...`) e documentação em `/documentacao-api`. As rotas abaixo são as internas da aplicação, autenticadas pelo cookie de sessão.
 
 | Método | Endereço | Descrição |
 | --- | --- | --- |

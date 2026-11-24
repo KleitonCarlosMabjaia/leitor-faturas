@@ -115,3 +115,14 @@ DIAS_EXPERIMENTAIS = int(os.getenv("DIAS_EXPERIMENTAIS", "30"))
 DIAS_TOLERANCIA_PAGAMENTO = 7        # dias com pagamento em atraso antes do bloqueio suave
 # Registo online de empresas novas (página /registar). Desligue com REGISTO_ABERTO=0 para só convites.
 REGISTO_ABERTO = os.getenv("REGISTO_ABERTO", "1").lower() in ("1", "true", "sim")
+
+# Open banking (PSD2): ligação direta às contas bancárias pela Enable Banking (https://enablebanking.com).
+# ID da aplicação e chave privada RSA (texto PEM, com "\n" no lugar das mudanças de linha, ou caminho
+# do ficheiro). O endereço de regresso a registar na Enable Banking é URL_PUBLICO + /open-banking/retorno.
+ENABLE_BANKING_APP_ID = os.getenv("ENABLE_BANKING_APP_ID", "").strip()
+ENABLE_BANKING_CHAVE_PRIVADA = os.getenv("ENABLE_BANKING_CHAVE_PRIVADA", "").strip()
+# Banco simulado (sem dinheiro real nem ligação externa): ativo na demonstração ou com OPEN_BANKING_SIMULADO=1
+OPEN_BANKING_SIMULADO = os.getenv("OPEN_BANKING_SIMULADO", "").lower() in ("1", "true", "sim")
+
+# API pública (/api/v1): pedidos por chave e por minuto
+LIMITE_API = (int(os.getenv("LIMITE_API_POR_MINUTO", "300")), 60)

@@ -74,13 +74,29 @@ def importar(db: Session, empresa: Empresa, conta_codigo: str, conteudo: bytes, 
              saldo_final: float | None = None, utilizador_id: int | None = None) -> ResultadoImportacao:
     verificar_conta(db, empresa.id, conta_codigo)
     lido = extratos.ler(conteudo, nome_ficheiro)
+    return gravar(db, empresa, conta_codigo, lido, nome_ficheiro, saldo_final, utilizador_id)
+
+
+def novos(db: Session, empresa_id: int, conta_codigo: str, movimentos: list[extratos.MovimentoLido]) -> list[int]:
+    """Posições dos movimentos que ainda não existem (sincronizações sobrepostas não duplicam)."""
+    refs = extratos.referencias(conta_codigo, movimentos)
+    existentes = set(db.scalars(select(MovimentoBancario.referencia).where(
+        MovimentoBancario.empresa_id == empresa_id, MovimentoBancario.conta_codigo == conta_codigo,
+        MovimentoBancario.referencia.in_(refs),
+    )))
+    return [i for i, r in enumerate(refs) if r not in existentes]
+
+
+def gravar(db: Session, empresa: Empresa, conta_codigo: str, lido: extratos.ExtratoLido, nome: str,
+           saldo_final: float | None = None, utilizador_id: int | None = None) -> ResultadoImportacao:
+    """Grava os movimentos lidos (de um ficheiro, do banco ou da API) como uma importação, sem duplicar."""
     refs = extratos.referencias(conta_codigo, lido.movimentos)
     existentes = set(db.scalars(select(MovimentoBancario.referencia).where(
         MovimentoBancario.empresa_id == empresa.id, MovimentoBancario.conta_codigo == conta_codigo,
         MovimentoBancario.referencia.in_(refs),
     )))
     extrato = ExtratoBancario(
-        empresa_id=empresa.id, conta_codigo=conta_codigo, nome_ficheiro=nome_ficheiro[:200], formato=lido.formato,
+        empresa_id=empresa.id, conta_codigo=conta_codigo, nome_ficheiro=nome[:200], formato=lido.formato,
         data_inicio=lido.data_inicio, data_fim=lido.data_fim,
         saldo_final=saldo_final if saldo_final is not None else lido.saldo_final, importado_por_id=utilizador_id,
     )
