@@ -285,6 +285,7 @@ A demonstração e a versão dos clientes são **serviços separados**, a partir
 | SAF-T | NIF e nome de quem produz o programa (opcional; sem eles, usam-se os da empresa) | `SAFT_NIF_PRODUTOR`, `SAFT_NOME_PRODUTOR` |
 | Emails (convites, recuperação da palavra-passe, nova sessão, alertas de prazos) | Resend, com o domínio verificado; alertas diários com `python -m app.alertas` | `RESEND_API_KEY`, `EMAIL_REMETENTE` |
 | Página de apresentação e páginas legais | Quem presta o serviço, email comercial e endereço da demonstração | `EMPRESA_RESPONSAVEL`, `EMAIL_COMERCIAL`, `URL_DEMO` |
+| Pagamentos das subscrições | Stripe: um preço mensal recorrente por plano, o portal do cliente ativo e um webhook para `URL_PUBLICO/api/stripe/webhook` com os eventos `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.paid` e `invoice.payment_failed` | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PRECO_ESSENCIAL`, `STRIPE_PRECO_CONTABILIDADE`, `STRIPE_IVA_AUTOMATICO` |
 | Open banking (opcional) | Enable Banking (aplicação de produção, com o regresso `URL_PUBLICO/open-banking/retorno`); sincronização diária com `python -m app.sincronizar_bancos` | `ENABLE_BANKING_APP_ID`, `ENABLE_BANKING_CHAVE_PRIVADA` |
 
 O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.
@@ -490,6 +491,5 @@ leitor-faturas/
 
 - Envio dos convites por email (SMTP, Resend ou Postmark).
 - Quota de leituras por IA por empresa e registo de atividade (quem fez o quê).
-- Pagamentos e planos por empresa (Stripe).
 - Processamento em segundo plano para lotes grandes de faturas.
 - Leitura por IA de faturas digitalizadas sem QR (envio da imagem da página).

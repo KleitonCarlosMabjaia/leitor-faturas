@@ -59,10 +59,19 @@ services:
         sync: false
       - key: EMAIL_REMETENTE        # ex.: Dobra <nao-responder@o-seu-dominio.pt> (domínio verificado no Resend)
         sync: false
+      - key: STRIPE_SECRET_KEY      # pagamentos das subscrições: sk_test_... ou sk_live_...
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET  # whsec_... do endpoint URL_PUBLICO/api/stripe/webhook
+        sync: false
+      - key: STRIPE_PRECO_ESSENCIAL  # price_... (19 €/mês)
+        sync: false
+      - key: STRIPE_PRECO_CONTABILIDADE  # price_... (49 €/mês)
+        sync: false
+      - key: STRIPE_IVA_AUTOMATICO  # 1 para o Stripe Tax acrescentar o IVA (opcional)
+        sync: false
       - key: ENABLE_BANKING_APP_ID  # open banking (opcional): ID da aplicação na Enable Banking
         sync: false
-      - key: ENABLE_BANKING_CHAVE_PRIVADA  # chave privada RSA em PEM (com 
- no lugar das mudanças de linha)
+      - key: ENABLE_BANKING_CHAVE_PRIVADA  # chave privada RSA em PEM (com \n no lugar das mudanças de linha)
         sync: false
 
   # Cópia de segurança diária às 03:00 (UTC). Guarda em copias/ no bucket e mantém as últimas 30.
