@@ -133,6 +133,28 @@ def lancamento_dict(la: Lancamento) -> dict:
     }
 
 
+def _centro_sugerido(db: Session, empresa_id: int, fatura: Fatura) -> dict | None:
+    centro = centros.memorizado(db, empresa_id, fatura.nif_fornecedor)
+    return {"id": centro.id, "codigo": centro.codigo, "nome": centro.nome} if centro else None
+
+
+def _aplicar_centro(db: Session, empresa_id: int, fatura: Fatura, lancamento: Lancamento, centro_id: int | None,
+                    escolhido: bool) -> None:
+    """
+    Centro de custo das linhas de gasto: o escolhido (que fica memorizado para o fornecedor) ou, sem
+    escolha, o memorizado da última vez.
+    """
+    if not escolhido:
+        centro = centros.memorizado(db, empresa_id, fatura.nif_fornecedor)
+        centro_id = centro.id if centro else None
+    elif centro_id is not None:
+        centros.validar_para_atribuir(db, empresa_id, centro_id)
+    if centro_id is not None:
+        centros.atribuir_ao_lancamento(lancamento, centro_id)
+    if escolhido:
+        centros.memorizar(db, empresa_id, fatura.nif_fornecedor, centro_id)
+
+
 def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = False) -> dict:
     """Classificação sugerida e pré-visualização das linhas, sem gravar nada."""
     c = classificacao.classificar(db, empresa.id, fatura, usar_ia=usar_ia)
@@ -156,6 +178,7 @@ def _proposta(db: Session, empresa: Empresa, fatura: Fatura, usar_ia: bool = Fal
             "regime_iva": regime, "regime_nome": iva.REGIMES[regime],
         },
         "diferimento": periodizacao.proposta_dict(diferimento),
+        "centro": _centro_sugerido(db, empresa.id, fatura),
         "linhas": [{
             "conta": ln.conta_codigo, "nome": contas[ln.conta_codigo].nome if ln.conta_codigo in contas else "",
             "debito": round(ln.debito, 2), "credito": round(ln.credito, 2), "descricao": ln.descricao,
@@ -406,11 +429,9 @@ def contabilizar(
         )
         if escolha.diferimento:
             _diferir_fatura(db, empresa, fatura, lancamento, escolha.diferimento, utilizador.id)
-        if escolha.centro_custo_id is not None:
-            if centros.obter(db, empresa.id, escolha.centro_custo_id) is None:
-                raise lancamentos.ErroContabilistico("Centro de custo não encontrado.")
-            centros.atribuir_ao_lancamento(lancamento, escolha.centro_custo_id)
-    except (lancamentos.ErroContabilistico, periodizacao.ErroPeriodizacao) as erro:
+        _aplicar_centro(db, empresa.id, fatura, lancamento, escolha.centro_custo_id,
+                        "centro_custo_id" in escolha.model_fields_set)
+    except (lancamentos.ErroContabilistico, periodizacao.ErroPeriodizacao, centros.ErroCentro) as erro:
         db.rollback()
         raise _erro(erro)
     db.commit()
@@ -437,6 +458,8 @@ def diferir_fatura(id_fatura: str, dados: Diferir, db: Session = Depends(get_db)
 
 class Lote(BaseModel):
     ids: list[str] = Field(min_length=1, max_length=200)
+    # Centro escolhido em cada cartão ({id da fatura: centro ou null}); sem entrada, usa-se o memorizado
+    centros: dict[str, int | None] = Field(default_factory=dict)
 
 
 @router.post("/contabilizar-lote")
@@ -449,10 +472,12 @@ def contabilizar_lote(lote: Lote, db: Session = Depends(get_db), utilizador: Uti
         try:
             fatura = _fatura(db, utilizador, id_fatura)
             lancamento = lancamentos.contabilizar_fatura(db, empresa, fatura, utilizador_id=utilizador.id)
+            _aplicar_centro(db, empresa.id, fatura, lancamento, lote.centros.get(id_fatura),
+                            id_fatura in lote.centros)
             db.commit()
             resultados.append({"id": id_fatura, "ok": True,
                                "referencia": f"{lancamento.diario} {lancamento.ano}/{lancamento.numero}"})
-        except (HTTPException, lancamentos.ErroContabilistico) as erro:
+        except (HTTPException, lancamentos.ErroContabilistico, centros.ErroCentro) as erro:
             db.rollback()
             resultados.append({"id": id_fatura, "ok": False, "erro": getattr(erro, "detail", None) or str(erro)})
     return {"resultados": resultados, "contabilizadas": sum(r["ok"] for r in resultados)}

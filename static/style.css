@@ -2079,3 +2079,8 @@ tr.inativo td { color: var(--tinta-fraca); }
 .declaracoes-grelha { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 640px) { .barras { gap: 0.1875rem; } .barras-coluna:nth-child(even) .barras-rotulo { visibility: hidden; } .barras-rotulo { font-size: 0.625rem; } }
 #janela-temporaria [hidden] { display: none !important; }
+.etiqueta-mini { margin-left: .4rem; padding: 0 .4rem; border-radius: 999px; font-size: .7rem; font-weight: 600;
+  background: var(--cor-contab-fundo); color: var(--cor-contab); vertical-align: middle; }
+.proposta-escolha .campo[hidden] { display: none; }
+.proposta-escolha.com-centro { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+@media (max-width: 900px) { .proposta-escolha.com-centro { grid-template-columns: minmax(0, 1fr); } }

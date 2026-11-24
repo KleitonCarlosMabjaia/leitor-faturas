@@ -431,17 +431,36 @@ function cartaoProposta(p, aoContabilizar) {
   selPerfil.addEventListener("change", marcarAlterado);
   selRegime.addEventListener("change", marcarAlterado);
 
+  // Centro de custo (contabilidade analítica): sugerido pelo último usado com este fornecedor
+  const idCentro = `centro-${f.id}`;
+  const ativos = centrosCusto.filter((x) => x.ativo);
+  const selCentro = ativos.length ? h("select", { id: idCentro, class: "seletor-centro-proposta" },
+    h("option", { value: "" }, "Sem centro de custo"),
+    ativos.map((x) => h("option", { value: String(x.id) }, `${x.codigo} · ${x.nome}`))) : null;
+  const campoCentro = selCentro ? h("div", { class: "campo" },
+    h("label", { for: idCentro }, "Centro de custo", p.centro ? h("span", { class: "etiqueta-mini", texto: "memorizado" }) : null), selCentro) : null;
+  if (selCentro) {
+    selCentro.value = p.centro ? String(p.centro.id) : "";
+    // Só as contas de gasto (6) e de compras (31) entram na analítica
+    const atualizarCentro = () => { campoCentro.hidden = !/^(6|31)/.test(selConta.value); };
+    selConta.addEventListener("change", atualizarCentro);
+    atualizarCentro();
+  }
+
   const botaoLancar = h("button", { type: "button", class: "botao" }, icone("check"), "Contabilizar");
   botaoLancar.addEventListener("click", async () => {
     ocupado(botaoLancar, true);
     try {
       const corpo = alterado || c.origem !== "regra" ? { conta_codigo: selConta.value, perfil_iva: selPerfil.value } : {};
       corpo.regime_iva = selRegime.value;
+      if (selCentro && !campoCentro.hidden) corpo.centro_custo_id = selCentro.value ? Number(selCentro.value) : null;
       const escolhaDiferimento = diferir.valor();
       if (escolhaDiferimento) corpo.diferimento = escolhaDiferimento;
       const la = await enviar(`/api/contabilidade/faturas/${f.id}/contabilizar`, corpo);
-      notificar(`Lançado: ${la.referencia} (${f.fornecedor || "fornecedor"})${corpo.diferimento ? `, repartido por ${corpo.diferimento.meses} meses` : ""}.`, "ok");
+      const centro = corpo.centro_custo_id ? centrosCusto.find((x) => x.id === corpo.centro_custo_id) : null;
+      notificar(`Lançado: ${la.referencia} (${f.fornecedor || "fornecedor"})${centro ? ` no centro ${centro.codigo}` : ""}${corpo.diferimento ? `, repartido por ${corpo.diferimento.meses} meses` : ""}.`, "ok");
       if (corpo.diferimento) invalidar("periodizacao", "balanco");
+      if (centro) invalidar("centros");
       aoContabilizar(cartao);
     } catch (erro) {
       notificar(erro.message, "erro");
@@ -480,10 +499,10 @@ function cartaoProposta(p, aoContabilizar) {
         h("h3", {}, h("a", { href: `/faturas/${f.id}`, texto: f.fornecedor || `NIF ${f.nif || "—"}` })),
         h("p", { class: "subtitulo", texto: `${f.documento} · ${formatarData(f.data_emissao)} · ${euros(f.total)}${f.paga ? " · paga" : ""}` })),
       origem),
-    h("div", { class: "proposta-escolha" },
+    h("div", { class: selCentro ? "proposta-escolha com-centro" : "proposta-escolha" },
       h("div", { class: "campo" }, h("label", { for: idConta, texto: "Conta de gasto / compra" }), selConta),
       h("div", { class: "campo" }, h("label", { for: idPerfil, texto: "IVA (art. 21.º CIVA)" }), selPerfil),
-      campoRegime,
+      campoRegime, campoCentro,
       h("div", { class: "cabecalho-acoes" }, botaoIA, botaoLancar)),
     explicacao, avisos, diferir.elemento, detalhe);
   return cartao;
@@ -541,9 +560,11 @@ function abrirDiferirFatura(x) {
 }
 
 async function carregarPorContabilizar(secao) {
-  const [propostas, saude] = await Promise.all([
-    obter("/api/contabilidade/por-contabilizar"), obter("/api/saude"), obterContas(), obterPerfis(),
+  const [propostas, saude, listaCentros] = await Promise.all([
+    obter("/api/contabilidade/por-contabilizar"), obter("/api/saude"),
+    obter("/api/contabilidade/centros").catch(() => []), obterContas(), obterPerfis(),
   ]);
+  centrosCusto = listaCentros;
   iaDisponivel = saude.ia_configurada;
   atualizarContador(propostas.length);
   if (!propostas.length) {
@@ -571,16 +592,22 @@ async function carregarPorContabilizar(secao) {
   const memorizadas = propostas.filter((p) => p.classificacao.origem === "regra").length;
   const botaoLote = h("button", { type: "button", class: "botao" }, icone("check"), "Contabilizar todas com a sugestão");
   botaoLote.addEventListener("click", async () => {
-    const ids = [...lista.querySelectorAll(".proposta")].map((c) => c.dataset.id);
+    const cartoes = [...lista.querySelectorAll(".proposta")];
+    const ids = cartoes.map((c) => c.dataset.id);
+    const centros = {};
+    for (const c of cartoes) {
+      const sel = c.querySelector(".seletor-centro-proposta");
+      if (sel && !sel.closest(".campo").hidden) centros[c.dataset.id] = sel.value ? Number(sel.value) : null;
+    }
     const ok = await confirmar({
       titulo: "Contabilizar todas?",
-      texto: `Vão ser lançadas ${ids.length} faturas com a conta e o IVA sugeridos em cada uma. Pode estornar qualquer lançamento depois.`,
+      texto: `Vão ser lançadas ${ids.length} faturas com a conta e o IVA sugeridos em cada uma${Object.keys(centros).length ? " e o centro de custo escolhido no cartão" : ""}. Pode estornar qualquer lançamento depois.`,
       botao: "Contabilizar",
     });
     if (!ok) return;
     ocupado(botaoLote, true);
     try {
-      const r = await enviar("/api/contabilidade/contabilizar-lote", { ids });
+      const r = await enviar("/api/contabilidade/contabilizar-lote", { ids, centros });
       for (const res of r.resultados) if (res.ok) lista.querySelector(`.proposta[data-id="${res.id}"]`)?.remove();
       const falhas = r.resultados.filter((x) => !x.ok);
       notificar(`${r.contabilizadas} fatura${r.contabilizadas === 1 ? "" : "s"} contabilizada${r.contabilizadas === 1 ? "" : "s"}.`
@@ -597,7 +624,7 @@ async function carregarPorContabilizar(secao) {
   preencher(secao, h("section", { class: "cartao" },
     h("div", { class: "cartao-cabecalho" }, titulo, h("div", { class: "barra-lote" },
       h("span", { class: "ajuda", texto: `${memorizadas} com classificação memorizada` }), botaoLote)),
-    h("p", { class: "ajuda", texto: "A conta e o IVA são sugeridos pelo que a aplicação aprendeu com cada fornecedor, pelo nome do fornecedor ou pela IA. O que escolher fica memorizado para as próximas faturas do mesmo NIF." }),
+    h("p", { class: "ajuda", texto: `A conta e o IVA são sugeridos pelo que a aplicação aprendeu com cada fornecedor, pelo nome do fornecedor ou pela IA.${centrosCusto.some((x) => x.ativo) ? " O centro de custo vai para as linhas de gasto e de compras." : ""} O que escolher fica memorizado para as próximas faturas do mesmo NIF.` }),
     lista));
   atualizarTitulo();
 }

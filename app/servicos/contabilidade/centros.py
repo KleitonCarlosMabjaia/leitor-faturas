@@ -14,7 +14,7 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.modelos.tabelas import LANCAMENTO_ATIVO, CentroCusto, Conta, Lancamento, LinhaLancamento
+from app.modelos.tabelas import LANCAMENTO_ATIVO, CentroCusto, Conta, Lancamento, LinhaLancamento, RegraFornecedor
 
 PREFIXOS_ANALITICOS = ("6", "7", "31")
 SEM_CENTRO = "Sem centro de custo"
@@ -66,6 +66,39 @@ def atribuir(db: Session, empresa_id: int, linha_id: int, centro_id: int | None)
             raise ErroCentro("Centro de custo não encontrado ou desativado.")
     linha.centro_custo_id = centro_id
     return linha
+
+
+def _regra(db: Session, empresa_id: int, nif: str | None) -> RegraFornecedor | None:
+    if not nif:
+        return None
+    return db.scalar(select(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa_id,
+                                                   RegraFornecedor.nif == nif))
+
+
+def memorizado(db: Session, empresa_id: int, nif: str | None) -> CentroCusto | None:
+    """Centro usado da última vez com este fornecedor, se ainda estiver ativo."""
+    regra = _regra(db, empresa_id, nif)
+    if regra is None or regra.centro_custo_id is None:
+        return None
+    centro = obter(db, empresa_id, regra.centro_custo_id)
+    return centro if centro is not None and centro.ativo else None
+
+
+def memorizar(db: Session, empresa_id: int, nif: str | None, centro_id: int | None) -> None:
+    """Guarda a escolha (ou a falta dela) na regra do fornecedor criada ao contabilizar."""
+    db.flush()   # a regra pode ter sido criada agora (sem autoflush)
+    regra = _regra(db, empresa_id, nif)
+    if regra is not None:
+        regra.centro_custo_id = centro_id
+
+
+def validar_para_atribuir(db: Session, empresa_id: int, centro_id: int) -> CentroCusto:
+    centro = obter(db, empresa_id, centro_id)
+    if centro is None:
+        raise ErroCentro("Centro de custo não encontrado.")
+    if not centro.ativo:
+        raise ErroCentro(f"O centro de custo {centro.codigo} está desativado.")
+    return centro
 
 
 def atribuir_ao_lancamento(lancamento: Lancamento, centro_id: int | None) -> None:

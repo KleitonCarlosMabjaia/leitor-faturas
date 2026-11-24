@@ -349,6 +349,8 @@ class RegraFornecedor(Base):
     nif: Mapped[str] = mapped_column(String(9))
     conta_codigo: Mapped[str] = mapped_column(String(20))
     perfil_iva: Mapped[str] = mapped_column(String(20))
+    # Último centro de custo escolhido para este fornecedor (sugerido nas próximas faturas)
+    centro_custo_id: Mapped[int | None] = mapped_column(ForeignKey("centros_custo.id", ondelete="SET NULL"))
     origem: Mapped[str] = mapped_column(String(12), default="utilizador")  # utilizador | ia | palavras
     usos: Mapped[int] = mapped_column(default=0)
     atualizada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now, onupdate=datetime.now)

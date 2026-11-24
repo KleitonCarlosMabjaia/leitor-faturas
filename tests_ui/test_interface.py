@@ -196,9 +196,15 @@ def test_contabilizar_fatura_pela_interface(page: Page, api):
     page.goto("/contabilidade#por-contabilizar")
     propostas = page.locator(".proposta")
     expect(propostas).to_have_count(len(pendentes))
-    propostas.first.get_by_role("button", name="Contabilizar").click()
+    # Centro de custo (a demonstração tem SALA e TAKE): escolhe-se no cartão e vai para o gasto
+    primeira = propostas.first
+    centro = primeira.locator(".seletor-centro-proposta")
+    expect(centro).to_be_visible()
+    centro.select_option(label="TAKE · Take-away e entregas")
+    primeira.get_by_role("button", name="Contabilizar").click()
     expect(propostas).to_have_count(len(pendentes) - 1)
     expect(page.locator(".notificacao.ok")).to_contain_text("Lançado: COM")
+    expect(page.locator(".notificacao.ok")).to_contain_text("no centro TAKE")
 
 
 def test_lancamento_desequilibrado_e_recusado(page: Page):

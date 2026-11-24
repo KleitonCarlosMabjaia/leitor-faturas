@@ -72,3 +72,52 @@ def test_centros_isolados_entre_empresas(cliente, novo_cliente, fabrica_sessoes)
     linha_outra = _lancar(outra, "6261", 50)
     r = cliente.patch(f"/api/contabilidade/linhas/{_linha(linha_outra, '6')}/centro", json={"centro_id": None})
     assert r.status_code == 400   # linha de outra empresa: não encontrada
+
+
+def _centros_das_linhas(lancamento: dict) -> dict[str, int | None]:
+    return {ln["conta"]: ln["centro_id"] for ln in lancamento["linhas"]}
+
+
+def test_centro_ao_contabilizar_fica_memorizado_para_o_fornecedor(cliente, fabrica_sessoes, empresa_teste):
+    from tests.test_contabilidade import criar_fatura
+
+    loja = cliente.post("/api/contabilidade/centros", json={"codigo": "LOJA", "nome": "Loja"}).json()
+    obra = cliente.post("/api/contabilidade/centros", json={"codigo": "OBRA", "nome": "Obra"}).json()
+    f1, f2, f3, f4 = (criar_fatura(fabrica_sessoes, empresa_teste, numero_fatura=f"FT 2026/{n}") for n in range(1, 5))
+
+    # Sem nada memorizado, a proposta não sugere centro
+    assert cliente.get(f"/api/contabilidade/faturas/{f1}").json()["proposta"]["centro"] is None
+    la = cliente.post(f"/api/contabilidade/faturas/{f1}/contabilizar", json={"centro_custo_id": loja["id"]}).json()
+    centros_la = _centros_das_linhas(la)
+    gasto = next(c for c in centros_la if c.startswith(("6", "31")))
+    assert centros_la[gasto] == loja["id"]
+    assert all(v is None for c, v in centros_la.items() if c != gasto)   # IVA e fornecedor sem centro
+
+    # A fatura seguinte do mesmo fornecedor sugere a loja; sem escolha, usa-a
+    propostas = {p["fatura"]["id"]: p for p in cliente.get("/api/contabilidade/por-contabilizar").json()}
+    assert propostas[f2]["centro"] == {"id": loja["id"], "codigo": "LOJA", "nome": "Loja"}
+    la2 = cliente.post(f"/api/contabilidade/faturas/{f2}/contabilizar", json={}).json()
+    assert _centros_das_linhas(la2)[gasto] == loja["id"]
+
+    # Em lote: o escolhido no cartão prevalece e passa a ser o memorizado; null tira o centro
+    r = cliente.post("/api/contabilidade/contabilizar-lote", json={"ids": [f3, f4],
+                                                                   "centros": {f3: obra["id"], f4: None}}).json()
+    assert r["contabilizadas"] == 2
+    la3, la4 = (cliente.get(f"/api/contabilidade/faturas/{f}").json()["lancamentos"][0] for f in (f3, f4))
+    assert _centros_das_linhas(la3)[gasto] == obra["id"]
+    assert _centros_das_linhas(la4)[gasto] is None
+
+
+def test_centro_desativado_nao_se_atribui_nem_se_sugere(cliente, fabrica_sessoes, empresa_teste):
+    from tests.test_contabilidade import criar_fatura
+
+    centro = cliente.post("/api/contabilidade/centros", json={"codigo": "VELHO", "nome": "Antigo"}).json()
+    f1, f2 = (criar_fatura(fabrica_sessoes, empresa_teste, numero_fatura=f"FT 2026/{n}") for n in (1, 2))
+    assert cliente.post(f"/api/contabilidade/faturas/{f1}/contabilizar",
+                        json={"centro_custo_id": centro["id"]}).status_code == 201
+    cliente.patch(f"/api/contabilidade/centros/{centro['id']}", json={"ativo": False})
+    assert cliente.get(f"/api/contabilidade/faturas/{f2}").json()["proposta"]["centro"] is None
+    r = cliente.post(f"/api/contabilidade/faturas/{f2}/contabilizar", json={"centro_custo_id": centro["id"]})
+    assert r.status_code == 409 and "desativado" in r.json()["detail"]
+    assert cliente.post(f"/api/contabilidade/faturas/{f2}/contabilizar", json={"centro_custo_id": 999999}
+                        ).status_code == 409

@@ -434,6 +434,9 @@ def criar_centros_demo(db: Session, empresa_id: int) -> None:
         if linha.conta.codigo.startswith(("6", "7", "31")):
             # Cerca de 3/4 para a sala e 1/4 para o take-away
             linha.centro_custo_id = take.id if n % 4 == 0 else sala.id
+    # Os fornecedores já contabilizados sugerem a sala nas próximas faturas
+    for regra in db.scalars(select(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa_id)):
+        regra.centro_custo_id = sala.id
 
 
 def _fim_do_mes(ano: int, mes: int) -> date:
