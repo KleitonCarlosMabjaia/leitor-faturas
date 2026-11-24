@@ -118,3 +118,11 @@ def test_sem_faturacao_ou_sem_valor_nao_emite(cliente_anonimo, fabrica_sessoes, 
     assert _faturas(fabrica_sessoes) == [] and pedidos == []
     with fabrica_sessoes() as db:   # o pagamento continua a ativar a subscrição
         assert db.get(Empresa, empresa_teste).estado_subscricao == "ativa"
+
+
+def test_iva_em_qualquer_versao_da_api_do_stripe():
+    from app.servicos.faturas_certificadas import _iva_do_stripe
+    assert _iva_do_stripe({"total_taxes": [{"amount": 1127, "tax_behavior": "exclusive"}]}) == 1127   # basil+
+    assert _iva_do_stripe({"tax": 1127}) == 1127                                                       # antigas
+    assert _iva_do_stripe({"total_tax_amounts": [{"amount": 500}, {"amount": 627}]}) == 1127
+    assert _iva_do_stripe({}) == 0

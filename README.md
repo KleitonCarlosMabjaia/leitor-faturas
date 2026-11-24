@@ -293,6 +293,11 @@ A demonstração e a versão dos clientes são **serviços separados**, a partir
 | Webhooks da API pública (opcional) | Nada a configurar: cada empresa adiciona os endereços em Equipa › API e integrações. Para as novas tentativas não dependerem de eventos novos, agende `python -m app.webhooks` (por exemplo, de 10 em 10 minutos) | — |
 | Open banking (opcional) | Enable Banking (aplicação de produção, com o regresso `URL_PUBLICO/open-banking/retorno`); sincronização diária com `python -m app.sincronizar_bancos` | `ENABLE_BANKING_APP_ID`, `ENABLE_BANKING_CHAVE_PRIVADA` |
 
+**Stripe, notas práticas:**
+- Testar no computador: `stripe login` e depois `stripe listen --forward-to localhost:8000/api/stripe/webhook`; o comando mostra um `whsec_...` para pôr em `STRIPE_WEBHOOK_SECRET`. Para simular um pagamento: `stripe trigger invoice.paid` (ou pagar no checkout de teste com o cartão `4242 4242 4242 4242`).
+- O Dobra lê os eventos em qualquer versão da API do Stripe (incluindo as alterações da `2025-03-31.basil`: fim do período nos itens da subscrição e `total_taxes` nas faturas), por isso o endpoint pode ser criado com a versão mais recente.
+- As faturas do Stripe não são faturas válidas em Portugal: as certificadas são emitidas no Facturalusa. Em Settings › Billing › Subscriptions and emails, desligue o envio por email das faturas finalizadas (mantenha os recibos), para o cliente não receber dois documentos.
+
 O `render.yaml` já descreve os três serviços. Os segredos ficam marcados com `sync: false`: o Render pede-os no painel e nunca ficam no repositório.
 
 **Passos:**

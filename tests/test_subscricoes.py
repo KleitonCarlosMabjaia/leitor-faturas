@@ -185,3 +185,15 @@ def test_webhook_recusa_assinaturas_falsas_ou_antigas(cliente_anonimo, empresa_t
     assert _webhook(cliente_anonimo, evento, instante=time.time() - 3600).status_code == 400
     r = cliente_anonimo.post("/api/stripe/webhook", content=b"{}", headers={"Content-Type": "application/json"})
     assert r.status_code == 400
+
+
+def test_webhook_com_api_basil_fim_do_periodo_nos_itens(cliente_anonimo, fabrica_sessoes, empresa_teste, faturacao):
+    """Endpoints criados com a API 2025-03-31.basil ou seguintes trazem o fim do período em cada item."""
+    _empresa(fabrica_sessoes, empresa_teste, stripe_cliente_id="cus_9")
+    fim = int(time.time()) + 30 * 86400
+    r = _webhook(cliente_anonimo, {"type": "customer.subscription.updated", "data": {"object": {
+        "id": "sub_9", "customer": "cus_9", "status": "active", "metadata": {"empresa_id": str(empresa_teste)},
+        "items": {"data": [{"price": {"id": "price_cont"}, "current_period_end": fim}]}}}})
+    assert r.status_code == 200
+    with fabrica_sessoes() as db:
+        assert db.get(Empresa, empresa_teste).fim_periodo == date.today() + timedelta(days=30)

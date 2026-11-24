@@ -269,7 +269,9 @@ def aplicar_evento(evento: dict, obter_empresa, empresa_por_cliente) -> Empresa 
             if empresa.estado_subscricao != ESTADO_EM_ATRASO:
                 empresa.em_atraso_desde = date.today()
             empresa.estado_subscricao = ESTADO_EM_ATRASO
-        empresa.fim_periodo = _data(obj.get("current_period_end")) or empresa.fim_periodo
+        # Até à API 2025-03-31.basil o fim do período vinha na subscrição; desde então vem em cada item
+        fim = obj.get("current_period_end") or (itens[0].get("current_period_end") if itens else None)
+        empresa.fim_periodo = _data(fim) or empresa.fim_periodo
         empresa.cancela_no_fim = bool(obj.get("cancel_at_period_end"))
         return empresa
 

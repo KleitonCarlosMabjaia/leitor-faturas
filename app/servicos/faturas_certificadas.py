@@ -92,7 +92,10 @@ def _exigir(estado: int, corpo: dict, *aceites: int) -> dict:
 # ---------- Dados da fatura a partir do pagamento do Stripe ----------
 
 def _iva_do_stripe(fatura: dict) -> int:
-    if fatura.get("tax") is not None:
+    """IVA da fatura do Stripe em cêntimos, em qualquer versão da API (os webhooks usam a do endpoint)."""
+    if fatura.get("total_taxes") is not None:          # API 2025-03-31.basil e seguintes
+        return sum(int(t.get("amount") or 0) for t in fatura["total_taxes"] or [])
+    if fatura.get("tax") is not None:                  # versões anteriores
         return int(fatura["tax"] or 0)
     return sum(int(t.get("amount") or 0) for t in fatura.get("total_tax_amounts") or [])
 
