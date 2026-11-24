@@ -110,6 +110,11 @@ STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
 STRIPE_PRECO_ESSENCIAL = os.getenv("STRIPE_PRECO_ESSENCIAL", "").strip()          # price_... de 19 €/mês
 STRIPE_PRECO_CONTABILIDADE = os.getenv("STRIPE_PRECO_CONTABILIDADE", "").strip()  # price_... de 49 €/mês
+# Faturas certificadas das subscrições (Facturalusa). Sem a chave, os pagamentos não são faturados aqui.
+FACTURALUSA_API_KEY = os.getenv("FACTURALUSA_API_KEY", "").strip()
+FACTURALUSA_SERIE = os.getenv("FACTURALUSA_SERIE", "").strip()                    # opcional: a série predefinida
+FACTURALUSA_FORMA_PAGAMENTO = os.getenv("FACTURALUSA_FORMA_PAGAMENTO", "").strip()  # ex.: Cartão de crédito
+FACTURALUSA_ARTIGO = os.getenv("FACTURALUSA_ARTIGO", "DOBRA-SUBSCRICAO").strip()     # referência do artigo
 STRIPE_IVA_AUTOMATICO = os.getenv("STRIPE_IVA_AUTOMATICO", "").lower() in ("1", "true", "sim")  # Stripe Tax
 DIAS_EXPERIMENTAIS = int(os.getenv("DIAS_EXPERIMENTAIS", "30"))
 DIAS_TOLERANCIA_PAGAMENTO = 7        # dias com pagamento em atraso antes do bloqueio suave

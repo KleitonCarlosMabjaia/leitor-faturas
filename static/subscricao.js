@@ -87,6 +87,29 @@ function cartaoPlanos(d) {
     d.faturacao_ativa ? null : h("p", { class: "ajuda", texto: "Os pagamentos online ainda não estão ativos neste servidor: a aplicação funciona sem limites de tempo." }));
 }
 
+// Faturas certificadas dos pagamentos (emitidas no Facturalusa, com o PDF)
+function cartaoFaturas(f) {
+  if (!f.faturas.length) return null;
+  const estado = (x) => x.estado === "emitida"
+    ? criarEtiqueta(x.enviada ? "Emitida e enviada" : "Emitida", "ok", "check")
+    : criarEtiqueta(x.estado === "erro" ? "Por emitir" : "A emitir", "aviso", "relogio");
+  return h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" }, h("div", {},
+      h("h2", { texto: "Faturas" }),
+      h("p", { class: "subtitulo", texto: "Faturas-recibo certificadas pela AT de cada pagamento, enviadas também por email." }))),
+    h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+      h("thead", {}, h("tr", {}, ...["Data", "Documento", "Descrição", "Total", "Estado", ""].map((x, i) =>
+        h("th", { scope: "col", class: i === 3 ? "num" : null }, x ? x : h("span", { class: "visualmente-oculto", texto: "PDF" }))))),
+      h("tbody", {}, f.faturas.map((x) => h("tr", {},
+        h("td", { "data-rotulo": "Data", texto: formatarData(x.data) }),
+        h("td", { "data-rotulo": "Documento", texto: x.numero || "—" }),
+        h("td", { "data-rotulo": "Descrição", texto: x.descricao }),
+        h("td", { class: "num", "data-rotulo": "Total", texto: formatarValor(x.total ?? 0, "EUR") }),
+        h("td", { "data-rotulo": "Estado" }, estado(x)),
+        h("td", {}, x.url_pdf ? h("a", { class: "botao secundario pequeno", href: x.url_pdf, target: "_blank", rel: "noopener" },
+          icone("descarregar"), "PDF") : null)))))));
+}
+
 async function carregarSubscricao() {
   const zona = document.getElementById("subscricao");
   try {
@@ -97,7 +120,8 @@ async function carregarSubscricao() {
         h("div", {}, h("strong", { texto: "A contabilidade faz parte do plano Contabilidade" }),
           h("p", { texto: "Lançamentos SNC, IVA, bancos, salários, balanço e SAF-T, a partir das faturas que já carrega." })))
       : null;
-    preencher(zona, aviso, cartaoEstado(d), cartaoPlanos(d));
+    const faturas = await obter("/api/subscricao/faturas").catch(() => ({ faturas: [] }));
+    preencher(zona, aviso, cartaoEstado(d), cartaoFaturas(faturas), cartaoPlanos(d));
     if (new URLSearchParams(location.search).get("pagamento") === "concluido") {
       notificar("Pagamento recebido. Obrigado! A subscrição fica ativa dentro de instantes.", "ok");
     }

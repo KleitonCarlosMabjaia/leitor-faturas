@@ -7,7 +7,7 @@
   <meta name="description" content="Como o Dobra trata os dados pessoais, ao abrigo do RGPD.">
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.4">
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.5">
 </head>
 <body class="site">
   <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
@@ -53,6 +53,8 @@
         <li><strong>Armazenamento dos ficheiros PDF</strong>, num serviço de armazenamento de objetos.</li>
         <li><strong>Anthropic (inteligência artificial)</strong>, apenas quando uma fatura não pode ser lida pelo código QR, quando pede uma sugestão de classificação ou quando usa o Assistente. Os dados enviados servem só para responder a esse pedido.</li>
         <li><strong>Enable Banking (open banking, opcional)</strong>, só quando a empresa liga uma conta bancária diretamente: a autorização é dada no site do próprio banco, é só de leitura (saldos e movimentos) e pode ser revogada a qualquer momento.</li>
+        <li><strong>Stripe (pagamentos)</strong>, que processa o pagamento das subscrições: os dados do cartão são introduzidos e guardados apenas no Stripe, nunca no Dobra.</li>
+        <li><strong>Facturalusa (faturação certificada)</strong>, programa certificado pela AT onde são emitidas as faturas das subscrições, com o nome, NIF, morada e email de faturação da empresa cliente e o valor pago.</li>
         <li><strong>Registo de erros (opcional)</strong>, configurado para não receber dados pessoais, cookies, endereços IP nem o conteúdo dos pedidos.</li>
       </ul>
       <p>Quando um prestador trata dados fora do Espaço Económico Europeu, a transferência é feita ao abrigo das cláusulas contratuais-tipo aprovadas pela Comissão Europeia.</p>

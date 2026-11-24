@@ -333,6 +333,31 @@ class LinhaLancamento(Base):
     fluxo_caixa: Mapped[str | None] = mapped_column(String(4))
 
 
+class FaturaSubscricao(Base):
+    """Fatura certificada (emitida no Facturalusa) de um pagamento da subscrição no Stripe."""
+
+    __tablename__ = "faturas_subscricao"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    stripe_fatura_id: Mapped[str] = mapped_column(String(80), unique=True)
+    data: Mapped[date] = mapped_column(Date)
+    descricao: Mapped[str] = mapped_column(String(200))
+    total: Mapped[float] = mapped_column(Float)
+    iva: Mapped[float] = mapped_column(Float, default=0.0)
+    estado: Mapped[str] = mapped_column(String(10))           # pendente | emitida | erro
+    dados: Mapped[dict | None] = mapped_column(JSON)          # o necessário para (voltar a) emitir
+    tentativas: Mapped[int] = mapped_column(default=0)
+    erro: Mapped[str | None] = mapped_column(String(300))
+    documento_id: Mapped[str | None] = mapped_column(String(40))
+    numero: Mapped[str | None] = mapped_column(String(60))
+    atcud: Mapped[str | None] = mapped_column(String(80))
+    url_pdf: Mapped[str | None] = mapped_column(String(500))
+    enviada: Mapped[bool] = mapped_column(default=False)
+    criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    emitida_em: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class RegraFluxo(Base):
     """Código de fluxo de caixa escolhido para um fornecedor/cliente (subconta de terceiro)."""
 

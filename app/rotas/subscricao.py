@@ -16,11 +16,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app import config
-from app.db import get_db
+from app.db import SessaoLocal, get_db
 from app.dependencias import admin_atual, utilizador_atual
 from app.modelos.esquemas import SessaoSaida
 from app.modelos.tabelas import PAPEL_ADMIN, AcessoEmpresa, Empresa, Utilizador
-from app.servicos import atividade, autenticacao, email, limites, subscricoes, validacao
+from app.servicos import atividade, autenticacao, email, faturas_certificadas, limites, subscricoes, validacao
 from app.servicos.autenticacao import ErroAutenticacao
 from app.servicos.subscricoes import ErroSubscricao
 
@@ -61,8 +61,17 @@ def portal(admin: Utilizador = Depends(admin_atual)):
         raise HTTPException(status_code=400, detail=str(erro))
 
 
+def emitir_faturas_em_segundo_plano() -> None:
+    """Emite as faturas por emitir (a nova e as que tinham falhado), fora do pedido do Stripe."""
+    try:
+        with SessaoLocal() as db:
+            faturas_certificadas.emitir_pendentes(db)
+    except Exception:  # noqa: BLE001 - nunca deixar cair o processo; fica para a próxima tentativa
+        logger.exception("Erro ao emitir as faturas das subscrições")
+
+
 @router.post("/api/stripe/webhook", include_in_schema=False)
-async def webhook(request: Request, db: Session = Depends(get_db)):
+async def webhook(request: Request, tarefas: BackgroundTasks, db: Session = Depends(get_db)):
     corpo = await request.body()
     try:
         evento = subscricoes.verificar_assinatura(corpo, request.headers.get("stripe-signature"))
@@ -82,8 +91,18 @@ async def webhook(request: Request, db: Session = Depends(get_db)):
     if empresa is not None:
         atividade.registar(db, None, f"Subscrição: {evento.get('type')}", f"estado {empresa.estado_subscricao}, "
                            f"plano {empresa.plano}", empresa_id=empresa.id)
+        if evento.get("type") == "invoice.paid" and faturas_certificadas.ativa():
+            if faturas_certificadas.registar_pagamento(db, empresa, evento["data"]["object"]):
+                tarefas.add_task(emitir_faturas_em_segundo_plano)
         db.commit()
     return {"recebido": True}
+
+
+@router.get("/api/subscricao/faturas")
+def faturas_da_subscricao(db: Session = Depends(get_db), utilizador: Utilizador = Depends(utilizador_atual)):
+    """Faturas certificadas dos pagamentos da subscrição (com o PDF no Facturalusa)."""
+    faturas = faturas_certificadas.da_empresa(db, utilizador.empresa_id)
+    return {"ativa": faturas_certificadas.ativa(), "faturas": faturas}
 
 
 # ---------- Registo online ----------
