@@ -16,7 +16,7 @@ from urllib.parse import quote
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -102,6 +102,9 @@ PAGINAS_HTML = {"/", "/dashboard", "/contabilidade", "/gestao",
                 "/equipa", "/conta", "/subscricao", "/registar", "/entrar",
                 "/definir-palavra-passe",
                 "/apresentacao", "/privacidade", "/termos", "/offline", "/documentacao-api"}
+
+# Páginas que os motores de busca podem indexar; as outras (aplicação, entrar...) levam "noindex"
+PAGINAS_INDEXAVEIS = ("/apresentacao", "/registar", "/documentacao-api", "/privacidade", "/termos")
 
 # Política de segurança de conteúdo: só scripts, estilos, tipos de letra e imagens da própria
 # aplicação. Um script injetado (XSS) não corre nem consegue enviar dados para outro site.
@@ -195,6 +198,8 @@ async def cabecalhos_seguranca(request: Request, call_next):
     cab["Cross-Origin-Opener-Policy"] = "same-origin"
     if cab.get("content-type", "").startswith("text/html"):
         cab["Content-Security-Policy"] = CSP
+        if request.url.path not in PAGINAS_INDEXAVEIS:
+            cab["X-Robots-Tag"] = "noindex, nofollow"   # páginas da aplicação não aparecem nas pesquisas
     if request.url.scheme == "https":
         # O navegador passa a usar sempre HTTPS neste domínio durante um ano
         cab["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
@@ -266,11 +271,32 @@ def _pagina_publica(nome: str) -> str:
         "URL_REGISTO": "/registar" if config.REGISTO_ABERTO else (
             f"mailto:{email}?subject=Dobra" if email else "/entrar"),
         "DIAS": str(config.DIAS_EXPERIMENTAIS),
+        "URL": config.URL_PUBLICO,
     }
     texto = (config.STATIC_DIR / nome).read_text(encoding="utf-8")
     for chave, valor in valores.items():
         texto = texto.replace("{{" + chave + "}}", html.escape(valor))
     return texto
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots():
+    linhas = ["User-agent: *", *(f"Allow: {p}" for p in PAGINAS_INDEXAVEIS), "Allow: /static/",
+              "Disallow: /", "", f"Sitemap: {config.URL_PUBLICO}/sitemap.xml", ""]
+    return PlainTextResponse("\n".join(linhas))
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap():
+    entradas = "".join(
+        f"<url><loc>{html.escape(config.URL_PUBLICO + p)}</loc>"
+        f"<changefreq>{f}</changefreq><priority>{pr}</priority></url>"
+        for p, f, pr in (("/apresentacao", "weekly", "1.0"), ("/registar", "monthly", "0.8"),
+                         ("/documentacao-api", "monthly", "0.5"), ("/privacidade", "yearly", "0.2"),
+                         ("/termos", "yearly", "0.2")))
+    return Response('<?xml version="1.0" encoding="UTF-8"?>'
+                    f'<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{entradas}</urlset>',
+                    media_type="application/xml")
 
 
 @app.get("/apresentacao", include_in_schema=False)

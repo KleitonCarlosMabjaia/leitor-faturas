@@ -248,6 +248,7 @@ a { color: var(--acento); }
   .mostra.invertida .mostra-texto { order: 0; }
   .heroi-imagem { transform: none; }
   .cartoes-funcoes, .planos { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cartoes-funcoes .funcao:last-child:nth-child(odd) { grid-column: 1 / -1; }   /* sem cartão sozinho na última linha */
 }
 @media (max-width: 40rem) {
   .site-largura { padding: 0 1rem; }

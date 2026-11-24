@@ -124,6 +124,7 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
 
 **Para vender**
 - **Página de apresentação** (`/apresentacao`) com funcionalidades, segurança, planos e perguntas frequentes: é o que vê quem abre o endereço sem sessão.
+- **Pronto para os motores de busca e para partilhas:** `robots.txt` e `sitemap.xml` gerados a partir de `URL_PUBLICO`, endereços canónicos, imagem de pré-visualização com endereço completo (Open Graph e cartão do X/Twitter), dados estruturados schema.org (aplicação com os preços e perguntas frequentes) e `X-Robots-Tag: noindex` nas páginas da aplicação. Imagens em WebP (cerca de metade do peso), com o JPG para navegadores antigos.
 - **Política de privacidade** (RGPD) e **termos de utilização** (`/privacidade`, `/termos`), com o nome de quem presta o serviço e o email comercial lidos da configuração.
 
 **Qualidade**

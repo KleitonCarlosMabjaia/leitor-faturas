@@ -5,13 +5,105 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Dobra · Contabilidade automática a partir das faturas</title>
   <meta name="description" content="O Dobra lê as faturas dos fornecedores, propõe os lançamentos SNC, apura o IVA, processa salários e prepara o SAF-T. Contabilidade organizada para pequenas empresas portuguesas.">
+  <link rel="canonical" href="{{URL}}/apresentacao">
+  <meta name="theme-color" content="#0B5F75">
   <meta property="og:title" content="Dobra · Contabilidade automática a partir das faturas">
   <meta property="og:description" content="Leitura de faturas, lançamentos SNC, IVA, bancos, salários e SAF-T numa só aplicação.">
   <meta property="og:type" content="website">
-  <meta property="og:image" content="/static/marketing/inicio.jpg">
+  <meta property="og:locale" content="pt_PT">
+  <meta property="og:site_name" content="Dobra">
+  <meta property="og:url" content="{{URL}}/apresentacao">
+  <meta property="og:image" content="{{URL}}/static/marketing/inicio.jpg">
+  <meta property="og:image:width" content="1440">
+  <meta property="og:image:height" content="900">
+  <meta property="og:image:alt" content="Ecrã inicial do Dobra com as faturas por contabilizar, o IVA do trimestre e os próximos prazos">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preload" as="image" href="/static/marketing/inicio.webp" type="image/webp" fetchpriority="high">
+  <script type="application/ld+json">
+[
+ {
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Dobra",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "url": "{{URL}}/apresentacao",
+  "inLanguage": "pt-PT",
+  "description": "Contabilidade organizada (SNC) para pequenas empresas portuguesas, a partir das faturas: lançamentos, IVA, bancos, salários, SAF-T e declarações.",
+  "offers": [
+   {
+    "@type": "Offer",
+    "name": "Essencial",
+    "price": "19",
+    "priceCurrency": "EUR"
+   },
+   {
+    "@type": "Offer",
+    "name": "Contabilidade",
+    "price": "49",
+    "priceCurrency": "EUR"
+   }
+  ]
+ },
+ {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  "mainEntity": [
+   {
+    "@type": "Question",
+    "name": "Preciso de instalar alguma coisa?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Não. O Dobra funciona no navegador, no computador, no tablet e no telemóvel."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Substitui o meu contabilista certificado?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Não. O Dobra organiza e automatiza o trabalho, mas as declarações continuam a ser da responsabilidade de um contabilista certificado. Muitos gabinetes usam-no precisamente para receber a informação dos clientes já organizada."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "E se a leitura de uma fatura estiver errada?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Nenhuma fatura entra na contabilidade sem ser confirmada. O PDF aparece ao lado dos campos, que pode corrigir, e as faturas com dados duvidosos vêm assinaladas."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Posso importar o que já tenho?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Sim: saldos de abertura a partir de um balancete em Excel ou CSV, vendas a partir do SAF-T de faturação e movimentos a partir do extrato do banco."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Os meus dados podem sair do Dobra?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "Sempre que quiser: faturas em Excel e CSV, lançamentos e balancete em Excel e a contabilidade completa em SAF-T (PT)."
+    }
+   },
+   {
+    "@type": "Question",
+    "name": "Como funciona a inteligência artificial?",
+    "acceptedAnswer": {
+     "@type": "Answer",
+     "text": "É usada só quando o QR da AT não chega: para ler faturas sem QR, sugerir contas para fornecedores novos e responder no Assistente. Os dados enviados servem apenas para responder ao pedido."
+    }
+   }
+  ]
+ }
+]
+  </script>
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.6">
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.7">
 </head>
 <body class="site">
   <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
@@ -60,8 +152,8 @@
         </div>
         <figure class="moldura heroi-imagem">
           <div class="moldura-barra" aria-hidden="true"><span></span><span></span><span></span></div>
-          <img src="/static/marketing/inicio.jpg" width="1440" height="900"
-               alt="Ecrã inicial do Dobra com faturas por contabilizar, IVA do trimestre, resultado do ano, verificações automáticas e próximos prazos fiscais">
+          <picture><source srcset="/static/marketing/inicio.webp" type="image/webp"><img src="/static/marketing/inicio.jpg" width="1440" height="900" fetchpriority="high"
+               alt="Ecrã inicial do Dobra com faturas por contabilizar, IVA do trimestre, resultado do ano, verificações automáticas e próximos prazos fiscais"></picture>
         </figure>
       </div>
     </section>
@@ -70,9 +162,11 @@
       <div class="site-largura faixa-lista">
         <span>SNC · Plano de contas</span>
         <span>QR code da AT (ATCUD)</span>
-        <span>Declaração periódica do IVA</span>
+        <span>Declaração periódica do IVA (XML)</span>
+        <span>DMR e Segurança Social</span>
         <span>SAF-T (PT) da contabilidade</span>
-        <span>Ficheiro de inventários da AT</span>
+        <span>Fluxos de caixa (NCRF 2)</span>
+        <span>Open banking (PSD2)</span>
         <span>RGPD</span>
       </div>
     </section>
@@ -104,15 +198,15 @@
             <span class="funcao-icone" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M19 5 5 19M7.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM16.5 18a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z"/></svg>
             </span>
-            <h3>IVA pronto para declarar</h3>
-            <p>Campos da declaração periódica, IVA intracomunitário e autoliquidação, apuramento lançado e prazos sempre à vista.</p>
+            <h3>Declarações prontas a entregar</h3>
+            <p>Ficheiro da declaração periódica do IVA no formato oficial da AT, DMR e declaração à Segurança Social gerados a partir dos salários.</p>
           </article>
           <article class="funcao">
             <span class="funcao-icone" aria-hidden="true">
               <svg viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5M4.5 10v8M9.5 10v8M14.5 10v8M19.5 10v8M3 20h18"/></svg>
             </span>
             <h3>Bancos e reconciliação</h3>
-            <p>Importe o extrato em CSV ou Excel. Cada movimento vem com sugestão: associar a um lançamento ou lançar numa conta.</p>
+            <p>Ligue a conta diretamente ao banco (open banking) ou importe o extrato. Cada movimento vem com sugestão: associar ou lançar.</p>
           </article>
           <article class="funcao">
             <span class="funcao-icone" aria-hidden="true">
@@ -127,6 +221,27 @@
             </span>
             <h3>Fecho do exercício</h3>
             <p>Verificações antes de fechar, estimativa de IRC, apuramento de resultados, balanço, demonstração de resultados e SAF-T.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M3 17l6-6 4 4 8-8M15 7h6v6"/></svg>
+            </span>
+            <h3>Fluxos de caixa e centros de custo</h3>
+            <p>Demonstração dos fluxos de caixa pelo método direto, classificada sozinha, e contabilidade analítica por loja, obra ou projeto.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/></svg>
+            </span>
+            <h3>Gestão, stock e orçamento</h3>
+            <p>Artigos e stock a partir das faturas, tesouraria prevista, orçamento comparado com o real e análise de compras por fornecedor.</p>
+          </article>
+          <article class="funcao">
+            <span class="funcao-icone" aria-hidden="true">
+              <svg viewBox="0 0 24 24"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg>
+            </span>
+            <h3>API para ligar outros programas</h3>
+            <p>Chaves por empresa, só de leitura ou de escrita, para levar faturas, lançamentos e balancete para o Excel, o Power BI ou o seu ERP.</p>
           </article>
         </div>
       </div>
@@ -150,8 +265,8 @@
         </div>
         <figure class="moldura">
           <div class="moldura-barra" aria-hidden="true"><span></span><span></span><span></span></div>
-          <img src="/static/marketing/por-contabilizar.jpg" width="1440" height="900" loading="lazy"
-               alt="Faturas por contabilizar com a conta SNC e o IVA sugeridos e a etiqueta de classificação memorizada">
+          <picture><source srcset="/static/marketing/por-contabilizar.webp" type="image/webp"><img src="/static/marketing/por-contabilizar.jpg" width="1440" height="900" loading="lazy"
+               alt="Faturas por contabilizar com a conta SNC e o IVA sugeridos e a etiqueta de classificação memorizada"></picture>
         </figure>
       </div>
       <div class="site-largura mostra invertida">
@@ -159,19 +274,19 @@
           <p class="sobretitulo">Declarar</p>
           <h2>O IVA do trimestre, campo a campo</h2>
           <p>
-            Os valores aparecem com o número do campo da declaração periódica. Basta copiá-los para o Portal das Finanças
-            e lançar o apuramento.
+            Os valores aparecem com o número do campo da declaração periódica e o ficheiro sai no formato oficial
+            da AT: abre-se no Portal das Finanças, revê-se e submete-se.
           </p>
           <ul class="lista-visto">
             <li>Regime mensal ou trimestral</li>
-            <li>Aquisições intracomunitárias e autoliquidação</li>
+            <li>Aquisições intracomunitárias, autoliquidação e vendas isentas</li>
             <li>Alertas de prazos de IVA, IRC, IRS e Segurança Social</li>
           </ul>
         </div>
         <figure class="moldura escura">
           <div class="moldura-barra" aria-hidden="true"><span></span><span></span><span></span></div>
-          <img src="/static/marketing/iva.jpg" width="1440" height="900" loading="lazy"
-               alt="Apuramento do IVA do trimestre com os campos da declaração periódica, em modo escuro">
+          <picture><source srcset="/static/marketing/iva.webp" type="image/webp"><img src="/static/marketing/iva.jpg" width="1440" height="900" loading="lazy"
+               alt="Apuramento do IVA do trimestre com os campos da declaração periódica, em modo escuro"></picture>
         </figure>
       </div>
     </section>
