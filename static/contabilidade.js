@@ -988,9 +988,38 @@ async function blocoDeclaracaoIVA(d) {
       : h("p", { class: "erro-campo", role: "alert" }, icone("alerta"), dp.erro));
 }
 
+// Declaração recapitulativa: vendas a empresas de outros Estados-membros, por cliente
+async function blocoRecapitulativa(d) {
+  const qs = `de=${d.de}&ate=${d.ate}`;
+  const r = await obter(`/api/contabilidade/iva/recapitulativa?${qs}`).catch(() => null);
+  if (!r || (!r.linhas.length && !r.avisos.length)) return null;
+  const campo7 = (d.isentas || {})[7] || 0;
+  const confere = Math.abs(campo7 - r.total) < 0.01;
+  return h("section", { class: "cartao recapitulativa" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: "Declaração recapitulativa" }),
+        h("p", { class: "subtitulo", texto: "Vendas isentas a empresas de outros Estados-membros, por cliente e tipo de operação. Entrega no Portal das Finanças até ao dia 20 do mês seguinte ao período." })),
+      h("a", { class: "botao secundario", href: `/api/contabilidade/iva/recapitulativa.csv?${qs}`, download: "" }, icone("descarregar"), "Exportar (CSV)")),
+    h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+      h("thead", {}, h("tr", {}, ...["País", "Número de IVA", "Cliente", "Tipo", "Valor"].map((x, i) =>
+        h("th", { scope: "col", class: i === 4 ? "num" : null, texto: x })))),
+      h("tbody", {}, r.linhas.map((l) => h("tr", {},
+        td(l.pais, "", "País"), h("td", { "data-rotulo": "Número de IVA" }, h("code", { texto: l.numero_iva })),
+        td(l.cliente || "—", "", "Cliente"),
+        h("td", { "data-rotulo": "Tipo", title: l.tipo_descricao, texto: `${l.tipo} · ${l.tipo === "1" ? "Bens" : "Serviços"}` }),
+        td(euros(l.valor), `num${l.valor < 0 ? " valor-negativo" : ""}`, "Valor")))),
+      h("tfoot", {}, h("tr", {}, td("Total"), td(""), td(""), td(""), td(euros(r.total), "num"))))),
+    h("p", { class: confere ? "ajuda" : "erro-campo", style: "display:flex;gap:0.5rem;align-items:flex-start;margin-top:0.75rem" },
+      icone(confere ? "check" : "alerta"),
+      confere ? `Confere com o campo 7 da declaração periódica (${euros(campo7)}).`
+        : `Não confere com o campo 7 da declaração periódica (${euros(campo7)}): veja os avisos.`),
+    ...r.avisos.map((a) => h("p", { class: "ajuda", style: "display:flex;gap:0.5rem;align-items:flex-start" }, icone("alerta"), a)),
+    h("p", { class: "nota-rodape", texto: "Tipo 1: transmissões de bens (motivos M16 e M41); tipo 5: prestações de serviços (M40). As operações triangulares (tipo 4) não se distinguem nas vendas: corrija-as no Portal das Finanças." }));
+}
+
 async function carregarIVA(secao, url = "/api/contabilidade/iva") {
   const d = await obter(url);
-  const declaracao = await blocoDeclaracaoIVA(d);
+  const [declaracao, recapitulativa] = await Promise.all([blocoDeclaracaoIVA(d), blocoRecapitulativa(d)]);
   const campos = h("div", { class: "campos-dp" }, d.dedutivel.map((c) => h("div", { class: "campo-dp" },
     h("span", { class: "numero", texto: c.campo }), h("span", { class: "descricao", texto: c.descricao }),
     h("b", { texto: euros(c.valor) }))));
@@ -1059,7 +1088,7 @@ async function carregarIVA(secao, url = "/api/contabilidade/iva") {
         ? h("div", {}, criarEtiqueta(`Apurado: ${d.apuramentos.map((a) => a.referencia).join(", ")}`, "ok", "check"))
         : botaoApurar),
     h("p", { class: "nota-rodape", texto: "Mapa de apoio: confirme os valores antes de submeter a declaração no Portal das Finanças. Numeração do modelo em vigor até 30/06/2027." })),
-    declaracao);
+    declaracao, recapitulativa);
 }
 
 // ---------- Resultados ----------

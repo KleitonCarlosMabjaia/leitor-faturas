@@ -182,3 +182,35 @@ def test_vendas_sem_iva_nos_campos_7_a_9(cliente, fabrica_sessoes, empresa_teste
     assert valor(raiz, apuramento + "btOperacoesIsentasComDeducao") == "50000"
     assert valor(raiz, apuramento + "btOperacoesIsentasSemDeducao") == "15000"
     assert valor(raiz, apuramento + "temOperacoesSemLiqImposto") == "S"
+
+
+def test_declaracao_recapitulativa(cliente, fabrica_sessoes, empresa_teste):
+    _empresa(fabrica_sessoes, empresa_teste)
+
+    def venda(numero, nif, isencao, base, tipo="FT", nome="Cliente"):
+        r = cliente.post("/api/contabilidade/vendas", json={
+            "tipo": tipo, "numero": numero, "data": "2026-11-10", "cliente_nif": nif, "cliente_nome": nome,
+            "linhas": [{"taxa": 0, "base": base, "conta": "721", "isencao": isencao}]})
+        assert r.status_code == 201, r.text
+
+    venda("A/1", "ESB12345678", "M16", 1000, nome="Distribuidora Ibérica, S.L.")
+    venda("A/2", "ESB12345678", "M16", 500, nome="Distribuidora Ibérica, S.L.")
+    venda("NC/1", "ESB12345678", "M16", 200, tipo="NC", nome="Distribuidora Ibérica, S.L.")
+    venda("A/3", "DE 123 456 789", "M40", 300, nome="Software GmbH")
+    venda("A/4", "US12345", "M40", 999)             # fora da UE: exportação de serviços, não entra
+    venda("A/5", "234567899", "M16", 50, nome="Cliente Sem IVA, Lda.")   # M16 sem número de IVA da UE: aviso
+    venda("A/6", "FR12345678901", "M05", 70)         # exportação: não entra
+
+    periodo = {"de": "2026-10-01", "ate": "2026-12-31"}
+    r = cliente.get("/api/contabilidade/iva/recapitulativa", params=periodo).json()
+    linhas = {(ln["pais"], ln["numero_iva"], ln["tipo"]): ln["valor"] for ln in r["linhas"]}
+    assert linhas == {("DE", "123456789", "5"): 300, ("ES", "B12345678", "1"): 1300}
+    assert r["total"] == 1600 and r["por_tipo"] == {"1": 1300, "5": 300}
+    assert any("Cliente Sem IVA, Lda." in a and "50,00 €" in a for a in r["avisos"])
+    # O campo 7 da declaração periódica inclui também o M16 sem número de IVA (por isso o aviso)
+    d = cliente.get("/api/contabilidade/iva/declaracao", params=periodo).json()
+    assert {c["campo"]: c["valor"] for c in d["campos"]}["7"] == 1650
+
+    csv = cliente.get("/api/contabilidade/iva/recapitulativa.csv", params=periodo)
+    assert csv.status_code == 200
+    assert "ES;B12345678;Distribuidora Ibérica, S.L.;1;1300,00" in csv.content.decode("utf-8-sig")

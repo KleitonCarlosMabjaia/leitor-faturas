@@ -60,6 +60,7 @@ from app.servicos.contabilidade import (
     open_banking,
     periodizacao,
     plano_snc,
+    recapitulativa,
     relatorios,
     saft,
     salarios,
@@ -729,6 +730,28 @@ def ficheiro_declaracao_iva(de: date | None = None, ate: date | None = None, db:
     return Response(conteudo, media_type="application/xml",
                     headers={"Content-Disposition":
                              f'attachment; filename="{declaracao_iva.nome_ficheiro(empresa, d)}"'})
+
+
+@router.get("/iva/recapitulativa")
+def mapa_recapitulativa(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                        utilizador: Utilizador = Depends(utilizador_atual)):
+    """Vendas a sujeitos passivos de outros Estados-membros, por cliente e tipo (declaração recapitulativa)."""
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo_iva(empresa, de, ate)
+    dados = recapitulativa.mapa(db, empresa.id, de, ate)
+    db.commit()
+    return dados
+
+
+@router.get("/iva/recapitulativa.csv")
+def csv_recapitulativa(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    empresa = _empresa(db, utilizador)
+    de, ate = _periodo_iva(empresa, de, ate)
+    dados = recapitulativa.mapa(db, empresa.id, de, ate)
+    db.commit()
+    return Response(recapitulativa.csv_mapa(dados), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": f'attachment; filename="recapitulativa-{de}-a-{ate}.csv"'})
 
 
 class Apuramento(BaseModel):

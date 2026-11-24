@@ -54,6 +54,7 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
 - **Segurança Social:** ficheiro da declaração de remunerações no formato oficial das "Normas de preenchimento" (modelo RC4008, versão 01, registos R0/R1/R2/R3 de 118 caracteres), gerado a partir do processamento do mês, com um bloco por taxa contributiva. Exige o NISS da empresa (Obrigações fiscais › Configuração) e o NISS e a data de nascimento de cada pessoa.
 - **AT, DMR:** ficheiro no formato oficial de transferência eletrónica da AT ("Suporte informático DMR-AT" em vigor desde fevereiro de 2024: texto ASCII com registos 001 a 999 de 172 caracteres, valores em cêntimos), original ou de substituição. A DMR não tem formato XML: a AT só aceita este ficheiro de texto. Cada recibo dá linhas com os códigos das instruções de 2026 (Portaria n.º 69/2026/1): A (remuneração), A3 (subsídio de férias), A4 (subsídio de Natal) e A21 (refeição não sujeita), com o IRS retido de cada um (pelo detalhe da retenção) e as contribuições para a Segurança Social (NIPC 505305500). Exige o código do serviço de finanças e o NIF de cada pessoa. Mapa também em CSV.
 - **Declaração periódica do IVA:** ficheiro XML do esquema oficial `dpiva-06.xsd` (namespace `http://www.at.gov.pt/schemas/dpiva`), validado nos testes contra o XSD da AT, para abrir na aplicação do Portal das Finanças e submeter depois de rever. Valores em cêntimos; período `MM` (mensal) ou `MMT` (trimestral); campos 1 a 6, 10 a 17, 20 a 24, 40/41, 61 (crédito do período anterior), quadro 06-A e totais 90 a 96. Os campos 7 a 9 vêm das vendas sem IVA, pelo motivo de isenção de cada linha (M16 e M40/M41 a clientes de outros Estados-membros no 7; M04, M05, M06 e M40/M41 fora da UE no 8; M07 no 9; M99 fica fora); outros motivos e o anexo das regularizações ficam para completar na aplicação da AT, com aviso.
+- **Declaração recapitulativa** (mapa de apoio): vendas isentas a sujeitos passivos de outros Estados-membros por cliente (país e número de IVA) e tipo de operação (1 bens: M16/M41; 5 serviços: M40), com notas de crédito, confronto com o campo 7 da declaração periódica, avisos (M16 sem número de IVA da UE) e exportação CSV.
 
 **Leitura das faturas**
 - Carregamento de PDFs por arrastar e largar (até 10 MB, vários de uma vez).
@@ -371,6 +372,7 @@ A **API pública** para outros programas está em `/api/v1`, com chave (`Authori
 | GET | `/api/contabilidade/fluxos-caixa`, `/fluxos-caixa/exportar`, `/fluxos-caixa/rubricas` | Demonstração dos fluxos de caixa (JSON e Excel) e rubricas; `PATCH /api/contabilidade/linhas/{id}/fluxo` muda o código de uma linha |
 | GET | `/api/contabilidade/iva` | Mapa da declaração periódica; `POST /api/contabilidade/iva/apurar` gera o apuramento |
 | GET | `/api/contabilidade/iva/declaracao`, `/iva/declaracao.xml` | Campos da declaração periódica e ficheiro XML oficial (dpiva) |
+| GET | `/api/contabilidade/iva/recapitulativa`, `/iva/recapitulativa.csv` | Mapa da declaração recapitulativa (por cliente da UE e tipo de operação) |
 | GET | `/api/contabilidade/resultados` | Demonstração de resultados por naturezas |
 | GET | `/api/contabilidade/fornecedores` | Contas correntes, antiguidade de saldos e faturas contabilizadas por pagar |
 | GET | `/api/contabilidade/obrigacoes` | Calendário fiscal |
@@ -494,5 +496,5 @@ leitor-faturas/
 ## Próximos passos
 
 - Tabelas de retenção de IRS das regiões autónomas (Açores e Madeira).
-- Declaração recapitulativa (operações intracomunitárias) e anexo das regularizações (campos 40/41) da declaração periódica.
+- Anexo das regularizações (campos 40/41) da declaração periódica e ficheiro da declaração recapitulativa.
 - Processamento em segundo plano para lotes grandes de faturas.
