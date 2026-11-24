@@ -125,6 +125,7 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
 - **Dependências auditadas** com `pip-audit` em cada push (GitHub Actions).
 
 **Para vender**
+- **Lotes grandes de faturas em segundo plano**: a partir de 3 ficheiros de uma vez, cada PDF é guardado logo e lido no servidor (uma fatura de cada vez, por ordem de chegada); a página acompanha o estado de cada uma e a pessoa pode sair. As repetidas são detetadas e apagadas como no envio normal, um erro numa fatura não pára as outras e as pendentes são retomadas se o servidor reiniciar (`POST /api/faturas?fundo=true` e `GET /api/faturas/estado?ids=...`).
 - **Página de apresentação** (`/apresentacao`) com funcionalidades, segurança, planos e perguntas frequentes: é o que vê quem abre o endereço sem sessão.
 - **Pronto para os motores de busca e para partilhas:** `robots.txt` e `sitemap.xml` gerados a partir de `URL_PUBLICO`, endereços canónicos, imagem de pré-visualização com endereço completo (Open Graph e cartão do X/Twitter), dados estruturados schema.org (aplicação com os preços e perguntas frequentes) e `X-Robots-Tag: noindex` nas páginas da aplicação. Imagens em WebP (cerca de metade do peso), com o JPG para navegadores antigos.
 - **Política de privacidade** (RGPD) e **termos de utilização** (`/privacidade`, `/termos`), com o nome de quem presta o serviço e o email comercial lidos da configuração.
@@ -502,4 +503,3 @@ leitor-faturas/
 
 - Tabelas de retenção de IRS das regiões autónomas (Açores e Madeira).
 - Anexo das regularizações (campos 40/41) da declaração periódica e ficheiro da declaração recapitulativa.
-- Processamento em segundo plano para lotes grandes de faturas.

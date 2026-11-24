@@ -25,7 +25,16 @@ from app.dependencias import utilizador_atual
 from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
 from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
-from app.servicos import armazenamento, exportacao, imagens, limites, processamento, repositorio, webhooks
+from app.servicos import (
+    armazenamento,
+    exportacao,
+    imagens,
+    leitura_fundo,
+    limites,
+    processamento,
+    repositorio,
+    webhooks,
+)
 from app.servicos.contabilidade import lancamentos, verificacoes
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
@@ -59,13 +68,25 @@ def _bloquear_se_contabilizada(db: Session, fatura: Fatura, acao: str) -> None:
         )
 
 
+@router.get("/estado")
+def estado_das_faturas(ids: str = Query(..., max_length=2000), db: Session = Depends(get_db),
+                       utilizador: Utilizador = Depends(utilizador_atual)):
+    """Estado de leitura das faturas indicadas (separadas por vírgulas): para acompanhar um lote."""
+    lista = [i for i in dict.fromkeys(x.strip() for x in ids.split(",")) if armazenamento.id_valido(i)][:100]
+    return leitura_fundo.estados(db, utilizador.empresa_id, lista)
+
+
 @router.post("", status_code=201, response_model=FaturaSaida)
 def carregar_fatura(
     ficheiro: UploadFile = File(...),
+    fundo: bool = False,
     db: Session = Depends(get_db),
     utilizador: Utilizador = Depends(utilizador_atual),
 ):
-    """Recebe um PDF, guarda-o e extrai os dados."""
+    """
+    Recebe um PDF, guarda-o e extrai os dados. Com fundo=true (lotes grandes) guarda-o já e lê-o
+    em segundo plano: a resposta vem com o estado "pendente" e o estado acompanha-se em /estado.
+    """
     limites.verificar(limites.envios, f"utilizador-{utilizador.id}")
     nome = (ficheiro.filename or "").strip()
     extensao = nome.lower().rsplit(".", 1)[-1] if "." in nome else ""
@@ -106,6 +127,12 @@ def carregar_fatura(
         tamanho_kb=round(len(conteudo) / 1024, 1),
         estado=ESTADO_POR_REVER,
     )
+
+    if fundo:
+        db.add(fatura)
+        db.commit()
+        leitura_fundo.despachar()
+        return fatura
 
     try:
         processamento.processar(db, fatura, conteudo)

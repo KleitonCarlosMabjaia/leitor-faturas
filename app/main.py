@@ -81,6 +81,10 @@ async def ciclo_de_vida(app: FastAPI):
         with SessaoLocal() as db:
             if demo.empresa_demo(db) is None:
                 logger.info("Modo demonstração: criadas %d faturas de exemplo", demo.criar_dados_demo(db))
+    # Faturas que ficaram por ler num lote (por exemplo, num reinício): retoma a leitura
+    from app.servicos import leitura_fundo
+
+    leitura_fundo.despachar()
     yield
 
 

@@ -145,6 +145,14 @@ def sem_stripe_real(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def sem_leitura_em_fundo(monkeypatch):
+    """A leitura em segundo plano não arranca threads nos testes: quem a testa chama processar_pendentes."""
+    from app.servicos import leitura_fundo
+
+    monkeypatch.setattr(leitura_fundo, "ATIVA", False)
+
+
+@pytest.fixture(autouse=True)
 def sem_webhooks_reais(monkeypatch):
     """Os avisos de webhooks nunca saem para a rede nos testes (quem os testa substitui o envio)."""
     from app.servicos import webhooks

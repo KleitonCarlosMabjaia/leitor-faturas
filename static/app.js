@@ -235,6 +235,9 @@ function itemFila(ficheiro) {
     aLer() {
       estado.lastChild.textContent = "A ler…";
     },
+    aguardar(texto) {
+      estado.replaceChildren(girador, texto);
+    },
     terminar(classe, nomeIcone, texto, textoDetalhe = "", idFatura = null) {
       li.className = classe;
       detalhe.textContent = textoDetalhe;
@@ -247,6 +250,48 @@ function itemFila(ficheiro) {
       }
     },
   };
+}
+
+// ---------- Lotes lidos em segundo plano ----------
+
+const LOTE_EM_FUNDO = 3;
+
+// Pergunta o estado das faturas a ler no servidor até estarem todas lidas (ou desistir ao fim de 30 min)
+async function acompanharLeitura(aLer) {
+  let lidas = 0;
+  let problemas = 0;
+  const limite = Date.now() + 30 * 60 * 1000;
+  let voltas = 0;
+  while (aLer.size && Date.now() < limite) {
+    await new Promise((resolver) => setTimeout(resolver, 2000));
+    let estados;
+    try {
+      estados = await obter(`/api/faturas/estado?ids=${[...aLer.keys()].join(",")}`);
+    } catch {
+      continue;   // falha de rede momentânea: tenta outra vez
+    }
+    for (const e of estados) {
+      const item = aLer.get(e.id);
+      if (!item || e.estado_extracao === "pendente") continue;
+      aLer.delete(e.id);
+      if (e.estado_extracao === "concluida") {
+        lidas += 1;
+        item.terminar("ok", "check", "Lida", [e.fornecedor, formatarValor(e.total, e.moeda)].filter(Boolean).join(" · "), e.id);
+      } else if (e.estado_extracao === "repetida") {
+        problemas += 1;
+        item.terminar("aviso", "alerta", "Repetida", e.erro || "Esta fatura já existe.");
+      } else if (e.estado_extracao === "desconhecida") {
+        problemas += 1;
+        item.terminar("aviso", "alerta", "Removida", "A fatura já não existe.");
+      } else {
+        problemas += 1;
+        item.terminar("aviso", "alerta", "Guardada, por ler", e.erro || "", e.id);
+      }
+    }
+    voltas += 1;
+    if (voltas % 5 === 0) await atualizarTudo(null);   // a lista vai mostrando as que já foram lidas
+  }
+  return { lidas, problemas };
 }
 
 // ---------- Fotografias e envio sem rede ----------
@@ -327,6 +372,9 @@ async function enviarFicheiros(ficheiros) {
   let lidas = 0;
   let problemas = 0;
   let ultimaId = null;
+  // Lotes de 3 ou mais: o servidor guarda já e lê em segundo plano (a página só acompanha)
+  const emFundo = lista.length >= LOTE_EM_FUNDO;
+  const aLerNoServidor = new Map();
 
   for (const [indice, ficheiro] of lista.entries()) {
     const item = itens[indice];
@@ -335,7 +383,7 @@ async function enviarFicheiros(ficheiros) {
     const preparado = await prepararFicheiro(ficheiro);
     dados.append("ficheiro", preparado, preparado.name);
     try {
-      const resposta = await api("/api/faturas", { method: "POST", body: dados });
+      const resposta = await api(emFundo ? "/api/faturas?fundo=true" : "/api/faturas", { method: "POST", body: dados });
       // Chegou ao servidor (aceite ou recusada): sai da fila do dispositivo
       if (ficheiro.idFila) await tirarDaFila(ficheiro.idFila).catch(() => {});
       if (resposta.status === 409) {
@@ -350,6 +398,11 @@ async function enviarFicheiros(ficheiros) {
       }
       const f = await resposta.json();
       ultimaId = f.id;
+      if (f.estado_extracao === "pendente") {
+        item.aguardar("Guardada · a ler no servidor…");
+        aLerNoServidor.set(f.id, item);
+        continue;
+      }
       if (f.estado_extracao === "concluida") {
         lidas += 1;
         const resumo = [f.fornecedor, formatarValor(f.total, f.moeda)].filter(Boolean).join(" · ");
@@ -374,9 +427,16 @@ async function enviarFicheiros(ficheiros) {
     }
   }
 
-  zona.removeAttribute("aria-busy");
   inputFicheiro.value = "";
   document.getElementById("camera").value = "";
+  if (aLerNoServidor.size) {
+    notificar(`${aLerNoServidor.size} fatura(s) guardada(s). A leitura continua no servidor: pode sair desta página.`, "info");
+    await atualizarTudo(null);
+    const r = await acompanharLeitura(aLerNoServidor);
+    lidas += r.lidas;
+    problemas += r.problemas;
+  }
+  zona.removeAttribute("aria-busy");
   await mostrarFilaOffline();
   if (!navigator.onLine) {
     notificar("Sem ligação à Internet: as faturas ficaram guardadas neste dispositivo e são enviadas quando a rede voltar.", "aviso");
