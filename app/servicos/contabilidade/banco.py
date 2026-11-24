@@ -37,6 +37,7 @@ from app.modelos.tabelas import (
     MovimentoBancario,
     RegraBancaria,
 )
+from app.servicos import webhooks
 from app.servicos.contabilidade import extratos, fluxos_caixa, lancamentos, plano_snc, relatorios, vendas
 from app.servicos.contabilidade.lancamentos import ErroContabilistico, LinhaNova
 
@@ -114,6 +115,10 @@ def gravar(db: Session, empresa: Empresa, conta_codigo: str, lido: extratos.Extr
         ))
         importados += 1
     db.flush()
+    if importados:
+        webhooks.emitir(db, empresa.id, "movimentos.importados", {
+            "conta": conta_codigo, "importados": importados, "extrato_id": extrato.id,
+            "url": f"/api/v1/bancos/movimentos?conta={conta_codigo}"})
     return ResultadoImportacao(extrato, importados, len(lido.movimentos) - importados, lido)
 
 

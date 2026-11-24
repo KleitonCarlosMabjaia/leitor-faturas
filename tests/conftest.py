@@ -144,6 +144,19 @@ def sem_stripe_real(monkeypatch):
     monkeypatch.setattr(subscricoes, "_stripe", proibido)
 
 
+@pytest.fixture(autouse=True)
+def sem_webhooks_reais(monkeypatch):
+    """Os avisos de webhooks nunca saem para a rede nos testes (quem os testa substitui o envio)."""
+    from app.servicos import webhooks
+
+    monkeypatch.setattr(webhooks, "ENTREGA_AUTOMATICA", False)
+
+    def proibido(*_args, **_kwargs):
+        raise AssertionError("Um teste tentou enviar um webhook real")
+
+    monkeypatch.setattr(webhooks, "_enviar", proibido)
+
+
 @pytest.fixture
 def emails(monkeypatch):
     """Liga o envio de emails para um teste e devolve a lista do que teria sido enviado."""

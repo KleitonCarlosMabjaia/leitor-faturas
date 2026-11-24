@@ -32,7 +32,7 @@ from app.modelos.tabelas import (
     FaturaVenda,
     Lancamento,
 )
-from app.servicos import validacao
+from app.servicos import validacao, webhooks
 from app.servicos.contabilidade import iva, lancamentos, plano_snc
 from app.servicos.contabilidade.lancamentos import ErroContabilistico, LinhaNova
 
@@ -189,6 +189,11 @@ def calcular_linhas(linhas: list[LinhaVenda]) -> list[dict]:
     return resultado
 
 
+def _avisar_venda(db: Session, empresa_id: int, venda: FaturaVenda) -> None:
+    webhooks.emitir(db, empresa_id, "venda.registada", {
+        "id": venda.id, "numero": venda.numero, "url": f"/api/v1/vendas?de={venda.data}&ate={venda.data}"})
+
+
 def registar(db: Session, empresa: Empresa, *, numero: str, tipo: str, data: date, cliente_nif: str | None,
              cliente_nome: str | None, linhas: list[LinhaVenda], data_vencimento: date | None = None,
              atcud: str | None = None, meio_pagamento: str | None = None, utilizador_id: int | None = None,
@@ -220,6 +225,7 @@ def registar(db: Session, empresa: Empresa, *, numero: str, tipo: str, data: dat
     )
     db.add(venda)
     db.flush()
+    _avisar_venda(db, empresa.id, venda)
     if contabilizar_ja:
         contabilizar(db, empresa, venda, utilizador_id)
         if tipo == "FR":  # fatura-recibo: paga no momento
@@ -369,6 +375,8 @@ def importar_saft(db: Session, empresa: Empresa, conteudo: bytes, utilizador_id:
             r.importadas += 1
             novas.append((venda, doc))
     db.flush()
+    for venda, _ in novas:
+        _avisar_venda(db, empresa.id, venda)
 
     if contabilizar_ja:
         for venda, doc in novas:

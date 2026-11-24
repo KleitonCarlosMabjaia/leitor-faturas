@@ -7,7 +7,7 @@
   <meta name="description" content="API pública do Dobra: faturas, lançamentos, balancete e movimentos bancários para ligar outros programas.">
   <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.7">
+  <link rel="stylesheet" href="/static/site.css?v=2026-11-24.9">
 </head>
 <body class="site">
   <a class="saltar" href="#conteudo">Saltar para o conteúdo</a>
@@ -53,9 +53,41 @@
 
       <h2>Pontos de acesso</h2>
       <div id="rotas"><p>A carregar…</p></div>
+
+      <h2 id="webhooks">Webhooks</h2>
+      <p>Em vez de perguntar à API de minutos a minutos, o seu programa pode receber um aviso quando há novidades. O administrador da empresa adiciona o endereço (https) em <strong>Equipa › API e integrações › Webhooks</strong>, escolhe os eventos e recebe um segredo, mostrado uma única vez.</p>
+      <table>
+        <thead><tr><th scope="col">Evento</th><th scope="col">Quando</th></tr></thead>
+        <tbody>
+          <tr><td><code>fatura.carregada</code></td><td>Uma fatura de compra foi carregada (ainda por rever).</td></tr>
+          <tr><td><code>fatura.confirmada</code></td><td>Uma fatura de compra foi confirmada.</td></tr>
+          <tr><td><code>venda.registada</code></td><td>Uma fatura emitida foi registada (manual ou do SAF-T de faturação).</td></tr>
+          <tr><td><code>lancamento.criado</code></td><td>Foi criado um lançamento contabilístico (incluindo estornos).</td></tr>
+          <tr><td><code>movimentos.importados</code></td><td>Entraram movimentos bancários (extrato, ligação ao banco ou API).</td></tr>
+          <tr><td><code>teste</code></td><td>Aviso enviado pelo botão «Testar».</td></tr>
+        </tbody>
+      </table>
+      <p>Cada aviso é um <code>POST</code> em JSON com o evento e o identificador; os detalhes obtêm-se pela API (campo <code>url</code>):</p>
+      <pre><code>POST https://o-seu-programa.pt/webhooks/dobra
+Dobra-Evento: fatura.confirmada
+Dobra-Entrega: 123
+Dobra-Assinatura: t=1764000000,v1=5f2b…
+
+{"id": 123, "evento": "fatura.confirmada", "criado_em": "2026-11-24T10:00:00",
+ "dados": {"id": "a1b2c3d4e5f6", "url": "/api/v1/faturas/a1b2c3d4e5f6"}}</code></pre>
+      <p><strong>Verificar a assinatura:</strong> calcule o HMAC-SHA256 de <code>t + "." + corpo</code> (o corpo tal como chegou, sem o voltar a formatar) com o segredo e compare com <code>v1</code>. Recuse avisos com mais de 5 minutos (<code>t</code>), para evitar repetições. Em Python:</p>
+      <pre><code>import hashlib, hmac, time
+
+def aviso_valido(corpo: bytes, cabecalho: str, segredo: str) -> bool:
+    partes = dict(p.split("=", 1) for p in cabecalho.split(","))
+    if abs(time.time() - int(partes["t"])) > 300:
+        return False
+    esperada = hmac.new(segredo.encode(), f"{partes['t']}.".encode() + corpo, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(esperada, partes["v1"])</code></pre>
+      <p>Responda com um código <code>2xx</code> em menos de 10 segundos. Se falhar, o Dobra volta a tentar após 1 minuto, 5 minutos, 30 minutos, 2 horas e 12 horas; um endereço com 20 falhas seguidas é desativado (volta a ficar ativo com um teste bem-sucedido). O mesmo aviso pode chegar mais do que uma vez: use <code>Dobra-Entrega</code> para ignorar repetidos.</p>
     </div>
   </main>
 
-  <script src="/static/documentacao-api.js?v=2026-11-24.7"></script>
+  <script src="/static/documentacao-api.js?v=2026-11-24.9"></script>
 </body>
 </html>

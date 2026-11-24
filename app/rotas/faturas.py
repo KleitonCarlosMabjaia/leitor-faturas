@@ -25,7 +25,7 @@ from app.dependencias import utilizador_atual
 from app.modelos.esquemas import FaturaSaida
 from app.modelos.fatura import EdicaoFatura
 from app.modelos.tabelas import ESTADO_CONFIRMADA, ESTADO_POR_REVER, Fatura, Utilizador
-from app.servicos import armazenamento, exportacao, imagens, limites, processamento, repositorio
+from app.servicos import armazenamento, exportacao, imagens, limites, processamento, repositorio, webhooks
 from app.servicos.contabilidade import lancamentos, verificacoes
 
 router = APIRouter(prefix="/api/faturas", tags=["faturas"])
@@ -110,6 +110,8 @@ def carregar_fatura(
     try:
         processamento.processar(db, fatura, conteudo)
         db.add(fatura)
+        webhooks.emitir(db, utilizador.empresa_id, "fatura.carregada",
+                        {"id": fatura.id, "url": f"/api/v1/faturas/{fatura.id}"})
         db.commit()
     except processamento.FaturaDuplicada as erro:
         db.rollback()
@@ -245,6 +247,9 @@ def editar_fatura(
     repositorio.aplicar_dados(db, fatura, edicao)
     fatura.estado_extracao = "concluida"
     fatura.erro = None
+    if edicao.confirmar and fatura.estado != ESTADO_CONFIRMADA:
+        webhooks.emitir(db, utilizador.empresa_id, "fatura.confirmada",
+                        {"id": fatura.id, "url": f"/api/v1/faturas/{fatura.id}"})
     fatura.estado = ESTADO_CONFIRMADA if edicao.confirmar else ESTADO_POR_REVER
 
     # O nome confirmado pelo utilizador passa a ser o nome do fornecedor na cache da empresa

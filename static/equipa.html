@@ -10,9 +10,9 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Dobra">
   <link rel="apple-touch-icon" href="/static/icones/apple-touch-icon.png">
-  <script src="/static/tema.js?v=2026-11-24.7"></script>
+  <script src="/static/tema.js?v=2026-11-24.9"></script>
   <link rel="preload" href="/static/fontes/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="stylesheet" href="/static/style.css?v=2026-11-24.7">
+  <link rel="stylesheet" href="/static/style.css?v=2026-11-24.9">
 </head>
 <body data-pagina="equipa">
   <header id="barra"></header>
@@ -106,6 +106,35 @@
           <tbody id="chaves"></tbody>
         </table>
       </div>
+
+      <div class="cartao-cabecalho subsecao">
+        <div>
+          <h3 id="titulo-webhooks">Webhooks</h3>
+          <p class="subtitulo">Avisos automáticos para outro programa quando há faturas, vendas, lançamentos ou movimentos bancários novos.</p>
+        </div>
+        <button type="button" class="botao secundario" id="novo-webhook"><span data-icone="enviar"></span>Adicionar webhook</button>
+      </div>
+      <div class="caixa-link" id="caixa-segredo" hidden>
+        <p><strong>Copie o segredo agora:</strong> serve para confirmar que os avisos vêm do Dobra e não volta a ser mostrado.</p>
+        <div class="linha-link">
+          <input id="segredo-criado" readonly aria-label="Segredo da assinatura do webhook">
+          <button type="button" class="botao secundario" id="copiar-segredo"><span data-icone="copiar"></span>Copiar</button>
+        </div>
+        <p class="ajuda">Cada aviso traz o cabeçalho <code>Dobra-Assinatura</code> (HMAC-SHA256 com este segredo). Veja como verificar na documentação da API.</p>
+      </div>
+      <div class="tabela-caixa">
+        <table class="tabela responsiva" aria-labelledby="titulo-webhooks">
+          <thead>
+            <tr>
+              <th scope="col">Endereço</th>
+              <th scope="col">Eventos</th>
+              <th scope="col">Estado</th>
+              <th scope="col"><span class="visualmente-oculto">Ações</span></th>
+            </tr>
+          </thead>
+          <tbody id="webhooks"></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="cartao" aria-labelledby="titulo-atividade">
@@ -124,7 +153,7 @@
     </section>
   </main>
 
-  <script src="/static/comum.js?v=2026-11-24.7"></script>
-  <script src="/static/equipa.js?v=2026-11-24.7"></script>
+  <script src="/static/comum.js?v=2026-11-24.9"></script>
+  <script src="/static/equipa.js?v=2026-11-24.9"></script>
 </body>
 </html>

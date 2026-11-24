@@ -2110,3 +2110,17 @@ tr.inativo td { color: var(--tinta-fraca); }
 .fluxo-movimento { display: inline-flex; gap: 0.5rem; align-items: center; }
 @media (max-width: 560px) { .seletor-fluxo { max-width: 100%; } .fluxo-movimento { flex-wrap: wrap; } }
 @media print { .fluxo-linha .so-impressao, .so-impressao { display: inline; } }
+/* Webhooks (Equipa › API e integrações) */
+.cartao-cabecalho.subsecao { margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--linha); }
+.cartao-cabecalho.subsecao h3 { font-size: 1rem; }
+.eventos-webhook { border: 1px solid var(--linha); border-radius: var(--raio); padding: 0.5rem 0.75rem 0.75rem; margin: 0.75rem 0; }
+.eventos-webhook legend { font-size: 0.875rem; font-weight: 600; padding: 0 0.25rem; }
+.opcao-evento { display: flex; gap: 0.625rem; align-items: flex-start; padding: 0.375rem 0; cursor: pointer; }
+.opcao-evento input { margin-top: 0.25rem; }
+.opcao-evento > span { display: flex; flex-direction: column; gap: 0.125rem; }
+.opcao-evento .ajuda { margin: 0; font-size: 0.8125rem; }
+.titulo.quebrar { overflow-wrap: anywhere; }
+#webhooks td.nome { min-width: 16rem; }
+#webhooks td.acoes { white-space: normal; }
+#webhooks td.acoes .botao { margin: 0.125rem 0; }
+@media (max-width: 40rem) { #webhooks td.nome { min-width: 0; } }

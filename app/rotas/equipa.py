@@ -18,7 +18,7 @@ from app.db import get_db
 from app.dependencias import admin_atual
 from app.modelos.esquemas import MembroSaida
 from app.modelos.tabelas import PAPEL_ADMIN, PAPEL_MEMBRO, AcessoEmpresa, Utilizador
-from app.servicos import atividade, autenticacao, chaves_api, email, empresas, subscricoes
+from app.servicos import atividade, autenticacao, chaves_api, email, empresas, subscricoes, webhooks
 
 router = APIRouter(prefix="/api/equipa", tags=["equipa"])
 
@@ -238,3 +238,59 @@ def revogar_chave(chave_id: int, db: Session = Depends(get_db), admin: Utilizado
     except chaves_api.ErroChave as erro:
         raise HTTPException(status_code=404, detail=str(erro))
     db.commit()
+
+
+# ---------- Webhooks da API pública ----------
+
+class WebhookNovo(BaseModel):
+    url: str = Field(min_length=10, max_length=500)
+    eventos: list[str] = Field(min_length=1, max_length=len(webhooks.EVENTOS))
+
+
+@router.get("/webhooks")
+def listar_webhooks(db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    """Endereços de webhooks da empresa e os eventos disponíveis."""
+    return {"eventos": webhooks.EVENTOS,
+            "webhooks": [webhooks.endpoint_dict(e) for e in webhooks.listar(db, admin.empresa_id)]}
+
+
+@router.post("/webhooks", status_code=201)
+def criar_webhook(dados: WebhookNovo, db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    """Cria um endereço. A resposta traz o segredo da assinatura: é a única vez que aparece."""
+    if config.MODO_DEMO:
+        raise HTTPException(status_code=403, detail="Os webhooks não estão disponíveis na demonstração.")
+    try:
+        endpoint = webhooks.criar(db, admin.empresa_id, dados.url, dados.eventos, admin.id)
+    except webhooks.ErroWebhook as erro:
+        raise HTTPException(status_code=400, detail=str(erro))
+    db.commit()
+    return {**webhooks.endpoint_dict(endpoint), "segredo": endpoint.segredo}
+
+
+@router.post("/webhooks/{endpoint_id}/testar")
+def testar_webhook(endpoint_id: int, db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    """Envia já um aviso de teste e devolve o resultado (reativa o endereço se correr bem)."""
+    try:
+        entrega = webhooks.testar(db, admin.empresa_id, endpoint_id)
+    except webhooks.ErroWebhook as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+    db.commit()
+    return webhooks.entrega_dict(entrega)
+
+
+@router.get("/webhooks/{endpoint_id}/entregas")
+def entregas_webhook(endpoint_id: int, db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    try:
+        return webhooks.ultimas_entregas(db, admin.empresa_id, endpoint_id)
+    except webhooks.ErroWebhook as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+
+
+@router.delete("/webhooks/{endpoint_id}", status_code=204)
+def apagar_webhook(endpoint_id: int, db: Session = Depends(get_db), admin: Utilizador = Depends(admin_atual)):
+    try:
+        webhooks.apagar(db, admin.empresa_id, endpoint_id)
+    except webhooks.ErroWebhook as erro:
+        raise HTTPException(status_code=404, detail=str(erro))
+    db.commit()
+

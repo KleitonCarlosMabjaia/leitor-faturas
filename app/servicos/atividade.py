@@ -97,6 +97,9 @@ ACOES: list[tuple[str, str, str]] = [
     ("PATCH", r"^/api/equipa/(?P<id>\d+)$", "Alterou o acesso do utilizador {id}"),
     ("POST", r"^/api/equipa/chaves-api$", "Criou uma chave da API"),
     ("DELETE", r"^/api/equipa/chaves-api/(?P<id>\d+)$", "Revogou a chave da API {id}"),
+    ("POST", r"^/api/equipa/webhooks$", "Criou um webhook"),
+    ("POST", r"^/api/equipa/webhooks/(?P<id>\d+)/testar$", "Testou o webhook {id}"),
+    ("DELETE", r"^/api/equipa/webhooks/(?P<id>\d+)$", "Apagou o webhook {id}"),
 ]
 _ACOES = [(m, re.compile(p), d) for m, p, d in ACOES]
 

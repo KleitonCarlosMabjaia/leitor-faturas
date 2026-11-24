@@ -32,6 +32,7 @@ from app.modelos.tabelas import (
     LinhaLancamento,
     MovimentoBancario,
 )
+from app.servicos import webhooks
 from app.servicos.contabilidade import classificacao, fluxos_caixa, iva, plano_snc, relatorios
 
 DIARIOS = {
@@ -152,6 +153,9 @@ def criar(
     )
     db.add(lancamento)
     db.flush()
+    webhooks.emitir(db, empresa.id, "lancamento.criado", {
+        "id": lancamento.id, "referencia": f"{diario} {lancamento.ano}/{lancamento.numero}", "origem": origem,
+        "url": f"/api/v1/lancamentos?de={data.isoformat()}&ate={data.isoformat()}"})
     return lancamento
 
 

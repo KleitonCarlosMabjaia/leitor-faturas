@@ -301,6 +301,117 @@ document.getElementById("copiar-chave").addEventListener("click", async (e) => {
   }
 });
 
+// ---------- Webhooks ----------
+
+let eventosWebhook = {};
+
+function estadoWebhook(w) {
+  if (!w.ativo) return criarEtiqueta("Desativado (falhas)", "erro", "alerta");
+  if (w.ultimo_estado === "falhou") return criarEtiqueta(`A falhar (${w.falhas_seguidas})`, "aviso", "alerta");
+  if (w.ultimo_estado === "entregue") return criarEtiqueta("A funcionar", "ok", "check");
+  return criarEtiqueta("Sem avisos ainda", "neutro", "relogio");
+}
+
+function verEntregas(w) {
+  const lista = h("div", { class: "lista-entregas" }, h("p", { class: "ajuda", texto: "A carregar…" }));
+  const janela = janelaTemporaria(`Últimos avisos para ${new URL(w.url).host}`, lista, async () => {}, "Fechar");
+  janela.querySelector(".janela-botoes .secundario").hidden = true;
+  obter(`/api/equipa/webhooks/${w.id}/entregas`).then((entregas) => {
+    preencher(lista, ...(entregas.length ? [h("div", { class: "tabela-caixa" }, h("table", { class: "tabela responsiva" },
+      h("thead", {}, h("tr", {}, ...["Quando", "Evento", "Resultado"].map((x) => h("th", { scope: "col", texto: x })))),
+      h("tbody", {}, entregas.map((e) => h("tr", {},
+        h("td", { "data-rotulo": "Quando:", texto: formatoAcesso.format(new Date(e.criada_em)) }),
+        h("td", { "data-rotulo": "Evento:" }, h("code", { texto: e.evento })),
+        h("td", { "data-rotulo": "Resultado:" },
+          e.estado === "entregue" ? criarEtiqueta(`Entregue (${e.codigo_resposta})`, "ok", "check")
+            : e.estado === "falhou" ? criarEtiqueta(e.erro || "Falhou", "erro", "alerta")
+              : criarEtiqueta(`Nova tentativa (${e.tentativas})`, "aviso", "relogio")))))))]
+      : [h("p", { class: "ajuda", texto: "Ainda não houve avisos para este endereço." })]));
+  }).catch((erro) => preencher(lista, h("p", { class: "erro-campo", texto: erro.message })));
+}
+
+async function carregarWebhooks() {
+  const corpo = document.getElementById("webhooks");
+  let d;
+  try {
+    d = await obter("/api/equipa/webhooks");
+  } catch (erro) {
+    return notificar(erro.message, "erro");
+  }
+  eventosWebhook = d.eventos;
+  preencher(corpo, ...(d.webhooks.length ? d.webhooks.map((w) => {
+    const testar = botaoTexto("Testar", `Enviar um aviso de teste para ${w.url}`, async (b) => {
+      ocupado(b, true);
+      try {
+        const r = await enviar(`/api/equipa/webhooks/${w.id}/testar`, {});
+        notificar(r.estado === "entregue" ? `Aviso de teste entregue (resposta ${r.codigo_resposta}).`
+          : `O aviso de teste falhou: ${r.erro || "sem resposta"}.`, r.estado === "entregue" ? "ok" : "erro");
+      } catch (erro) {
+        notificar(erro.message, "erro");
+      }
+      ocupado(b, false);
+      carregarWebhooks();
+    });
+    const historico = botaoTexto("Avisos", `Ver os últimos avisos enviados para ${w.url}`, () => verEntregas(w), "fantasma");
+    const apagar = botaoTexto("Remover", `Remover o webhook ${w.url}`, async (b) => {
+      const sim = await confirmar({ titulo: "Remover este webhook?", texto: `${w.url} deixa de receber avisos.`, botao: "Remover", perigo: true });
+      if (!sim) return;
+      ocupado(b, true);
+      const r = await api(`/api/equipa/webhooks/${w.id}`, { method: "DELETE" });
+      if (!r.ok) {
+        ocupado(b, false);
+        return notificar(await lerErro(r, "Não foi possível remover o webhook."), "erro");
+      }
+      notificar("Webhook removido.", "ok");
+      carregarWebhooks();
+    }, "perigo");
+    return h("tr", {},
+      h("td", { class: "nome" }, h("div", {}, h("span", { class: "titulo quebrar", texto: w.url }),
+        h("span", { class: "detalhe", texto: w.ultima_entrega_em ? `Último aviso: ${formatoAcesso.format(new Date(w.ultima_entrega_em))}` : `Criado a ${formatarData(w.criado_em.slice(0, 10))}` }))),
+      h("td", { "data-rotulo": "Eventos:" }, h("div", { class: "etiquetas" }, w.eventos.map((e) => h("code", { texto: e })))),
+      h("td", { "data-rotulo": "Estado:" }, estadoWebhook(w)),
+      h("td", { class: "num acoes" }, testar, historico, apagar));
+  }) : [h("tr", {}, h("td", { colspan: "4", class: "ajuda", texto: "Ainda não há webhooks. Adicione um para avisar outro programa das novidades." }))]));
+}
+
+document.getElementById("novo-webhook").addEventListener("click", () => {
+  const url = h("input", { id: "webhook-url", type: "url", maxlength: "500", autocomplete: "off", placeholder: "https://o-seu-programa.pt/webhooks/dobra", required: true });
+  const caixas = Object.entries(eventosWebhook).map(([chave, descricao]) =>
+    h("label", { class: "opcao-evento" }, h("input", { type: "checkbox", value: chave, checked: chave !== "fatura.carregada" }),
+      h("span", {}, h("code", { texto: chave }), h("span", { class: "ajuda", texto: descricao }))));
+  janelaTemporaria("Adicionar webhook", h("div", {},
+    campoJanela("webhook-url", "Endereço (https) que recebe os avisos", url),
+    h("fieldset", { class: "eventos-webhook" }, h("legend", { texto: "Eventos" }), ...caixas),
+    h("p", { class: "ajuda", texto: "Cada aviso diz o que aconteceu e o identificador; os detalhes obtêm-se pela API com uma chave. Se o endereço falhar, o Dobra volta a tentar durante cerca de 15 horas." })),
+  async () => {
+    const eventos = caixas.map((c) => c.querySelector("input")).filter((i) => i.checked).map((i) => i.value);
+    if (!url.value.trim()) throw new Error("Indique o endereço.");
+    if (!eventos.length) throw new Error("Escolha pelo menos um evento.");
+    const criado = await enviar("/api/equipa/webhooks", { url: url.value.trim(), eventos });
+    const campo = document.getElementById("segredo-criado");
+    campo.value = criado.segredo;
+    document.getElementById("caixa-segredo").hidden = false;
+    campo.select();
+    notificar("Webhook criado. Copie o segredo agora: não volta a ser mostrado.", "ok");
+    carregarWebhooks();
+  }, "Adicionar");
+  url.focus();
+});
+
+document.getElementById("copiar-segredo").addEventListener("click", async (e) => {
+  const b = e.currentTarget;
+  const campo = document.getElementById("segredo-criado");
+  try {
+    await navigator.clipboard.writeText(campo.value);
+    b.replaceChildren(icone("check"), "Copiado");
+    setTimeout(() => b.replaceChildren(icone("copiar"), "Copiar"), 2000);
+  } catch {
+    campo.select();
+    notificar("Selecione o segredo e copie com Ctrl+C.", "info");
+  }
+});
+
 carregar();
 carregarAtividade(true);
 carregarChaves();
+carregarWebhooks();

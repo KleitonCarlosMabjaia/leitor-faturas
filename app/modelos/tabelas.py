@@ -333,6 +333,43 @@ class LinhaLancamento(Base):
     fluxo_caixa: Mapped[str | None] = mapped_column(String(4))
 
 
+class WebhookEndpoint(Base):
+    """Endereço de outro programa que recebe os avisos (webhooks) dos eventos da empresa."""
+
+    __tablename__ = "webhooks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    url: Mapped[str] = mapped_column(String(500))
+    eventos: Mapped[list] = mapped_column(JSON)
+    segredo: Mapped[str] = mapped_column(String(80))           # para assinar os avisos (HMAC-SHA256)
+    ativo: Mapped[bool] = mapped_column(default=True)
+    falhas_seguidas: Mapped[int] = mapped_column(default=0)
+    ultimo_estado: Mapped[str | None] = mapped_column(String(10))
+    ultima_entrega_em: Mapped[datetime | None] = mapped_column(DateTime)
+    criado_por_id: Mapped[int | None] = mapped_column(ForeignKey("utilizadores.id", ondelete="SET NULL"))
+    criado_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+
+
+class EntregaWebhook(Base):
+    """Um aviso a entregar (ou entregue) a um endereço de webhooks, com as tentativas."""
+
+    __tablename__ = "entregas_webhook"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    endpoint_id: Mapped[int] = mapped_column(ForeignKey("webhooks.id", ondelete="CASCADE"), index=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    evento: Mapped[str] = mapped_column(String(40))
+    carga: Mapped[dict | None] = mapped_column(JSON)
+    estado: Mapped[str] = mapped_column(String(10), index=True)   # pendente | entregue | falhou
+    tentativas: Mapped[int] = mapped_column(default=0)
+    codigo_resposta: Mapped[int | None] = mapped_column()
+    erro: Mapped[str | None] = mapped_column(String(300))
+    criada_em: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
+    proxima_tentativa: Mapped[datetime | None] = mapped_column(DateTime, index=True)
+    entregue_em: Mapped[datetime | None] = mapped_column(DateTime)
+
+
 class FaturaSubscricao(Base):
     """Fatura certificada (emitida no Facturalusa) de um pagamento da subscrição no Stripe."""
 
