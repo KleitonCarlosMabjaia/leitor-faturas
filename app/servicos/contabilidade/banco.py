@@ -37,7 +37,7 @@ from app.modelos.tabelas import (
     MovimentoBancario,
     RegraBancaria,
 )
-from app.servicos.contabilidade import extratos, lancamentos, plano_snc, relatorios, vendas
+from app.servicos.contabilidade import extratos, fluxos_caixa, lancamentos, plano_snc, relatorios, vendas
 from app.servicos.contabilidade.lancamentos import ErroContabilistico, LinhaNova
 
 JANELA_DIAS = 10        # diferença máxima de datas entre o banco e a contabilidade
@@ -358,7 +358,8 @@ def receber_venda(db: Session, empresa: Empresa, mov: MovimentoBancario, venda_i
 
 
 def lancar(db: Session, empresa: Empresa, mov: MovimentoBancario, conta_codigo: str,
-           descricao: str | None = None, utilizador_id: int | None = None, aprender: bool = True) -> Lancamento:
+           descricao: str | None = None, utilizador_id: int | None = None, aprender: bool = True,
+           fluxo: str | None = None) -> Lancamento:
     """Cria o lançamento do movimento (banco contra a conta escolhida), reconcilia e memoriza a escolha."""
     _verificar_pendente(mov)
     if conta_codigo == mov.conta_codigo:
@@ -367,7 +368,7 @@ def lancar(db: Session, empresa: Empresa, mov: MovimentoBancario, conta_codigo: 
     entrada = mov.montante > 0
     linhas = [
         LinhaNova(mov.conta_codigo, debito=valor if entrada else 0, credito=0 if entrada else valor,
-                  descricao=mov.descricao[:200]),
+                  descricao=mov.descricao[:200], fluxo=fluxo),
         LinhaNova(conta_codigo, debito=0 if entrada else valor, credito=valor if entrada else 0),
     ]
     lancamento = lancamentos.criar(
@@ -378,6 +379,8 @@ def lancar(db: Session, empresa: Empresa, mov: MovimentoBancario, conta_codigo: 
     _marcar(mov, _linha_do_banco(lancamento, mov.conta_codigo), utilizador_id)
     if aprender:
         _aprender(db, empresa.id, mov, conta_codigo)
+    if fluxo and fluxos_caixa.terceiro(conta_codigo):   # escolha feita na reconciliação: memorizada
+        fluxos_caixa.memorizar_para(db, empresa.id, conta_codigo, fluxo)
     return lancamento
 
 

@@ -50,6 +50,7 @@ from app.servicos.contabilidade import (
     declaracoes,
     extratos,
     fecho,
+    fluxos_caixa,
     ia,
     importacao_saft,
     inventarios,
@@ -131,6 +132,7 @@ def lancamento_dict(la: Lancamento) -> dict:
             "id": ln.id, "conta": ln.conta.codigo, "nome": ln.conta.nome, "debito": ln.debito, "credito": ln.credito,
             "descricao": ln.descricao, "tipo_iva": ln.tipo_iva, "taxa_iva": ln.taxa_iva,
             "centro_id": ln.centro_custo_id, "analitica": centros.analitica(ln.conta.codigo),
+            "caixa": fluxos_caixa.e_caixa(ln.conta.codigo), "fluxo": ln.fluxo_caixa,
         } for ln in la.linhas],
     }
 
@@ -206,6 +208,10 @@ class AtribuicaoCentro(BaseModel):
     centro_id: int | None = None
 
 
+class AtribuicaoFluxo(BaseModel):
+    fluxo: str | None = Field(None, pattern=r"^[A-Z]{2}\d{2}$")
+
+
 def _centro_dict(c) -> dict:
     return {"id": c.id, "codigo": c.codigo, "nome": c.nome, "ativo": c.ativo}
 
@@ -256,6 +262,49 @@ def atribuir_centro(linha_id: int, dados: AtribuicaoCentro, db: Session = Depend
         raise HTTPException(status_code=400, detail=str(erro))
     db.commit()
     return {"id": linha.id, "centro_id": linha.centro_custo_id}
+
+
+@router.patch("/linhas/{linha_id}/fluxo")
+def atribuir_fluxo(linha_id: int, dados: AtribuicaoFluxo, db: Session = Depends(get_db),
+                   utilizador: Utilizador = Depends(utilizador_atual)):
+    """Muda o código de fluxo de caixa de uma linha de caixa/bancos (fica memorizado para o terceiro)."""
+    _empresa(db, utilizador)
+    try:
+        linha = fluxos_caixa.alterar(db, utilizador.empresa_id, linha_id, dados.fluxo)
+    except fluxos_caixa.ErroFluxo as erro:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(erro))
+    db.commit()
+    return {"id": linha.id, "fluxo": linha.fluxo_caixa}
+
+
+@router.get("/fluxos-caixa/rubricas")
+def rubricas_fluxos():
+    return fluxos_caixa.rubricas()
+
+
+@router.get("/fluxos-caixa")
+def demonstracao_fluxos(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                        utilizador: Utilizador = Depends(utilizador_atual)):
+    de, ate = _periodo(de, ate)
+    _empresa(db, utilizador)
+    dados = fluxos_caixa.demonstracao(db, utilizador.empresa_id, de, ate)
+    db.commit()
+    return dados
+
+
+@router.get("/fluxos-caixa/exportar")
+def exportar_fluxos(de: date | None = None, ate: date | None = None, db: Session = Depends(get_db),
+                    utilizador: Utilizador = Depends(utilizador_atual)):
+    de, ate = _periodo(de, ate)
+    empresa = _empresa(db, utilizador)
+    dados = fluxos_caixa.demonstracao(db, empresa.id, de, ate)
+    db.commit()
+    return Response(
+        content=exportacao.gerar_fluxos_caixa_xlsx(dados, empresa.nome),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="fluxos-de-caixa-{de}-a-{ate}.xlsx"'},
+    )
 
 
 @router.post("/importar-saft")
@@ -540,6 +589,7 @@ class LinhaEntrada(BaseModel):
     debito: float = Field(0, ge=0)
     credito: float = Field(0, ge=0)
     descricao: str | None = Field(None, max_length=200)
+    fluxo: str | None = Field(None, pattern=r"^[A-Z]{2}\d{2}$")   # só nas linhas de caixa e bancos
 
 
 class LancamentoEntrada(BaseModel):
@@ -555,7 +605,8 @@ class LancamentoEntrada(BaseModel):
 def criar_lancamento(entrada: LancamentoEntrada, db: Session = Depends(get_db),
                      utilizador: Utilizador = Depends(utilizador_atual)):
     empresa = _empresa(db, utilizador)
-    linhas = [lancamentos.LinhaNova(ln.conta, debito=ln.debito, credito=ln.credito, descricao=ln.descricao)
+    linhas = [lancamentos.LinhaNova(ln.conta, debito=ln.debito, credito=ln.credito, descricao=ln.descricao,
+                                    fluxo=ln.fluxo if fluxos_caixa.e_caixa(ln.conta) else None)
               for ln in entrada.linhas]
     try:
         lancamento = lancamentos.criar(
@@ -1464,7 +1515,9 @@ def _movimento_dict(mov: MovimentoBancario, sugs: list[dict] | None = None) -> d
     ligado = None
     if mov.linha_id and mov.linha:
         la = mov.linha.lancamento
-        ligado = {"lancamento_id": la.id, "referencia": f"{la.diario} {la.ano}/{la.numero}", "descricao": la.descricao}
+        ligado = {"lancamento_id": la.id, "referencia": f"{la.diario} {la.ano}/{la.numero}",
+                  "descricao": la.descricao, "linha_id": mov.linha.id, "fluxo": mov.linha.fluxo_caixa,
+                  "transferencia": all(fluxos_caixa.e_caixa(ln.conta.codigo) for ln in la.linhas)}
     return {
         "id": mov.id, "conta": mov.conta_codigo, "data": mov.data, "descricao": mov.descricao,
         "montante": mov.montante, "saldo": mov.saldo, "estado": mov.estado, "lancamento": ligado,
@@ -1575,6 +1628,7 @@ class RecebimentoVenda(BaseModel):
 class LancamentoBanco(BaseModel):
     conta: str = Field(min_length=3, max_length=20, pattern=r"^\d+$")
     descricao: str | None = Field(None, max_length=300)
+    fluxo: str | None = Field(None, pattern=r"^[A-Z]{2}\d{2}$")   # None: automático pela contrapartida
 
 
 def _acao_banco(db: Session, utilizador: Utilizador, movimento_id: int, acao) -> dict:
@@ -1615,7 +1669,8 @@ def receber_venda_movimento(movimento_id: int, dados: RecebimentoVenda, db: Sess
 def lancar_movimento(movimento_id: int, dados: LancamentoBanco, db: Session = Depends(get_db),
                      utilizador: Utilizador = Depends(utilizador_atual)):
     return _acao_banco(db, utilizador, movimento_id,
-                       lambda e, m: banco.lancar(db, e, m, dados.conta, dados.descricao, utilizador.id))
+                       lambda e, m: banco.lancar(db, e, m, dados.conta, dados.descricao, utilizador.id,
+                                                 fluxo=dados.fluxo))
 
 
 @router.post("/banco/movimentos/{movimento_id}/ignorar")

@@ -544,3 +544,18 @@ def test_ligacao_direta_ao_banco_simulado(page: Page, erros_js):
     expect(page.get_by_text("Ligação ao banco desligada.")).to_be_visible()
     expect(page.locator("#cartao-open-banking").get_by_role("button", name="Ligar ao banco")).to_be_visible()
     assert not erros_js
+
+
+def test_demonstracao_dos_fluxos_de_caixa(page: Page, erros_js):
+    page.goto("/contabilidade#fluxos-caixa")
+    tabela = page.locator("table.fluxos-caixa")
+    expect(tabela).to_contain_text("Fluxos de caixa das atividades operacionais")
+    expect(tabela).to_contain_text("Caixa e seus equivalentes no fim do período")
+    expect(page.locator("#sec-fluxos-caixa .erro-campo")).to_have_count(0)   # variação = diferença da caixa
+    with page.expect_download() as d:
+        page.get_by_role("link", name="Exportar (Excel)").click()
+    assert d.value.suggested_filename.endswith(".xlsx")
+    # Código de fluxo editável nos lançamentos
+    page.goto("/contabilidade#lancamentos")
+    expect(page.locator("select.seletor-fluxo").first).to_be_visible()
+    assert not erros_js

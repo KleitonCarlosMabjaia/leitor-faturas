@@ -84,6 +84,7 @@ ACOES: list[tuple[str, str, str]] = [
     ("POST", r"^/api/contabilidade/centros$", "Criou um centro de custo"),
     ("PATCH", r"^/api/contabilidade/centros/(?P<id>\d+)$", "Alterou o centro de custo {id}"),
     ("PATCH", r"^/api/contabilidade/linhas/(?P<id>\d+)/centro$", "Atribuiu um centro de custo à linha {id}"),
+    ("PATCH", r"^/api/contabilidade/linhas/(?P<id>\d+)/fluxo$", "Alterou o código de fluxo de caixa da linha {id}"),
     ("POST", r"^/api/gestao/artigos$", "Criou um artigo"),
     ("PUT", r"^/api/gestao/artigos/(?P<id>\d+)$", "Alterou o artigo {id}"),
     ("POST", r"^/api/gestao/movimentos$", "Registou um movimento de stock"),

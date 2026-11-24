@@ -32,7 +32,7 @@ from app.modelos.tabelas import (
     LinhaLancamento,
     MovimentoBancario,
 )
-from app.servicos.contabilidade import classificacao, iva, plano_snc, relatorios
+from app.servicos.contabilidade import classificacao, fluxos_caixa, iva, plano_snc, relatorios
 
 DIARIOS = {
     "COM": "Compras",
@@ -58,6 +58,7 @@ class LinhaNova:
     descricao: str | None = None
     tipo_iva: str | None = None
     taxa_iva: float | None = None
+    fluxo: str | None = None        # código de fluxo de caixa (linhas 11 a 13); None: automático
 
 
 def _euros(valor: float) -> str:
@@ -119,6 +120,10 @@ def validar(db: Session, empresa: Empresa, diario: str, data: date, descricao: s
             f"O lançamento não está equilibrado: débito {_euros(total_debito)}, crédito {_euros(total_credito)} "
             f"(diferença de {_euros(abs(total_debito - total_credito))})."
         )
+    try:
+        fluxos_caixa.atribuir(db, empresa.id, [ln.conta_codigo for ln in linhas], novas, [ln.fluxo for ln in linhas])
+    except fluxos_caixa.ErroFluxo as erro:
+        raise ErroContabilistico(str(erro)) from erro
     return novas
 
 
@@ -173,7 +178,7 @@ def estornar(db: Session, empresa: Empresa, lancamento: Lancamento, utilizador_i
             data = date.today()
     linhas = [
         LinhaNova(ln.conta.codigo, debito=ln.credito, credito=ln.debito, descricao=ln.descricao,
-                  tipo_iva=ln.tipo_iva, taxa_iva=ln.taxa_iva)
+                  tipo_iva=ln.tipo_iva, taxa_iva=ln.taxa_iva, fluxo=ln.fluxo_caixa)
         for ln in lancamento.linhas
     ]
     estorno = criar(

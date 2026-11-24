@@ -83,6 +83,7 @@ empresário, e **Contabilidade** (SNC, IVA e obrigações fiscais). As duas usam
 - **Contabilização das faturas num clique, ou em lote.** A conta é sugerida em cascata: o que a aplicação **aprendeu** com esse fornecedor → palavras-chave no nome → **IA**, que lê a fatura e o plano de contas. A escolha fica memorizada por NIF.
 - **IVA não dedutível automático (art. 21.º do CIVA):** gasóleo a 50%, gasolina, viaturas ligeiras, refeições e deslocações. A parte não dedutível vai para o gasto e fica explicada no lançamento. As notas de crédito invertem o lançamento.
 - Marcar uma fatura como paga gera o **pagamento no banco**; desmarcar estorna-o. Uma fatura contabilizada fica protegida contra alterações.
+- **Demonstração dos fluxos de caixa** (NCRF 2, método direto, modelo da Portaria n.º 220/2015): atividades operacionais, de investimento e de financiamento, caixa gerada pelas operações, variação e caixa no início e no fim, com o período comparativo do ano anterior, exportação para Excel e impressão. Cada linha de caixa e bancos (11 a 13) tem um **código de fluxo** atribuído pela conta de contrapartida (clientes, fornecedores e gastos, pessoal, ativos fixos, financiamentos, capital, juros...), editável no lançamento e na reconciliação bancária e **memorizado por fornecedor/cliente**; as transferências entre caixa e bancos e os saldos de abertura não são fluxos.
 - **Apuramento do IVA num clique** (2432/2433/2434 → 2435 → 2436 a pagar ou 2437 a recuperar, com reporte do crédito anterior) e **mapa de apoio à declaração periódica** (campos 1 a 6 e 20 a 24).
 - **Relatórios:** balancete analítico (com exportação para Excel), extratos de conta com saldo linha a linha, diário com pesquisa, demonstração de resultados por naturezas e **contas correntes de fornecedores com antiguidade de saldos**, com a lista das faturas por pagar e o registo do pagamento (data, banco ou caixa) a partir daí.
 - **Verificações automáticas** do dia a dia: faturas por contabilizar, IVA do período por apurar, caixa com saldo credor, fornecedores com saldo devedor, NIF inválido, **tributação autónoma estimada** das despesas de representação (art. 88.º do CIRC), retenção na fonte a pessoas singulares e faturas sem ATCUD.
@@ -362,6 +363,7 @@ A **API pública** para outros programas está em `/api/v1`, com chave (`Authori
 | POST | `/api/contabilidade/lancamentos/{id}/estornar` | Estorna um lançamento |
 | GET | `/api/contabilidade/balancete` | Balancete analítico (`/balancete/exportar` para Excel) |
 | GET | `/api/contabilidade/extrato` | Extrato de uma conta e subcontas (`conta`, `de`, `ate`) |
+| GET | `/api/contabilidade/fluxos-caixa`, `/fluxos-caixa/exportar`, `/fluxos-caixa/rubricas` | Demonstração dos fluxos de caixa (JSON e Excel) e rubricas; `PATCH /api/contabilidade/linhas/{id}/fluxo` muda o código de uma linha |
 | GET | `/api/contabilidade/iva` | Mapa da declaração periódica; `POST /api/contabilidade/iva/apurar` gera o apuramento |
 | GET | `/api/contabilidade/iva/declaracao`, `/iva/declaracao.xml` | Campos da declaração periódica e ficheiro XML oficial (dpiva) |
 | GET | `/api/contabilidade/resultados` | Demonstração de resultados por naturezas |

@@ -52,6 +52,7 @@ from app.modelos.tabelas import (
     ProcessamentoSalarial,
     RegistoAtividade,
     RegraBancaria,
+    RegraFluxo,
     RegraFornecedor,
     Sessao,
     TokenAcesso,
@@ -760,6 +761,7 @@ def apagar_empresa_demo(db: Session) -> None:
     db.execute(delete(LinhaLancamento).where(LinhaLancamento.lancamento_id.in_(ids_lancamentos)))
     db.execute(delete(Lancamento).where(Lancamento.empresa_id == empresa.id))
     db.execute(delete(RegraFornecedor).where(RegraFornecedor.empresa_id == empresa.id))
+    db.execute(delete(RegraFluxo).where(RegraFluxo.empresa_id == empresa.id))
     db.execute(delete(Conta).where(Conta.empresa_id == empresa.id))
     db.execute(delete(FaturaVenda).where(FaturaVenda.empresa_id == empresa.id))
     ids_inventarios = select(Inventario.id).where(Inventario.empresa_id == empresa.id)

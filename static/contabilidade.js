@@ -111,7 +111,7 @@ function iniciarPeriodo() {
       // sem armazenamento: o período vale só nesta visita
     }
     if (recarregar) {
-      for (const s of ["lancamentos", "balancete", "extrato", "resultados"]) carregadas.delete(s);
+      for (const s of ["lancamentos", "balancete", "extrato", "resultados", "fluxos-caixa"]) carregadas.delete(s);
       mostrar(atual, true);
     }
   }
@@ -145,6 +145,7 @@ const SECOES = {
   salarios: carregarSalarios,
   periodizacao: carregarPeriodizacao,
   balanco: carregarBalanco,
+  "fluxos-caixa": carregarFluxosCaixa,
   fecho: carregarFecho,
   lancamentos: carregarLancamentos,
   centros: carregarCentros,
@@ -212,6 +213,7 @@ function iniciarSeparadores() {
 
 function invalidar(...nomes) {
   for (const n of nomes) carregadas.delete(n);
+  carregadas.delete("fluxos-caixa");   // qualquer alteração pode mexer na caixa
 }
 
 // ---------- Resumo ----------
@@ -349,14 +351,36 @@ function seletorCentro(l) {
   return sel;
 }
 
+// Código de fluxo de caixa de uma linha de caixa/bancos já lançada (memorizado para o fornecedor/cliente)
+function seletorFluxoLinha(l, transferencia) {
+  if (transferencia) return h("span", { class: "ajuda", texto: "Transferência (não é fluxo)" });
+  const sel = seletorFluxo(rubricasFluxo, l.fluxo, { vazio: "Automático" });
+  sel.setAttribute("aria-label", `Fluxo de caixa da conta ${l.conta}`);
+  sel.addEventListener("change", async () => {
+    try {
+      const r = await enviar(`/api/contabilidade/linhas/${l.id}/fluxo`, { fluxo: sel.value || null }, "PATCH");
+      l.fluxo = r.fluxo;
+      invalidar();
+      notificar("Código de fluxo de caixa alterado (fica memorizado para este fornecedor/cliente).", "ok");
+    } catch (erro) {
+      sel.value = l.fluxo || "";
+      notificar(erro.message, "erro");
+    }
+  });
+  return h("span", { class: "fluxo-linha" }, sel, h("span", { class: "so-impressao", texto: l.fluxo || "" }));
+}
+
 function tabelaLinhas(linhas, comDescricao = true) {
   const totalD = linhas.reduce((s, l) => s + l.debito, 0);
   const totalC = linhas.reduce((s, l) => s + l.credito, 0);
   const comCentros = centrosCusto.length > 0 && linhas.some((l) => l.id && l.analitica);
+  const comFluxo = Boolean(rubricasFluxo) && linhas.some((l) => l.id && l.caixa);
+  const transferencia = linhas.every((l) => l.caixa);
   return h("div", { class: "tabela-caixa" }, h("table", { class: "tabela razao" },
     h("thead", {}, h("tr", {},
       h("th", { scope: "col", texto: "Conta" }), h("th", { scope: "col", texto: "Descrição" }),
       comCentros ? h("th", { scope: "col", texto: "Centro de custo" }) : null,
+      comFluxo ? h("th", { scope: "col", texto: "Fluxo de caixa" }) : null,
       h("th", { scope: "col", class: "num", texto: "Débito" }), h("th", { scope: "col", class: "num", texto: "Crédito" }))),
     h("tbody", {}, linhas.map((l) => h("tr", {},
       h("td", { class: "conta-codigo" }, h("a", { href: `#extrato:${l.conta}`, texto: l.conta })),
@@ -364,8 +388,10 @@ function tabelaLinhas(linhas, comDescricao = true) {
       td(comDescricao && l.descricao && l.descricao !== l.nome ? `${l.nome} · ${l.descricao}` : l.nome,
         l.credito ? "credito" : ""),
       comCentros ? h("td", {}, l.id && l.analitica ? seletorCentro(l) : null) : null,
+      comFluxo ? h("td", {}, l.id && l.caixa ? seletorFluxoLinha(l, transferencia) : null) : null,
       td(eurosOuVazio(l.debito), "num"), td(eurosOuVazio(l.credito), "num")))),
-    h("tfoot", {}, h("tr", {}, td(""), td("Total"), comCentros ? td("") : null, td(euros(totalD), "num"), td(euros(totalC), "num")))));
+    h("tfoot", {}, h("tr", {}, td(""), td("Total"), comCentros ? td("") : null, comFluxo ? td("") : null,
+      td(euros(totalD), "num"), td(euros(totalC), "num")))));
 }
 
 function etiquetaOrigem(origem, confianca) {
@@ -671,6 +697,7 @@ function cartaoLancamento(la, aoMudar) {
 async function carregarLancamentos(secao) {
   await obterContas();
   centrosCusto = await obter("/api/contabilidade/centros").catch(() => []);
+  await obterRubricasFluxo().catch(() => null);
   const filtroDiario = h("select", { id: "filtro-diario" },
     h("option", { value: "" }, "Todos os diários"),
     ...Object.entries({ COM: "Compras", VEN: "Vendas", BAN: "Bancos", CX: "Caixa", OD: "Operações diversas" })
@@ -1054,6 +1081,63 @@ async function carregarResultados(secao) {
             td(euros(x.valor), "num"))))))
         : vazio("euro", "Sem FSE no período"))
   );
+}
+
+// ---------- Demonstração dos fluxos de caixa (NCRF 2, método direto) ----------
+
+let rubricasFluxo = null;
+async function obterRubricasFluxo() {
+  if (!rubricasFluxo) rubricasFluxo = await obter("/api/contabilidade/fluxos-caixa/rubricas");
+  return rubricasFluxo;
+}
+
+// Seletor do código de fluxo de caixa (agrupado por atividade); "" = automático / sem código
+function seletorFluxo(rubricas, valor, { id, vazio = "Automático (pela contrapartida)" } = {}) {
+  const grupos = { operacionais: "Atividades operacionais", investimento: "Atividades de investimento", financiamento: "Atividades de financiamento" };
+  const sel = h("select", { id, class: "seletor-fluxo" }, h("option", { value: "" }, vazio),
+    Object.entries(grupos).map(([chave, nome]) => h("optgroup", { label: nome },
+      rubricas.filter((r) => r.atividade === chave).map((r) => h("option", { value: r.codigo }, `${r.codigo} · ${r.descricao}`)))));
+  sel.value = valor || "";
+  return sel;
+}
+
+async function carregarFluxosCaixa(secao) {
+  const d = await obter(`/api/contabilidade/fluxos-caixa?${qsPeriodo()}`);
+  const ant = d.anteriores;
+  const valor = (v) => h("td", { class: `num${v < 0 ? " valor-negativo" : ""}`, texto: v ? euros(v) : "—" });
+  const linhas = [];
+  d.seccoes.forEach((s, i) => {
+    linhas.push(h("tr", { class: "agregadora" }, h("th", { scope: "rowgroup", colspan: "3", texto: s.nome })));
+    for (const l of s.linhas) {
+      linhas.push(h("tr", {}, h("td", { class: "rubrica-fluxo" }, h("span", { class: "conta-codigo", texto: l.codigo }), ` ${l.descricao}`),
+        valor(l.valor), valor(l.anterior)));
+      if (l.codigo === "OP03") linhas.push(h("tr", { class: "subtotal" }, td("Caixa gerada pelas operações"), valor(d.caixa_gerada_operacoes), valor(ant.caixa_gerada_operacoes)));
+    }
+    linhas.push(h("tr", { class: "subtotal" }, td(`${s.nome} (${i + 1})`), valor(s.total), valor(s.total_anterior)));
+  });
+  const finais = [
+    ["Variação de caixa e seus equivalentes (1 + 2 + 3)", "variacao"],
+    ["Caixa e seus equivalentes no início do período", "caixa_inicio"],
+    ["Caixa e seus equivalentes no fim do período", "caixa_fim"],
+  ].map(([rotulo, k]) => h("tr", { class: "total" }, td(rotulo), valor(d[k]), valor(ant[k])));
+
+  const exportar = h("a", { class: "botao secundario", href: `/api/contabilidade/fluxos-caixa/exportar?${qsPeriodo()}`, download: "" },
+    icone("descarregar"), "Exportar (Excel)");
+  preencher(secao, h("section", { class: "cartao" },
+    h("div", { class: "cartao-cabecalho" },
+      h("div", {}, h("h2", { texto: "Demonstração dos fluxos de caixa" }),
+        h("p", { class: "subtitulo", texto: `${textoPeriodo()} · método direto (NCRF 2) · comparativo: ${formatarData(d.anterior_de)} a ${formatarData(d.anterior_ate)}` })),
+      h("div", { class: "acoes-cartao nao-imprimir" }, exportar)),
+    h("div", { class: "tabela-caixa" }, h("table", { class: "tabela dr fluxos-caixa" },
+      h("thead", {}, h("tr", {}, h("th", { scope: "col", texto: "Rubrica" }),
+        h("th", { scope: "col", class: "num", texto: `${formatarData(d.de)} a ${formatarData(d.ate)}` }),
+        h("th", { scope: "col", class: "num", texto: `${formatarData(d.anterior_de)} a ${formatarData(d.anterior_ate)}` }))),
+      h("tbody", {}, linhas),
+      h("tfoot", {}, finais))),
+    Math.abs(d.diferenca) >= 0.01
+      ? h("p", { class: "erro-campo", role: "alert" }, icone("alerta"), `Diferença de ${euros(d.diferenca)} entre a variação dos fluxos e a variação da caixa: reveja os códigos de fluxo.`)
+      : null,
+    h("p", { class: "nota-rodape", texto: "Recebimentos a positivo e pagamentos a negativo. Cada movimento de caixa e bancos (contas 11 a 13) tem um código de fluxo, atribuído pela conta de contrapartida e editável no lançamento ou na reconciliação bancária; as transferências entre caixa e bancos e os saldos de abertura não são fluxos." })));
 }
 
 // ---------- Fornecedores ----------
@@ -2795,9 +2879,14 @@ function cartaoMovimento(mov) {
     topo.append(
       mov.estado === "reconciliado" ? criarEtiqueta("Reconciliado", "ok", "check") : criarEtiqueta("Ignorado", "neutro"),
       desfazer);
+    const ligado = mov.lancamento;
     return h("article", { class: "lancamento" }, topo,
-      mov.lancamento ? h("p", { class: "lancamento-notas" }, "Lançamento: ",
-        h("a", { href: "#lancamentos", texto: `${mov.lancamento.referencia} · ${mov.lancamento.descricao}` })) : null);
+      ligado ? h("div", { class: "lancamento-notas movimento-ligado" },
+        h("span", {}, "Lançamento: ", h("a", { href: "#lancamentos", texto: `${ligado.referencia} · ${ligado.descricao}` })),
+        rubricasFluxo && ligado.linha_id
+          ? h("label", { class: "fluxo-movimento" }, h("span", { class: "ajuda", texto: "Fluxo de caixa:" }),
+            seletorFluxoLinha({ id: ligado.linha_id, fluxo: ligado.fluxo, conta: mov.conta }, ligado.transferencia))
+          : null) : null);
   }
 
   const sugs = mov.sugestoes || [];
@@ -2811,11 +2900,13 @@ function cartaoMovimento(mov) {
   // Lançar noutra conta (com as contas de movimento como sugestão) e ignorar
   const idConta = `conta-mov-${mov.id}`;
   const campoConta = h("input", { type: "text", id: idConta, list: "contas-movimento", placeholder: "Ex.: 6988", inputmode: "numeric", autocomplete: "off" });
+  const idFluxo = `fluxo-mov-${mov.id}`;
+  const campoFluxo = rubricasFluxo ? seletorFluxo(rubricasFluxo, "", { id: idFluxo }) : null;
   const lancar = h("button", { type: "button", class: "botao secundario pequeno" }, "Lançar");
   lancar.addEventListener("click", () => {
     const conta = campoConta.value.split(" ")[0].trim();
     if (!conta) return campoConta.focus();
-    acaoMovimento(lancar, `${base}/lancar`, { conta }, `Lançado em ${conta} e reconciliado.`);
+    acaoMovimento(lancar, `${base}/lancar`, { conta, fluxo: campoFluxo?.value || null }, `Lançado em ${conta} e reconciliado.`);
   });
   const ignorar = h("button", { type: "button", class: "botao fantasma pequeno", title: "Use quando o movimento já está na contabilidade por outra via" }, "Ignorar");
   ignorar.addEventListener("click", () => acaoMovimento(ignorar, `${base}/ignorar`, {}, "Movimento ignorado."));
@@ -2824,7 +2915,9 @@ function cartaoMovimento(mov) {
     h("summary", { texto: sugs.length > 1 ? `Outras opções (${sugs.length - 1} sugest${sugs.length === 2 ? "ão" : "ões"})` : "Outras opções" }),
     sugs.slice(1).map((s) => h("div", { class: "sugestao-principal" }, h("span", { class: "ajuda", texto: s.texto }), botaoSugestao(mov, s))),
     h("div", { class: "filtros-linha", style: "margin:0.5rem 0 0" },
-      h("div", { class: "campo" }, h("label", { for: idConta, texto: "Lançar na conta" }), campoConta), lancar, ignorar));
+      h("div", { class: "campo" }, h("label", { for: idConta, texto: "Lançar na conta" }), campoConta),
+      campoFluxo ? h("div", { class: "campo" }, h("label", { for: idFluxo, texto: "Fluxo de caixa" }), campoFluxo) : null,
+      lancar, ignorar));
 
   return h("article", { class: "lancamento proposta-banco" }, topo, h("div", { class: "corpo-movimento" }, principal, outras));
 }
@@ -2975,6 +3068,7 @@ function cartaoLigacaoBanco(ob) {
 }
 
 async function carregarBancos(secao) {
+  await obterRubricasFluxo().catch(() => null);
   avisoRegressoDoBanco();
   const [contasBanco] = await Promise.all([obter("/api/contabilidade/banco/contas"), obterContas()]);
   if (!contasBanco.some((c) => c.codigo === contaBanco)) contaBanco = contasBanco[0]?.codigo || "121";

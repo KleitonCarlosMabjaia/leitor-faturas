@@ -469,6 +469,7 @@ const AREAS = [
     { titulo: "Relatórios e fiscal", itens: [
       { chave: "resultados", href: `${CONTAB}resultados`, texto: "Resultados", titulo: "Demonstração de resultados", icone: "euro" },
       { chave: "balanco", href: `${CONTAB}balanco`, texto: "Balanço", icone: "carteira" },
+      { chave: "fluxos-caixa", href: `${CONTAB}fluxos-caixa`, texto: "Fluxos de caixa", icone: "tendencia" },
       { chave: "iva", href: `${CONTAB}iva`, texto: "IVA", icone: "percentagem" },
       { chave: "obrigacoes", href: `${CONTAB}obrigacoes`, texto: "Obrigações fiscais", icone: "calendario" },
       { chave: "fecho", href: `${CONTAB}fecho`, texto: "Fecho do exercício", icone: "cadeado" },

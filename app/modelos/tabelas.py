@@ -329,6 +329,20 @@ class LinhaLancamento(Base):
     # Contabilidade analítica: a que centro de custo pertence este gasto ou rendimento (opcional)
     centro_custo_id: Mapped[int | None] = mapped_column(ForeignKey("centros_custo.id", ondelete="SET NULL"), index=True)
     centro_custo: Mapped["CentroCusto | None"] = relationship()
+    # Demonstração dos fluxos de caixa: código da rubrica nas linhas de caixa e bancos (11 a 13)
+    fluxo_caixa: Mapped[str | None] = mapped_column(String(4))
+
+
+class RegraFluxo(Base):
+    """Código de fluxo de caixa escolhido para um fornecedor/cliente (subconta de terceiro)."""
+
+    __tablename__ = "regras_fluxo"
+    __table_args__ = (UniqueConstraint("empresa_id", "conta_codigo", name="uq_regra_fluxo_conta"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    empresa_id: Mapped[int] = mapped_column(ForeignKey("empresas.id", ondelete="CASCADE"), index=True)
+    conta_codigo: Mapped[str] = mapped_column(String(20))
+    fluxo: Mapped[str] = mapped_column(String(4))
 
 
 class CentroCusto(Base):

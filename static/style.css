@@ -2099,3 +2099,14 @@ tr.inativo td { color: var(--tinta-fraca); }
 .botoes-declaracao .ajuda { flex: 1 1 18rem; margin: 0; }
 .ficheiro-dmr { border-top: 1px solid var(--linha); margin-top: 0.75rem; padding-top: 0.75rem; }
 .ficheiro-dmr .opcao { display: flex; gap: 0.5rem; align-items: center; font-size: 0.875rem; margin: 0.5rem 0; cursor: pointer; }
+/* Demonstração dos fluxos de caixa e códigos de fluxo */
+.fluxos-caixa tr.agregadora th { text-align: left; padding-top: 1rem; font-weight: 700; }
+.fluxos-caixa tr.subtotal td { font-weight: 600; border-top: 1px solid var(--linha); }
+.fluxos-caixa .rubrica-fluxo { white-space: normal; }
+.fluxos-caixa .rubrica-fluxo .conta-codigo { margin-right: 0.25rem; color: var(--tinta-suave); }
+.seletor-fluxo { max-width: 22rem; min-width: 9rem; font-size: 0.8125rem; padding: 0.25rem 0.5rem; }
+.fluxo-linha .so-impressao, .so-impressao { display: none; }
+.movimento-ligado { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; }
+.fluxo-movimento { display: inline-flex; gap: 0.5rem; align-items: center; }
+@media (max-width: 560px) { .seletor-fluxo { max-width: 100%; } .fluxo-movimento { flex-wrap: wrap; } }
+@media print { .fluxo-linha .so-impressao, .so-impressao { display: inline; } }

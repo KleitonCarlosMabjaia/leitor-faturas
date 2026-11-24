@@ -181,3 +181,53 @@ def gerar_balancete_xlsx(dados: dict, empresa: str) -> bytes:
     saida = io.BytesIO()
     livro.save(saida)
     return saida.getvalue()
+
+
+def gerar_fluxos_caixa_xlsx(dados: dict, empresa: str) -> bytes:
+    """Demonstração dos fluxos de caixa (método direto), com o período comparativo."""
+    livro = Workbook()
+    folha = livro.active
+    folha.title = "Fluxos de caixa"
+    folha.append([f"Demonstração dos fluxos de caixa - {_seguro(empresa)}"])
+    folha.append([f"De {dados['de']:%d/%m/%Y} a {dados['ate']:%d/%m/%Y} (método direto, NCRF 2)"])
+    folha.append([])
+    folha.append(["Rubrica", f"{dados['de']:%d/%m/%Y} a {dados['ate']:%d/%m/%Y}",
+                  f"{dados['anterior_de']:%d/%m/%Y} a {dados['anterior_ate']:%d/%m/%Y}"])
+    negrito = []
+    anteriores = dados["anteriores"]
+    for i, seccao in enumerate(dados["seccoes"]):
+        folha.append([seccao["nome"]])
+        negrito.append(folha.max_row)
+        for linha in seccao["linhas"]:
+            folha.append([f"  {_seguro(linha['descricao'])}", linha["valor"], linha["anterior"]])
+            if linha["codigo"] == "OP03":
+                folha.append(["Caixa gerada pelas operações", dados["caixa_gerada_operacoes"],
+                              anteriores["caixa_gerada_operacoes"]])
+                negrito.append(folha.max_row)
+        folha.append([f"{seccao['nome']} ({i + 1})", seccao["total"], seccao["total_anterior"]])
+        negrito.append(folha.max_row)
+        folha.append([])
+    for rotulo, chave in (("Variação de caixa e seus equivalentes (1 + 2 + 3)", "variacao"),
+                          ("Caixa e seus equivalentes no início do período", "caixa_inicio"),
+                          ("Caixa e seus equivalentes no fim do período", "caixa_fim")):
+        folha.append([rotulo, dados[chave], anteriores[chave]])
+        negrito.append(folha.max_row)
+
+    folha["A1"].font = Font(bold=True, size=13)
+    for celula in folha[4]:
+        celula.font = Font(bold=True, color="FFFFFF")
+        celula.fill = PatternFill("solid", fgColor="1C1917")
+        celula.alignment = Alignment(vertical="center", wrap_text=True)
+    for n in negrito:
+        for celula in folha[n]:
+            celula.font = Font(bold=True)
+    for linha in folha.iter_rows(min_row=5):
+        for celula in linha[1:]:
+            celula.number_format = FORMATO_EUROS
+    folha.column_dimensions["A"].width = 70
+    folha.column_dimensions["B"].width = 22
+    folha.column_dimensions["C"].width = 22
+    folha.freeze_panes = "B5"
+    saida = io.BytesIO()
+    livro.save(saida)
+    return saida.getvalue()
